@@ -127,6 +127,8 @@
     padding: 10px; margin: -10px -6px -10px 0; cursor: pointer; flex-shrink: 0;
   }
   .entry .del:active { color: var(--bad); }
+  .entry .rep { font-size: 15px; margin-right: -14px; }
+  .entry .rep:active { color: var(--accent); }
   .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
   .foot { text-align: center; color: var(--muted); font-size: 12px; padding: 4px 0 8px; }
   .foot a { color: var(--accent); text-decoration: none; }
@@ -243,7 +245,31 @@
   }
   .tabbar button.on { color: var(--accent); }
   .tabbar svg { width: 22px; height: 22px; }
-  #app, #connect, #setup, #reportView { display: none; }
+  #app, #connect, #setup, #reportView, #weekView { display: none; }
+
+  /* ── Week grid ────────────────────────────────── */
+  .wg-row { display: flex; align-items: center; gap: 2px; border-top: 1px solid var(--line); }
+  .wg-row.wg-head, .wg-row:first-child { border-top: none; }
+  .wg-name {
+    flex: 0 0 92px; font-size: 12px; padding: 6px 4px 6px 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .wg-cell {
+    flex: 1; min-height: 42px; display: flex; align-items: center; justify-content: center;
+    background: none; border: none; color: var(--muted);
+    font-family: var(--mono); font-size: 10px; border-radius: 6px; padding: 0;
+  }
+  button.wg-cell { cursor: pointer; }
+  button.wg-cell:active { background: var(--field); }
+  .wg-cell.has { color: var(--accent); font-weight: 700; }
+  .wg-head .wg-cell { min-height: 22px; font-size: 10px; }
+  .wg-head .wg-cell.today { color: var(--ink); font-weight: 700; }
+  .wg-tot {
+    flex: 0 0 40px; text-align: right; font-family: var(--mono);
+    font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .wg-foot .wg-cell, .wg-foot .wg-name { color: var(--muted); font-size: 10px; }
+  .wg-foot .wg-tot { color: var(--ink); font-weight: 650; }
 </style>
 </head>
 <body>
@@ -328,6 +354,19 @@
     </div>
   </div>
 
+  <div id="weekView">
+    <div class="card">
+      <div class="nav">
+        <button id="wgPrev" aria-label="Previous week">‹</button>
+        <span class="label" id="wgLabel"></span>
+        <button id="wgNext" aria-label="Next week">›</button>
+      </div>
+      <div id="wgGrid"><div class="empty">Loading…</div></div>
+      <p class="sub" style="margin-top:10px">Tap a cell to log time for that
+      project and day.</p>
+    </div>
+  </div>
+
   <div id="reportView">
     <div class="seg" id="seg">
       <button data-unit="day">Day</button>
@@ -385,6 +424,10 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
     Log
   </button>
+  <button data-view="week" aria-label="Week grid">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 4v17M14 4v17"/></svg>
+    Week
+  </button>
   <button data-view="report" aria-label="Reports">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>
     Report
@@ -395,6 +438,7 @@
 const $ = (id) => document.getElementById(id);
 const PRESETS = [[0,15],[0,30],[1,0],[1,30],[2,0],[4,0],[8,0]];
 const REMEMBER = ["item"];   // "who" and "project" are remembered separately
+const ROUND_MINUTES = 15;    // durations round UP to this at save (0 = off)
 let editingId = null;        // id of the entry being edited, or null
 
 const TEMPLATES = [
@@ -637,6 +681,11 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
     const dur = document.createElement("span");
     dur.className = "dur";
     dur.textContent = fmtDur(e.hours, e.minutes);
+    const rep = document.createElement("button");
+    rep.className = "del rep";
+    rep.textContent = "⟳";
+    rep.setAttribute("aria-label", "Repeat entry today");
+    rep.onclick = () => copyEntry(e);
     const del = document.createElement("button");
     del.className = "del";
     del.textContent = "×";
@@ -654,7 +703,7 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
       date.textContent = (e.date || "").slice(5);
       row.appendChild(date);
     }
-    row.append(meta, dur, del);
+    row.append(meta, dur, rep, del);
     box.appendChild(row);
   });
 }
@@ -673,9 +722,8 @@ async function loadRecent() {
   }
 }
 
-// ── Edit an existing entry ──────────────────────────────────────────
-function startEdit(e) {
-  editingId = e.id;
+// ── Edit / repeat an existing entry ─────────────────────────────────
+function fillFormFromEntry(e, dateOverride) {
   showView("log");
   // project / client
   let sel = null;
@@ -692,17 +740,31 @@ function startEdit(e) {
   if (opt) opt.selected = true;
   // service, date, duration, notes, billable
   if (e.itemId) $("item").value = e.itemId;
-  $("date").value = e.date || ymd(new Date());
+  $("date").value = dateOverride || e.date || ymd(new Date());
   $("hours").value = e.hours || "";
   $("minutes").value = e.minutes || "";
   $("desc").value = e.description || "";
   $("billable").checked = !!e.billable;
   document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
 
+function startEdit(e) {
+  editingId = e.id;
+  fillFormFromEntry(e);
   $("submit").textContent = "Update entry";
   $("cancelEdit").style.display = "block";
   $("msg").className = "msg";
-  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function copyEntry(e) {
+  editingId = null;
+  $("submit").textContent = "Log time";
+  $("cancelEdit").style.display = "none";
+  fillFormFromEntry(e, ymd(new Date()));  // same entry, dated today
+  const msg = $("msg");
+  msg.textContent = "Copied to a new entry for today — review and tap Log time.";
+  msg.className = "msg good";
 }
 
 function cancelEdit() {
@@ -712,9 +774,127 @@ function cancelEdit() {
   $("hours").value = "";
   $("minutes").value = "";
   $("desc").value = "";
-  $("billable").checked = false;
+  $("billable").checked = true;  // billable is the default for new entries
   $("msg").className = "msg";
   document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+}
+
+// ── Week grid (projects × Mon–Sun) ──────────────────────────────────
+const wg = { anchor: new Date() };
+
+function wgEl(tag, cls, text) {
+  const n = document.createElement(tag);
+  n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+const fmtCell = (m) =>
+  m >= 60 ? Math.floor(m / 60) + ":" + String(m % 60).padStart(2, "0")
+          : ":" + String(m).padStart(2, "0");
+
+let wgSeq = 0;
+async function renderWeekGrid() {
+  const start = mondayOf(wg.anchor);
+  const end = addDays(start, 6);
+  const thisWeek = ymd(mondayOf(new Date())) === ymd(start);
+  $("wgLabel").textContent = thisWeek
+    ? "This week"
+    : `${MONTHS[start.getMonth()]} ${start.getDate()} – ${
+        start.getMonth() === end.getMonth() ? "" : MONTHS[end.getMonth()] + " "
+      }${end.getDate()}`;
+  $("wgNext").disabled = ymd(end) >= ymd(new Date());
+
+  const seq = ++wgSeq;
+  let entries;
+  try {
+    entries = await fetchRange(start, end);
+  } catch (e) {
+    if (seq === wgSeq) $("wgGrid").innerHTML = '<div class="empty">Could not load: ' + e.message + "</div>";
+    return;
+  }
+  if (seq !== wgSeq) return;
+
+  // rows keyed by project/client id
+  const itemMap = new Map();
+  pickerItems.projects.forEach((r) => itemMap.set(r.id, { ...r, type: "project" }));
+  pickerItems.clients.forEach((r) => { if (!itemMap.has(r.id)) itemMap.set(r.id, { ...r, type: "client" }); });
+  const rowsById = new Map();
+  const rowFor = (id, fallbackName) => {
+    if (!rowsById.has(id)) {
+      const item = itemMap.get(id) || null;
+      rowsById.set(id, {
+        item,
+        name: (item && item.name) || fallbackName || "(no client)",
+        days: new Array(7).fill(0),
+        total: 0,
+      });
+    }
+    return rowsById.get(id);
+  };
+  entries.forEach((e) => {
+    const r = rowFor(e.projectId || e.customerId || "none", e.customer);
+    const i = Math.round((new Date(e.date + "T00:00") - start) / 86400000);
+    if (i >= 0 && i < 7) { r.days[i] += mins(e); r.total += mins(e); }
+  });
+  // pad with frequent projects so common rows are tappable even when empty
+  frequentItems().forEach((it) => {
+    if (rowsById.size < 12 && !rowsById.has(it.id)) rowFor(it.id, it.name);
+  });
+
+  const rows = [...rowsById.values()].sort((a, b) => b.total - a.total);
+  const grid = document.createElement("div");
+
+  const todayI = Math.round((new Date(ymd(new Date()) + "T00:00") - start) / 86400000);
+  const head = wgEl("div", "wg-row wg-head");
+  head.appendChild(wgEl("span", "wg-name", ""));
+  "MTWTFSS".split("").forEach((ch, i) =>
+    head.appendChild(wgEl("span", "wg-cell" + (i === todayI ? " today" : ""), ch)));
+  head.appendChild(wgEl("span", "wg-tot", ""));
+  grid.appendChild(head);
+
+  rows.forEach((r) => {
+    const div = wgEl("div", "wg-row");
+    const name = wgEl("span", "wg-name", r.name);
+    name.title = r.name;
+    div.appendChild(name);
+    r.days.forEach((m, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "wg-cell" + (m ? " has" : "");
+      b.textContent = m ? fmtCell(m) : "·";
+      if (r.item) {
+        b.onclick = () => {
+          setProject(r.item);
+          $("date").value = ymd(addDays(start, i));
+          showView("log");
+          window.scrollTo({ top: 0 });
+          $("hours").focus();
+        };
+      } else {
+        b.disabled = true;
+      }
+      div.appendChild(b);
+    });
+    div.appendChild(wgEl("span", "wg-tot", r.total ? fmtMins(r.total) : ""));
+    grid.appendChild(div);
+  });
+
+  const dayTot = new Array(7).fill(0);
+  let grand = 0;
+  rows.forEach((r) => r.days.forEach((m, i) => { dayTot[i] += m; grand += m; }));
+  const foot = wgEl("div", "wg-row wg-foot");
+  foot.appendChild(wgEl("span", "wg-name", "Total"));
+  dayTot.forEach((m) => foot.appendChild(wgEl("span", "wg-cell", m ? fmtCell(m) : "·")));
+  foot.appendChild(wgEl("span", "wg-tot", fmtMins(grand)));
+  grid.appendChild(foot);
+
+  if (!rows.length) {
+    $("wgGrid").innerHTML = '<div class="empty">No entries or frequent projects yet this week.</div>';
+    return;
+  }
+  $("wgGrid").innerHTML = "";
+  $("wgGrid").appendChild(grid);
 }
 
 // ── Report state ────────────────────────────────────────────────────
@@ -944,27 +1124,35 @@ function syncSeg() {
 // ── Tabs ────────────────────────────────────────────────────────────
 function showView(view) {
   $("logView").style.display = view === "log" ? "block" : "none";
+  $("weekView").style.display = view === "week" ? "block" : "none";
   $("reportView").style.display = view === "report" ? "block" : "none";
-  $("title").textContent = view === "report" ? "Report" : "Timesheet";
+  $("title").textContent =
+    view === "report" ? "Report" : view === "week" ? "Week" : "Timesheet";
   document.querySelectorAll("#tabbar button").forEach((b) =>
     b.classList.toggle("on", b.dataset.view === view));
   if (view === "report") renderReport();
+  if (view === "week") renderWeekGrid();
 }
 
 function refreshData() {
   loadRecent();
+  loadFrequents();
   if ($("reportView").style.display === "block") renderReport();
+  if ($("weekView").style.display === "block") renderWeekGrid();
 }
 
 // ── Boot + submit ───────────────────────────────────────────────────
 async function boot() {
   $("date").value = ymd(new Date());
+  $("billable").checked = true;  // billable is the default for new entries
   buildChips();
   document.querySelectorAll("#seg button").forEach((b) => {
     b.onclick = () => { rep.unit = b.dataset.unit; rep.anchor = new Date(); syncSeg(); renderReport(); };
   });
   $("prev").onclick = () => shiftPeriod(-1);
   $("next").onclick = () => shiftPeriod(1);
+  $("wgPrev").onclick = () => { wg.anchor = addDays(wg.anchor, -7); renderWeekGrid(); };
+  $("wgNext").onclick = () => { wg.anchor = addDays(wg.anchor, 7); renderWeekGrid(); };
   document.querySelectorAll("#tabbar button").forEach((b) => {
     b.onclick = () => showView(b.dataset.view);
   });
@@ -1098,12 +1286,23 @@ function showLoadError(msg) {
 async function submit() {
   const msg = $("msg");
   msg.className = "msg";
-  const hours = parseInt($("hours").value || "0", 10);
-  const minutes = parseInt($("minutes").value || "0", 10);
+  let hours = parseInt($("hours").value || "0", 10);
+  let minutes = parseInt($("minutes").value || "0", 10);
   if (hours === 0 && minutes === 0) {
     msg.textContent = "Enter a duration first.";
     msg.className = "msg bad";
     return;
+  }
+  // billing rounds up to the next quarter hour
+  let rounded = false;
+  if (ROUND_MINUTES > 0) {
+    const total = hours * 60 + minutes;
+    const up = Math.ceil(total / ROUND_MINUTES) * ROUND_MINUTES;
+    if (up !== total) {
+      rounded = true;
+      hours = Math.floor(up / 60);
+      minutes = up % 60;
+    }
   }
   const whoOpt = selectedWho();
   if (!whoOpt) {
@@ -1149,7 +1348,10 @@ async function submit() {
     $("minutes").value = "";
     $("desc").value = "";
     document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
-    msg.textContent = (editing ? "Updated ✓  entry #" : "Logged ✓  entry #") + (data.Id || "");
+    $("billable").checked = true;  // every new entry defaults to billable
+    msg.textContent =
+      (editing ? "Updated ✓  entry #" : "Logged ✓  entry #") + (data.Id || "") +
+      (rounded ? `  · ${fmtDur(hours, minutes)} (rounded up)` : "");
     msg.className = "msg good";
     refreshData();
   } catch (e) {

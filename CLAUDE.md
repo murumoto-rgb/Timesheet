@@ -153,6 +153,15 @@ Field rules that trip people up:
   and never fire while editing an existing entry.
 - **Report person filter**: Everyone / per employee-or-vendor select that
   scopes the hero, chart, breakdowns, and entry list.
+- **Repeat entry**: ⟳ on every entry row copies it into the form as a new
+  entry dated today.
+- **Duration rounding**: durations round UP to 15 min at save
+  (`ROUND_MINUTES` in `index.html`; the success message notes the rounding).
+- **Billable by default** for all new entries (boot, post-submit reset,
+  cancel-edit).
+- **Week tab**: projects × Mon–Sun grid (rows = this week's entries plus
+  frequent projects, sorted by hours; day/row/grand totals). Tapping a cell
+  prefills the Log form with that project and date.
 
 ## Backlog (not yet built)
 
