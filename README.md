@@ -1,8 +1,12 @@
 # QBO Timesheet
 
-A tiny single-user app: pick a project/client, enter hours + minutes, and the
-entry is written straight into QuickBooks Online as a Time Activity with the
-right employee and service item.
+A tiny single-user mobile web app: pick a project/client, enter hours + minutes,
+and the entry is written straight into QuickBooks Online as a Time Activity with
+the right employee and service item. It also shows your recent entries (with
+delete) and a this-week total per client.
+
+On a phone, open the app in the browser and use **Add to Home Screen** — it
+installs as a standalone app with its own icon.
 
 ## 1. Create the app in Intuit's portal (one-time, manual)
 

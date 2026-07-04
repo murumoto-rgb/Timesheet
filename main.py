@@ -15,11 +15,12 @@ import time
 import base64
 import secrets
 import urllib.parse
-from datetime import date
+from datetime import date, timedelta
 
 import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -27,8 +28,8 @@ load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-CLIENT_ID = os.environ["QBO_CLIENT_ID"]
-CLIENT_SECRET = os.environ["QBO_CLIENT_SECRET"]
+CLIENT_ID = os.environ.get("QBO_CLIENT_ID", "")
+CLIENT_SECRET = os.environ.get("QBO_CLIENT_SECRET", "")
 REDIRECT_URI = os.environ.get("QBO_REDIRECT_URI", "http://localhost:8000/callback")
 ENVIRONMENT = os.environ.get("QBO_ENVIRONMENT", "sandbox").lower()
 
@@ -41,10 +42,12 @@ API_BASE = (
     if ENVIRONMENT == "sandbox"
     else "https://quickbooks.api.intuit.com"
 )
-MINOR_VERSION = "70"
+# Since 2025-08-01 Intuit ignores minorversion < 75; 75 is the base version.
+MINOR_VERSION = "75"
 TOKENS_FILE = os.path.join(BASE_DIR, os.environ.get("QBO_TOKENS_FILE", "qbo_tokens.json"))
 
 app = FastAPI(title="QBO Timesheet")
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 _pending_states: set[str] = set()  # CSRF state (fine for a single local user)
 
 
@@ -79,7 +82,8 @@ def _token_request(payload):
         data=payload,
         timeout=30,
     )
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        raise HTTPException(resp.status_code, f"Intuit token endpoint: {resp.text}")
     return resp.json()
 
 
@@ -89,9 +93,13 @@ def get_access_token():
     if not tokens:
         raise HTTPException(401, "Not connected. Open / and click Connect QuickBooks.")
     if time.time() > tokens.get("access_expires_at", 0) - 60:
-        fresh = _token_request(
-            {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]}
-        )
+        try:
+            fresh = _token_request(
+                {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]}
+            )
+        except HTTPException:
+            # Refresh token revoked or expired — the only fix is to reconnect.
+            raise HTTPException(401, "QuickBooks connection expired. Reconnect from the home screen.")
         tokens["access_token"] = fresh["access_token"]
         # Intuit rotates the refresh token — always persist the latest one.
         tokens["refresh_token"] = fresh.get("refresh_token", tokens["refresh_token"])
@@ -108,7 +116,8 @@ def qbo_query(statement):
         params={"query": statement, "minorversion": MINOR_VERSION},
         timeout=30,
     )
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        raise HTTPException(resp.status_code, resp.text)
     return resp.json().get("QueryResponse", {})
 
 
@@ -122,11 +131,17 @@ def index():
 
 @app.get("/api/status")
 def status():
-    return {"connected": _load_tokens() is not None, "environment": ENVIRONMENT}
+    return {
+        "connected": _load_tokens() is not None,
+        "environment": ENVIRONMENT,
+        "configured": bool(CLIENT_ID and CLIENT_SECRET),
+    }
 
 
 @app.get("/connect")
 def connect():
+    if not (CLIENT_ID and CLIENT_SECRET):
+        raise HTTPException(500, "Set QBO_CLIENT_ID and QBO_CLIENT_SECRET in .env first.")
     state = secrets.token_urlsafe(16)
     _pending_states.add(state)
     params = {
@@ -256,3 +271,60 @@ def create_time(entry: TimeEntry):
         # Surface QBO's fault message so validation errors are readable.
         raise HTTPException(resp.status_code, resp.text)
     return resp.json().get("TimeActivity", resp.json())
+
+
+# ---------------------------------------------------------------------------
+# Routes: recent entries + delete
+# ---------------------------------------------------------------------------
+@app.get("/api/timeactivities")
+def list_time(days: int = 14):
+    start = (date.today() - timedelta(days=days)).isoformat()
+    rows = qbo_query(
+        f"SELECT * FROM TimeActivity WHERE TxnDate >= '{start}' "
+        "ORDERBY TxnDate DESC MAXRESULTS 200"
+    )
+    entries = []
+    for t in rows.get("TimeActivity", []):
+        entries.append(
+            {
+                "id": t["Id"],
+                "date": t.get("TxnDate"),
+                "hours": t.get("Hours", 0),
+                "minutes": t.get("Minutes", 0),
+                "description": t.get("Description", ""),
+                "employee": (t.get("EmployeeRef") or t.get("VendorRef") or {}).get("name"),
+                # CustomerRef carries the project's name when the entry is on a project.
+                "customer": (t.get("CustomerRef") or {}).get("name"),
+                "projectId": (t.get("ProjectRef") or {}).get("value"),
+                "billable": t.get("BillableStatus") == "Billable",
+            }
+        )
+    return entries
+
+
+@app.delete("/api/timeactivity/{entry_id}")
+def delete_time(entry_id: str):
+    access_token, realm_id = get_access_token()
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+
+    # Delete requires the current SyncToken, so read the entity first.
+    read = requests.get(
+        f"{API_BASE}/v3/company/{realm_id}/timeactivity/{entry_id}",
+        headers=headers,
+        params={"minorversion": MINOR_VERSION},
+        timeout=30,
+    )
+    if read.status_code >= 400:
+        raise HTTPException(read.status_code, read.text)
+    sync_token = read.json()["TimeActivity"]["SyncToken"]
+
+    resp = requests.post(
+        f"{API_BASE}/v3/company/{realm_id}/timeactivity",
+        headers={**headers, "Content-Type": "application/json"},
+        params={"operation": "delete", "minorversion": MINOR_VERSION},
+        json={"Id": entry_id, "SyncToken": sync_token},
+        timeout=30,
+    )
+    if resp.status_code >= 400:
+        raise HTTPException(resp.status_code, resp.text)
+    return {"deleted": entry_id}

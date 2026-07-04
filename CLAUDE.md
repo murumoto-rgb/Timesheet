@@ -46,15 +46,18 @@ old QB Desktop API — use exactly what's below.
   - Exchange: `grant_type=authorization_code&code=…&redirect_uri=…`
   - Refresh: `grant_type=refresh_token&refresh_token=…`
 - The callback receives `code`, `state`, **and `realmId`** (the company ID — store it).
-- Access token lives ~3600s. Refresh token is ~100-day rolling and **rotates** —
-  always persist the `refresh_token` returned on refresh, not just the first one.
+- Access token lives ~3600s. The refresh token **rotates** (its value can change
+  every ~24h) — always persist the `refresh_token` returned on refresh, not just
+  the first one. Since Nov 2025 refresh tokens have a max validity of 5 years
+  (previously 100 days of inactivity).
 - Redirect URI must match a registered URI **exactly**. `http://localhost` is
   allowed for development; production requires `https://`.
 
 ### API base + versioning
 - Sandbox: `https://sandbox-quickbooks.api.intuit.com`
 - Production: `https://quickbooks.api.intuit.com`
-- Always append `?minorversion=70` (or higher). Send `Accept: application/json`
+- Since **2025-08-01** Intuit ignores `minorversion` values below 75 — the base
+  version is 75. We send `?minorversion=75`. Send `Accept: application/json`
   or you'll get XML back.
 
 ### Reading data (query endpoint)
@@ -113,11 +116,23 @@ Field rules that trip people up:
 - Surface QBO fault responses verbatim (they contain the real validation error).
 - Never commit `.env` or `qbo_tokens.json`.
 
+## Built so far (beyond the original scaffold)
+
+- Recent-entries list (`GET /api/timeactivities?days=N`) with delete
+  (`DELETE /api/timeactivity/{id}` — reads the entity for its `SyncToken`,
+  then posts `?operation=delete`).
+- This-week summary grouped by client/project (computed client-side).
+- Mobile-first UI: duration preset chips, remembered last-used
+  project/employee/service (localStorage), 16px inputs (no iOS zoom).
+- PWA installability: `static/manifest.webmanifest`, icons, apple-touch meta —
+  "Add to Home Screen" gives an app-like standalone window.
+- Graceful unconfigured state (missing `.env` shows setup instructions instead
+  of crashing on import).
+
 ## Backlog (not yet built)
 
-- Recent-entries list with delete (`TimeActivity` supports read + delete).
-- Weekly total / summary view grouped by project.
 - Toggle to log under a **Vendor** instead of an Employee.
 - Deploy to Render (register the `https://…/callback` redirect URI in Intuit).
 - Move token storage to Supabase.
 - Edit an existing entry (requires `SyncToken` — read it, then sparse update).
+- Timer mode (start/stop instead of typing a duration).

@@ -2,12 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Time Log</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#12161c" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Timesheet" />
+<link rel="manifest" href="/static/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png" />
+<link rel="icon" type="image/png" href="/static/icon-192.png" />
+<title>Timesheet</title>
 <style>
   :root {
     --bg: #12161c;
     --panel: #1b2129;
+    --field: #0e1217;
     --line: #2b333e;
     --ink: #e6ebf1;
     --muted: #8a97a6;
@@ -17,83 +25,136 @@
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
     --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { color-scheme: dark; }
   body {
-    margin: 0; background: var(--bg); color: var(--ink);
+    margin: 0 auto; background: var(--bg); color: var(--ink);
     font-family: var(--sans); line-height: 1.5;
-    display: flex; justify-content: center; padding: 32px 16px;
+    padding: max(16px, env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom));
+    max-width: 520px;
   }
-  .card {
-    width: 100%; max-width: 460px; background: var(--panel);
-    border: 1px solid var(--line); border-radius: 10px; padding: 28px;
-  }
-  .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
-  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .head { display: flex; align-items: baseline; justify-content: space-between; margin: 4px 2px 16px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
   .env {
     font-family: var(--mono); font-size: 11px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.08em;
   }
-  .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+  .env.production { color: var(--good); }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 18px; margin-bottom: 16px;
+  }
   label {
     display: block; font-family: var(--mono); font-size: 11px;
     text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted);
-    margin: 16px 0 6px;
+    margin: 14px 0 6px;
   }
+  label:first-child { margin-top: 0; }
   input, select, textarea {
-    width: 100%; background: #0e1217; color: var(--ink);
-    border: 1px solid var(--line); border-radius: 6px;
-    padding: 10px 11px; font-size: 14px; font-family: var(--sans);
+    width: 100%; background: var(--field); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px; font-size: 16px; font-family: var(--sans);
+    min-height: 46px; appearance: none;
+  }
+  select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238a97a6' stroke-width='2' fill='none'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center;
+    padding-right: 34px;
   }
   input:focus, select:focus, textarea:focus {
     outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(76,155,232,0.2);
   }
-  textarea { resize: vertical; min-height: 60px; }
+  textarea { resize: vertical; min-height: 64px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .dur { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .check { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
-  .check input { width: auto; }
-  .check label { margin: 0; }
-  button {
-    width: 100%; margin-top: 24px; padding: 12px;
-    background: var(--accent); color: #06121f; border: none; border-radius: 6px;
-    font-size: 14px; font-weight: 600; cursor: pointer;
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .chip {
+    padding: 8px 14px; min-height: 38px; border-radius: 999px;
+    background: var(--field); border: 1px solid var(--line); color: var(--ink);
+    font-size: 14px; font-family: var(--mono); cursor: pointer;
   }
-  button:hover { filter: brightness(1.08); }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .msg { margin-top: 16px; font-size: 13px; font-family: var(--mono); display: none; }
+  .chip.on { border-color: var(--accent); color: var(--accent); }
+  .check { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+  .check input { width: 22px; height: 22px; min-height: 0; accent-color: var(--accent); }
+  .check label { margin: 0; font-size: 13px; text-transform: none; letter-spacing: 0; font-family: var(--sans); color: var(--ink); }
+  button.primary {
+    width: 100%; margin-top: 20px; padding: 14px; min-height: 50px;
+    background: var(--accent); color: #06121f; border: none; border-radius: 10px;
+    font-size: 16px; font-weight: 600; cursor: pointer;
+  }
+  button.primary:active { filter: brightness(1.1); }
+  button.primary:disabled { opacity: 0.5; }
+  .msg { margin-top: 14px; font-size: 13px; font-family: var(--mono); display: none; }
   .msg.good { color: var(--good); display: block; }
   .msg.bad { color: var(--bad); display: block; white-space: pre-wrap; word-break: break-word; }
-  .connect { text-align: center; padding: 8px 0; }
+  .connect { text-align: center; padding: 12px 0; }
   .connect a {
-    display: inline-block; margin-top: 12px; padding: 11px 20px;
-    background: var(--accent); color: #06121f; border-radius: 6px;
-    text-decoration: none; font-weight: 600; font-size: 14px;
+    display: inline-block; margin-top: 12px; padding: 13px 24px;
+    background: var(--accent); color: #06121f; border-radius: 10px;
+    text-decoration: none; font-weight: 600; font-size: 15px;
   }
-  #form { display: none; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0; }
+  h2 {
+    font-size: 12px; font-family: var(--mono); text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; font-weight: 500;
+  }
+  .week-total { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+  .week-total small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .week-rows { margin-top: 10px; display: grid; gap: 6px; }
+  .week-row { display: flex; justify-content: space-between; font-size: 14px; gap: 12px; }
+  .week-row .n { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .week-row .h { font-family: var(--mono); flex-shrink: 0; }
+  .entry {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 2px; border-top: 1px solid var(--line);
+  }
+  .entry:first-of-type { border-top: none; }
+  .entry .meta { flex: 1; min-width: 0; }
+  .entry .top { display: flex; gap: 8px; font-size: 14px; }
+  .entry .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+  .entry .desc { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entry .dur { font-family: var(--mono); font-size: 14px; flex-shrink: 0; }
+  .entry .date { font-family: var(--mono); font-size: 11px; color: var(--muted); flex-shrink: 0; width: 44px; }
+  .entry .bill { color: var(--good); font-size: 11px; }
+  .entry .del {
+    background: none; border: none; color: var(--muted); font-size: 18px;
+    padding: 10px; margin: -10px -6px -10px 0; cursor: pointer; flex-shrink: 0;
+  }
+  .entry .del:active { color: var(--bad); }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  #app, #connect, #setup { display: none; }
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="head">
-    <h1>Time Log</h1>
-    <span class="env" id="env"></span>
-  </div>
-  <p class="sub">Record an entry straight into QuickBooks.</p>
+<div class="head">
+  <h1>Timesheet</h1>
+  <span class="env" id="env"></span>
+</div>
 
-  <div class="connect" id="connect" style="display:none">
-    <p class="sub">Not connected to QuickBooks yet.</p>
-    <a href="/connect">Connect QuickBooks</a>
-  </div>
+<div class="card connect" id="setup">
+  <p class="sub">Server isn't configured yet. Copy <code>.env.example</code> to <code>.env</code>,
+  fill in your Intuit app's Client ID and Secret, then restart.</p>
+</div>
 
-  <div id="form">
+<div class="card connect" id="connect">
+  <p class="sub">Not connected to QuickBooks yet.</p>
+  <a href="/connect">Connect QuickBooks</a>
+</div>
+
+<div id="app">
+  <div class="card">
     <label for="project">Project / client</label>
     <select id="project"></select>
 
-    <label for="employee">Employee</label>
-    <select id="employee"></select>
-
-    <label for="item">Service</label>
-    <select id="item"></select>
+    <div class="row">
+      <div>
+        <label for="employee">Employee</label>
+        <select id="employee"></select>
+      </div>
+      <div>
+        <label for="item">Service</label>
+        <select id="item"></select>
+      </div>
+    </div>
 
     <div class="row">
       <div>
@@ -102,12 +163,13 @@
       </div>
       <div>
         <label>Duration</label>
-        <div class="dur">
-          <input type="number" id="hours" min="0" placeholder="hrs" />
-          <input type="number" id="minutes" min="0" max="59" placeholder="min" />
+        <div class="row">
+          <input type="number" id="hours" min="0" inputmode="numeric" placeholder="hrs" />
+          <input type="number" id="minutes" min="0" max="59" inputmode="numeric" placeholder="min" />
         </div>
       </div>
     </div>
+    <div class="chips" id="chips"></div>
 
     <label for="desc">Notes</label>
     <textarea id="desc" placeholder="What did you work on?"></textarea>
@@ -117,34 +179,171 @@
       <label for="billable">Billable</label>
     </div>
 
-    <button id="submit">Log time</button>
+    <button class="primary" id="submit">Log time</button>
     <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>This week</h2>
+    <div class="week-total" id="weekTotal">–</div>
+    <div class="week-rows" id="weekRows"></div>
+  </div>
+
+  <div class="card">
+    <h2>Recent entries</h2>
+    <div id="entries"><div class="empty">Loading…</div></div>
   </div>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
+const PRESETS = [[0,15],[0,30],[1,0],[1,30],[2,0],[4,0],[8,0]];
+const REMEMBER = ["project", "employee", "item"];
 
-function fill(sel, items, valueKey, labelKey, dataFn) {
+function fill(sel, items) {
   sel.innerHTML = "";
   items.forEach((it) => {
     const o = document.createElement("option");
-    o.value = it[valueKey];
-    o.textContent = it[labelKey];
-    if (dataFn) dataFn(o, it);
+    o.value = it.id;
+    o.textContent = it.name;
     sel.appendChild(o);
+  });
+}
+
+function fmtDur(h, m) {
+  return (h || 0) + ":" + String(m || 0).padStart(2, "0");
+}
+
+function restoreSelection(sel) {
+  const saved = localStorage.getItem("last-" + sel.id);
+  if (saved && [...sel.options].some((o) => o.value === saved)) sel.value = saved;
+}
+
+function buildChips() {
+  const box = $("chips");
+  PRESETS.forEach(([h, m]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = fmtDur(h, m);
+    b.onclick = () => {
+      $("hours").value = h;
+      $("minutes").value = m;
+      [...box.children].forEach((c) => c.classList.toggle("on", c === b));
+    };
+    box.appendChild(b);
+  });
+  const clear = () => [...box.children].forEach((c) => c.classList.remove("on"));
+  $("hours").addEventListener("input", clear);
+  $("minutes").addEventListener("input", clear);
+}
+
+async function loadEntries() {
+  const box = $("entries");
+  try {
+    const entries = await (await fetch("/api/timeactivities?days=14")).json();
+    renderWeek(entries);
+    if (!entries.length) {
+      box.innerHTML = '<div class="empty">No entries in the last 14 days.</div>';
+      return;
+    }
+    box.innerHTML = "";
+    entries.forEach((e) => {
+      const row = document.createElement("div");
+      row.className = "entry";
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const top = document.createElement("div");
+      top.className = "top";
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = e.customer || "(no client)";
+      top.appendChild(who);
+      if (e.billable) {
+        const b = document.createElement("span");
+        b.className = "bill";
+        b.textContent = "$";
+        top.appendChild(b);
+      }
+      meta.appendChild(top);
+      if (e.description) {
+        const d = document.createElement("div");
+        d.className = "desc";
+        d.textContent = e.description;
+        meta.appendChild(d);
+      }
+      const date = document.createElement("span");
+      date.className = "date";
+      date.textContent = (e.date || "").slice(5);
+      const dur = document.createElement("span");
+      dur.className = "dur";
+      dur.textContent = fmtDur(e.hours, e.minutes);
+      const del = document.createElement("button");
+      del.className = "del";
+      del.textContent = "×";
+      del.setAttribute("aria-label", "Delete entry");
+      del.onclick = async () => {
+        if (!confirm(`Delete ${fmtDur(e.hours, e.minutes)} on ${e.customer || "no client"} (${e.date})?`)) return;
+        del.disabled = true;
+        const res = await fetch("/api/timeactivity/" + e.id, { method: "DELETE" });
+        if (res.ok) loadEntries();
+        else { del.disabled = false; alert("Delete failed: " + (await res.text())); }
+      };
+      row.append(date, meta, dur, del);
+      box.appendChild(row);
+    });
+  } catch (err) {
+    box.innerHTML = '<div class="empty">Could not load entries.</div>';
+  }
+}
+
+function renderWeek(entries) {
+  // Week starts Monday, computed in local time.
+  const now = new Date();
+  const day = (now.getDay() + 6) % 7;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day);
+  const start = monday.getFullYear() + "-" +
+    String(monday.getMonth() + 1).padStart(2, "0") + "-" +
+    String(monday.getDate()).padStart(2, "0");
+  const byClient = new Map();
+  let total = 0;
+  entries.forEach((e) => {
+    if (!e.date || e.date < start) return;
+    const mins = (e.hours || 0) * 60 + (e.minutes || 0);
+    total += mins;
+    const key = e.customer || "(no client)";
+    byClient.set(key, (byClient.get(key) || 0) + mins);
+  });
+  const totalBox = $("weekTotal");
+  totalBox.textContent = fmtDur(Math.floor(total / 60), total % 60);
+  const small = document.createElement("small");
+  small.textContent = "hours since Mon";
+  totalBox.appendChild(small);
+  const rows = $("weekRows");
+  rows.innerHTML = "";
+  [...byClient.entries()].sort((a, b) => b[1] - a[1]).forEach(([name, mins]) => {
+    const r = document.createElement("div");
+    r.className = "week-row";
+    const n = document.createElement("span");
+    n.className = "n";
+    n.textContent = name;
+    const h = document.createElement("span");
+    h.className = "h";
+    h.textContent = fmtDur(Math.floor(mins / 60), mins % 60);
+    r.append(n, h);
+    rows.appendChild(r);
   });
 }
 
 async function boot() {
   $("date").value = new Date().toISOString().slice(0, 10);
+  buildChips();
   const status = await (await fetch("/api/status")).json();
   $("env").textContent = status.environment;
-  if (!status.connected) {
-    $("connect").style.display = "block";
-    return;
-  }
-  $("form").style.display = "block";
+  $("env").classList.toggle("production", status.environment === "production");
+  if (!status.configured) { $("setup").style.display = "block"; return; }
+  if (!status.connected) { $("connect").style.display = "block"; return; }
+  $("app").style.display = "block";
 
   const [proj, emps, items] = await Promise.all([
     fetch("/api/projects").then((r) => r.json()),
@@ -152,7 +351,6 @@ async function boot() {
     fetch("/api/items").then((r) => r.json()),
   ]);
 
-  // Projects first (with their parent id), then plain clients.
   const sel = $("project");
   sel.innerHTML = "";
   const addGroup = (label, rows, type) => {
@@ -172,21 +370,29 @@ async function boot() {
   addGroup("Projects", proj.projects, "project");
   addGroup("Clients", proj.clients, "client");
 
-  fill($("employee"), emps, "id", "name");
-  fill($("item"), items, "id", "name");
+  fill($("employee"), emps);
+  fill($("item"), items);
+  REMEMBER.forEach((id) => restoreSelection($(id)));
+  loadEntries();
 }
 
 async function submit() {
   const opt = $("project").selectedOptions[0];
   const msg = $("msg");
   msg.className = "msg";
+  const hours = parseInt($("hours").value || "0", 10);
+  const minutes = parseInt($("minutes").value || "0", 10);
+  if (hours === 0 && minutes === 0) {
+    msg.textContent = "Enter a duration first.";
+    msg.className = "msg bad";
+    return;
+  }
   $("submit").disabled = true;
 
   const body = {
     employee_id: $("employee").value,
     item_id: $("item").value,
-    hours: parseInt($("hours").value || "0", 10),
-    minutes: parseInt($("minutes").value || "0", 10),
+    hours, minutes,
     description: $("desc").value,
     txn_date: $("date").value,
     billable: $("billable").checked,
@@ -206,11 +412,14 @@ async function submit() {
     });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
-    msg.textContent = "Logged \u2713  entry #" + (data.Id || "");
+    msg.textContent = "Logged ✓  entry #" + (data.Id || "");
     msg.className = "msg good";
+    REMEMBER.forEach((id) => localStorage.setItem("last-" + id, $(id).value));
     $("hours").value = "";
     $("minutes").value = "";
     $("desc").value = "";
+    document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+    loadEntries();
   } catch (e) {
     msg.textContent = "Failed: " + e.message;
     msg.className = "msg bad";
