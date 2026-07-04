@@ -1,20 +1,15 @@
 # Render blueprint — deploy with "New + → Blueprint" at dashboard.render.com
-# Starter plan + 1GB disk so qbo_tokens.json survives restarts and deploys.
+# Free tier: no disk, so QuickBooks tokens persist in Supabase (see DEPLOY.md).
+# Trade-off: the service sleeps after ~15 idle minutes; first open takes ~1 min.
 services:
   - type: web
     name: qbo-timesheet
     runtime: python
-    plan: starter
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips '*'
     autoDeploy: true
-    disk:
-      name: qbo-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
-      - key: QBO_TOKENS_FILE
-        value: /data/qbo_tokens.json
       - key: QBO_ENVIRONMENT
         value: sandbox          # flip to "production" after Intuit grants prod keys
       - key: QBO_CLIENT_ID
@@ -25,3 +20,7 @@ services:
         sync: false             # https://<your-app>.onrender.com/callback
       - key: APP_PASSWORD
         sync: false             # pick a good password — this gates the whole app
+      - key: SUPABASE_URL
+        sync: false             # from Supabase → Settings → API → Project URL
+      - key: SUPABASE_SERVICE_KEY
+        sync: false             # from Supabase → Settings → API → service_role key

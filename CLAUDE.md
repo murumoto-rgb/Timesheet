@@ -110,9 +110,11 @@ Field rules that trip people up:
 
 ## Conventions
 
-- Keep it single-user and dependency-light. No DB, no auth framework.
-- Token persistence is isolated to `_load_tokens` / `_save_tokens` in `main.py` —
-  that's the seam to swap for Supabase/Postgres later.
+- Keep it single-user and dependency-light. No auth framework (just the
+  APP_PASSWORD cookie gate).
+- Token persistence is isolated to `_load_tokens` / `_save_tokens` in `main.py`:
+  local JSON file by default, Supabase table (`qbo_tokens`) when
+  `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` are set (diskless Render free tier).
 - Surface QBO fault responses verbatim (they contain the real validation error).
 - Never commit `.env` or `qbo_tokens.json`.
 
@@ -136,7 +138,5 @@ Field rules that trip people up:
 ## Backlog (not yet built)
 
 - Toggle to log under a **Vendor** instead of an Employee.
-- Deploy to Render (register the `https://…/callback` redirect URI in Intuit).
-- Move token storage to Supabase.
 - Edit an existing entry (requires `SyncToken` — read it, then sparse update).
 - Timer mode (start/stop instead of typing a duration).

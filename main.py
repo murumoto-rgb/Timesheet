@@ -104,8 +104,33 @@ def login(body: Login, request: Request):
 
 # ---------------------------------------------------------------------------
 # Token storage + OAuth
+# Local default: a JSON file. If SUPABASE_URL + SUPABASE_SERVICE_KEY are set
+# (hosted on a diskless free tier), tokens live in a Supabase table instead:
+#   create table if not exists qbo_tokens (id int primary key, data jsonb);
 # ---------------------------------------------------------------------------
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+
+
+def _sb_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+    }
+
+
 def _load_tokens():
+    if SUPABASE_URL and SUPABASE_KEY:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/qbo_tokens",
+            params={"id": "eq.1", "select": "data"},
+            headers=_sb_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        return rows[0]["data"] if rows else None
     if not os.path.exists(TOKENS_FILE):
         return None
     with open(TOKENS_FILE) as f:
@@ -113,6 +138,15 @@ def _load_tokens():
 
 
 def _save_tokens(data):
+    if SUPABASE_URL and SUPABASE_KEY:
+        resp = requests.post(
+            f"{SUPABASE_URL}/rest/v1/qbo_tokens",
+            headers={**_sb_headers(), "Prefer": "resolution=merge-duplicates"},
+            json=[{"id": 1, "data": data}],
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return
     with open(TOKENS_FILE, "w") as f:
         json.dump(data, f, indent=2)
 

@@ -1,14 +1,40 @@
 # DEPLOY — put the app on the web (phone-ready) and connect your real company
 
-Two independent parts. Part 1 gets the app on the internet (still sandbox).
-Part 2 switches it to your real QuickBooks company. Do them in order.
+Three parts, in order. Part 0 creates the free database that keeps your
+QuickBooks connection alive. Part 1 gets the app on the internet (still
+sandbox). Part 2 switches it to your real QuickBooks company.
 
-Cost: Render's Starter plan is ~$7/month plus ~$0.25/month for the 1GB disk
-that keeps your QuickBooks connection alive across updates. (The free tier
-loses the connection on every deploy and cold-starts for ~1 minute — not worth
-it for a daily-use tool.)
+Cost: $0 — Render free tier + Supabase free tier. Trade-offs of free:
+
+- The app **sleeps after ~15 idle minutes**; the first open afterwards takes
+  ~30–60 seconds to wake (a spinner, then normal). Every tap after that is
+  instant.
+- Supabase pauses its free projects after **7 days with no activity** — daily
+  use keeps it alive, but after a long vacation you may need to click
+  "Restore" in the Supabase dashboard.
 
 ---
+
+## Part 0 — Supabase, the free token store (~5 min)
+
+The free Render tier has no permanent files, so the app keeps its QuickBooks
+connection in a free Supabase database instead.
+
+1. Go to **https://supabase.com** → **Sign in with GitHub**.
+2. **New project** → any name (e.g. `qbo-timesheet`) → it generates a database
+   password (you won't need it — but let it save) → pick the region closest to
+   you → **Create**.
+3. When the project finishes provisioning, open **SQL Editor** (left sidebar)
+   → paste this → **Run**:
+
+   ```sql
+   create table if not exists qbo_tokens (id int primary key, data jsonb);
+   ```
+
+4. Go to **Settings → API** (gear icon) and copy two values for Part 1:
+   - **Project URL** (like `https://abcdefgh.supabase.co`)
+   - **service_role key** (under "Project API keys" — click reveal/copy.
+     This is a secret; treat it like a password.)
 
 ## Part 1 — Host on Render (browser only, ~15 min)
 
@@ -25,6 +51,8 @@ it for a daily-use tool.)
      real value in step 6 once you know the app's URL.
    - `APP_PASSWORD` — invent a good password. This is what you'll type on your
      phone to use the app. Anyone without it gets nothing.
+   - `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` — the two values you copied in
+     Part 0.
 5. Click **Apply / Deploy** and wait for the first deploy to go green
    (a few minutes). Note your app's URL, e.g. `https://qbo-timesheet.onrender.com`
    (yours may have a suffix).
@@ -85,8 +113,9 @@ apps go through.
 ### Safety notes
 
 - The sandbox and production connections are separate; switching env vars
-  swaps which token file/company the app talks to (the token file lives on
-  the Render disk at `/data/qbo_tokens.json`).
+  swaps which keys/company the app talks to (the connection tokens live in
+  your Supabase `qbo_tokens` table). After switching environments, reconnect
+  once via the Connect QuickBooks button.
 - Every write the app makes is a single TimeActivity you can see and delete.
   It never touches invoices, payments, or anything else.
 - If you ever want to cut access: QuickBooks → ⚙ → Apps → your app →
