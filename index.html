@@ -122,6 +122,40 @@
   .entry .del:active { color: var(--bad); }
   .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
 
+  /* ── Searchable project/client picker ────────── */
+  .pickbtn {
+    width: 100%; min-height: 46px; padding: 12px 34px 12px 12px;
+    background: var(--field)
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238a97a6' stroke-width='2' fill='none'/%3E%3C/svg%3E")
+      no-repeat right 14px center;
+    color: var(--ink); border: 1px solid var(--line); border-radius: 10px;
+    font-size: 16px; font-family: var(--sans); text-align: left; cursor: pointer;
+  }
+  .pickbtn span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .picker { position: fixed; inset: 0; z-index: 20; }
+  .picker[hidden] { display: none; }
+  .picker-back { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+  .picker-sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; max-height: 75vh;
+    background: var(--panel); border-top: 1px solid var(--line);
+    border-radius: 16px 16px 0 0;
+    padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 10px;
+    max-width: 520px; margin: 0 auto;
+  }
+  .picker-list { overflow-y: auto; overscroll-behavior: contain; }
+  .pick-group {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--muted); margin: 10px 0 2px;
+  }
+  .pick-item {
+    display: block; width: 100%; text-align: left; padding: 13px 4px;
+    background: none; border: none; border-top: 1px solid var(--line);
+    color: var(--ink); font-size: 16px; font-family: var(--sans); cursor: pointer;
+  }
+  .pick-item.sel { color: var(--accent); font-weight: 600; }
+  .pick-item:active { background: var(--field); }
+
   /* ── Report view ─────────────────────────────── */
   .seg { display: flex; gap: 8px; margin-bottom: 14px; }
   .seg button {
@@ -229,8 +263,10 @@
 <div id="app">
   <div id="logView">
     <div class="card">
-      <label for="project">Project / client</label>
-      <select id="project"></select>
+      <label for="projectBtn">Project / client</label>
+      <button type="button" class="pickbtn" id="projectBtn">
+        <span id="projectName">Select…</span>
+      </button>
 
       <div class="row">
         <div>
@@ -306,6 +342,15 @@
   </div>
 </div>
 
+<div class="picker" id="picker" hidden>
+  <div class="picker-back" id="pickerBack"></div>
+  <div class="picker-sheet">
+    <input type="search" id="pickerSearch" placeholder="Search projects & clients…"
+           autocomplete="off" autocorrect="off" autocapitalize="off" />
+    <div class="picker-list" id="pickerList"></div>
+  </div>
+</div>
+
 <nav class="tabbar" id="tabbar" style="display:none">
   <button data-view="log" class="on" aria-label="Log time">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
@@ -320,7 +365,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const PRESETS = [[0,15],[0,30],[1,0],[1,30],[2,0],[4,0],[8,0]];
-const REMEMBER = ["project", "employee", "item"];
+const REMEMBER = ["employee", "item"];
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 function fill(sel, items) {
@@ -363,6 +408,64 @@ function buildChips() {
   const clear = () => [...box.children].forEach((c) => c.classList.remove("on"));
   $("hours").addEventListener("input", clear);
   $("minutes").addEventListener("input", clear);
+}
+
+// ── Searchable project/client picker ────────────────────────────────
+let pickerItems = { projects: [], clients: [] };
+let selProject = null;   // {id, name, type: "project"|"client", parentId?}
+
+function setProject(item, save = true) {
+  selProject = item;
+  $("projectName").textContent = item ? item.name : "Select…";
+  if (item && save) localStorage.setItem("last-project", item.id);
+}
+
+function renderPickerList(q) {
+  q = q.trim().toLowerCase();
+  const list = $("pickerList");
+  list.innerHTML = "";
+  const match = (rows) => rows.filter((r) => r.name.toLowerCase().includes(q));
+  let any = false;
+  [["Projects", match(pickerItems.projects), "project"],
+   ["Clients", match(pickerItems.clients), "client"]].forEach(([label, rows, type]) => {
+    if (!rows.length) return;
+    any = true;
+    const g = document.createElement("div");
+    g.className = "pick-group";
+    g.textContent = label;
+    list.appendChild(g);
+    rows.forEach((r) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "pick-item";
+      b.textContent = r.name;
+      if (selProject && selProject.id === r.id) b.classList.add("sel");
+      b.onclick = () => { setProject({ ...r, type }); closePicker(); };
+      list.appendChild(b);
+    });
+  });
+  if (!any) list.innerHTML = '<div class="empty">No matches.</div>';
+}
+
+function openPicker() {
+  $("picker").hidden = false;
+  $("pickerSearch").value = "";
+  renderPickerList("");
+  setTimeout(() => $("pickerSearch").focus(), 50);
+}
+function closePicker() { $("picker").hidden = true; }
+
+function initPicker() {
+  $("projectBtn").onclick = openPicker;
+  $("pickerBack").onclick = closePicker;
+  $("pickerSearch").addEventListener("input", (e) => renderPickerList(e.target.value));
+  $("pickerSearch").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closePicker();
+    if (e.key === "Enter") {
+      const first = $("pickerList").querySelector(".pick-item");
+      if (first) first.click();
+    }
+  });
 }
 
 // ── Entry rows (shared by Log + Report) ─────────────────────────────
@@ -714,24 +817,14 @@ async function boot() {
     fetch("/api/items").then((r) => r.json()),
   ]);
 
-  const sel = $("project");
-  sel.innerHTML = "";
-  const addGroup = (label, rows, type) => {
-    if (!rows.length) return;
-    const g = document.createElement("optgroup");
-    g.label = label;
-    rows.forEach((r) => {
-      const o = document.createElement("option");
-      o.value = r.id;
-      o.textContent = r.name;
-      o.dataset.type = type;
-      if (r.parentId) o.dataset.parent = r.parentId;
-      g.appendChild(o);
-    });
-    sel.appendChild(g);
-  };
-  addGroup("Projects", proj.projects, "project");
-  addGroup("Clients", proj.clients, "client");
+  pickerItems = { projects: proj.projects, clients: proj.clients };
+  initPicker();
+  const all = [
+    ...proj.projects.map((r) => ({ ...r, type: "project" })),
+    ...proj.clients.map((r) => ({ ...r, type: "client" })),
+  ];
+  const lastId = localStorage.getItem("last-project");
+  setProject(all.find((r) => r.id === lastId) || all[0] || null, false);
 
   fill($("employee"), emps);
   fill($("item"), items);
@@ -740,7 +833,6 @@ async function boot() {
 }
 
 async function submit() {
-  const opt = $("project").selectedOptions[0];
   const msg = $("msg");
   msg.className = "msg";
   const hours = parseInt($("hours").value || "0", 10);
@@ -760,11 +852,11 @@ async function submit() {
     txn_date: $("date").value,
     billable: $("billable").checked,
   };
-  if (opt && opt.dataset.type === "project") {
-    body.project_id = opt.value;
-    body.customer_id = opt.dataset.parent;
-  } else if (opt) {
-    body.customer_id = opt.value;
+  if (selProject && selProject.type === "project") {
+    body.project_id = selProject.id;
+    body.customer_id = selProject.parentId;
+  } else if (selProject) {
+    body.customer_id = selProject.id;
   }
 
   try {
