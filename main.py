@@ -58,7 +58,7 @@ _pending_states: set[str] = set()  # CSRF state (fine for a single local user)
 # Password gate (only active when APP_PASSWORD is set — required for hosting)
 # ---------------------------------------------------------------------------
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
-_PUBLIC_PATHS = {"/", "/login", "/api/status"}
+_PUBLIC_PATHS = {"/", "/login", "/api/status", "/eula", "/privacy"}
 
 
 def _auth_cookie_value():
@@ -216,6 +216,16 @@ def index():
         os.path.join(BASE_DIR, "index.html"),
         headers={"Cache-Control": "no-cache"},
     )
+
+
+@app.get("/eula")
+def eula():
+    return FileResponse(os.path.join(BASE_DIR, "static", "eula.html"))
+
+
+@app.get("/privacy")
+def privacy():
+    return FileResponse(os.path.join(BASE_DIR, "static", "privacy.html"))
 
 
 @app.get("/api/status")
