@@ -111,7 +111,8 @@ Field rules that trip people up:
 ## Conventions
 
 - Keep it single-user and dependency-light. No auth framework (just the
-  APP_PASSWORD cookie gate).
+  APP_PASSWORD cookie gate, plus optional TOTP two-factor via `TOTP_SECRET` —
+  pure-stdlib RFC 6238, enroll at `/mfa-setup`).
 - Token persistence is isolated to `_load_tokens` / `_save_tokens` in `main.py`:
   local JSON file by default, Supabase table (`qbo_tokens`) when
   `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` are set (diskless Render free tier).

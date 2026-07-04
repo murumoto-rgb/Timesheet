@@ -15,6 +15,7 @@ import hmac
 import json
 import time
 import base64
+import struct
 import hashlib
 import logging
 import secrets
@@ -23,7 +24,7 @@ from datetime import date, timedelta
 
 import requests
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import RedirectResponse, FileResponse, JSONResponse
+from fastapi.responses import RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -107,11 +108,37 @@ def _qbo_error(resp):
 # Password gate (only active when APP_PASSWORD is set — required for hosting)
 # ---------------------------------------------------------------------------
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+# Optional TOTP two-factor. When TOTP_SECRET is set, login also requires the
+# current 6-digit code from an authenticator app (1Password, Google
+# Authenticator, etc). Unset = password-only.
+TOTP_SECRET = os.environ.get("TOTP_SECRET", "").replace(" ", "").upper()
 _PUBLIC_PATHS = {"/", "/login", "/api/status", "/eula", "/privacy"}
 
 
+def _totp(secret_b32, when=None, step=30, digits=6):
+    """RFC 6238 TOTP — pure stdlib, no dependencies."""
+    counter = int((when if when is not None else time.time()) // step)
+    key = base64.b32decode(secret_b32 + "=" * (-len(secret_b32) % 8))
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    value = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
+    return str(value % (10 ** digits)).zfill(digits)
+
+
+def _totp_valid(code, window=1):
+    code = (code or "").strip()
+    if not (TOTP_SECRET and code.isdigit()):
+        return False
+    now = time.time()
+    # accept the neighbouring steps too, to tolerate clock drift
+    return any(
+        hmac.compare_digest(_totp(TOTP_SECRET, now + drift * 30), code)
+        for drift in range(-window, window + 1)
+    )
+
+
 def _auth_cookie_value():
-    key = hashlib.sha256(f"{APP_PASSWORD}:{CLIENT_SECRET}".encode()).digest()
+    key = hashlib.sha256(f"{APP_PASSWORD}:{CLIENT_SECRET}:{TOTP_SECRET}".encode()).digest()
     return hmac.new(key, b"qbo-timesheet-auth-v1", hashlib.sha256).hexdigest()
 
 
@@ -132,12 +159,15 @@ async def require_password(request: Request, call_next):
 
 class Login(BaseModel):
     password: str
+    code: str = ""  # TOTP 6-digit code, when MFA is enabled
 
 
 @app.post("/login")
 def login(body: Login, request: Request):
     if APP_PASSWORD and not hmac.compare_digest(body.password, APP_PASSWORD):
         raise HTTPException(401, "Wrong password.")
+    if TOTP_SECRET and not _totp_valid(body.code):
+        raise HTTPException(401, "Wrong or missing authentication code.")
     resp = JSONResponse({"ok": True})
     if APP_PASSWORD:
         resp.set_cookie(
@@ -286,8 +316,49 @@ def status(request: Request):
         "environment": ENVIRONMENT,
         "configured": bool(CLIENT_ID and CLIENT_SECRET),
         "auth_required": bool(APP_PASSWORD),
+        "mfa_required": bool(TOTP_SECRET),
         "authed": _is_authed(request),
     }
+
+
+@app.get("/mfa-setup")
+def mfa_setup():
+    """One-time enrollment helper: generates a secret to add to your
+    authenticator app and to Render as TOTP_SECRET. Password-gated."""
+    secret = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
+    label = "QBO%20Timesheet"
+    otpauth = f"otpauth://totp/{label}?secret={secret}&issuer=QBO%20Timesheet"
+    active = "Currently ACTIVE." if TOTP_SECRET else "Not yet active."
+    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up two-factor</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;
+padding:32px 20px;background:#12161c;color:#e6ebf1;line-height:1.6}}
+code{{background:#0e1217;border:1px solid #2b333e;border-radius:6px;padding:2px 6px;
+word-break:break-all}} .secret{{font-size:22px;letter-spacing:2px;display:block;
+margin:14px 0;padding:14px;background:#0e1217;border:1px solid #4c9be8;border-radius:10px;
+text-align:center}} a{{color:#4c9be8}} ol{{padding-left:20px}} li{{margin:10px 0}}
+.note{{color:#8a97a6;font-size:14px}}</style></head><body>
+<h1>Set up two-factor sign-in</h1>
+<p class="note">Two-factor is {active}</p>
+<p>Your new authenticator secret:</p>
+<code class="secret">{secret}</code>
+<ol>
+<li>In <b>1Password</b> (or Google Authenticator): add a one-time password /
+add TOTP, and paste this secret — or use this setup link:<br>
+<code>{otpauth}</code></li>
+<li>In <b>Render</b> &rarr; your service &rarr; <b>Environment</b>, add a variable
+<code>TOTP_SECRET</code> set to the secret above, and save. Render redeploys.</li>
+<li>After it redeploys, sign in: you'll enter your password <b>and</b> the current
+6-digit code from your authenticator.</li>
+</ol>
+<p class="note">Keep this secret private. If you ever lose your authenticator,
+delete the <code>TOTP_SECRET</code> variable in Render to disable two-factor,
+then repeat this setup. Refreshing this page generates a new secret — use the
+one you actually saved in both places.</p>
+<p><a href="/">&larr; Back to the app</a></p>
+</body></html>"""
+    return HTMLResponse(html)
 
 
 @app.get("/connect")
