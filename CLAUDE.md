@@ -69,6 +69,9 @@ old QB Desktop API — use exactly what's below.
   - `IsProject` is **read-only** — projects CANNOT be created via API. Reading is fine.
 - Employees: `SELECT * FROM Employee WHERE Active = true`
 - Service items: `SELECT * FROM Item WHERE Type = 'Service' AND Active = true`
+- **Paginate past 1000.** A single query returns ≤1000 rows; a real practice
+  can have >1000 customers/matters. `qbo_query_all` loops `STARTPOSITION`
+  until a short page — used for Customer/Employee/Vendor/Item lists.
 
 ### Creating a time entry
 `POST {base}/v3/company/{realmId}/timeactivity?minorversion=70`

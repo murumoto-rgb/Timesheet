@@ -432,12 +432,28 @@ def callback(code: str = "", state: str = "", realmId: str = ""):
 # ---------------------------------------------------------------------------
 # Routes: dropdown data
 # ---------------------------------------------------------------------------
+def qbo_query_all(entity, where="", key=None):
+    """Query every row of an entity, paginating past QBO's 1000-row page cap
+    (a practice can easily have >1000 customers/matters)."""
+    key = key or entity
+    out, start, page = [], 1, 1000
+    while True:
+        rows = qbo_query(
+            f"SELECT * FROM {entity} {where} STARTPOSITION {start} MAXRESULTS {page}".strip()
+        )
+        batch = rows.get(key, [])
+        out.extend(batch)
+        if len(batch) < page or start > 100000:  # last page, or safety cap
+            break
+        start += page
+    return out
+
+
 @app.get("/api/projects")
 def list_projects():
     """Return QBO Projects (with their parent customer) and all other customers
     — top-level clients AND sub-customers/jobs (shown by qualified name)."""
-    rows = qbo_query("SELECT * FROM Customer WHERE Active = true MAXRESULTS 1000")
-    customers = rows.get("Customer", [])
+    customers = qbo_query_all("Customer", "WHERE Active = true")
     projects, clients = [], []
     for c in customers:
         name = c.get("FullyQualifiedName") or c.get("DisplayName")
@@ -451,22 +467,20 @@ def list_projects():
 
 @app.get("/api/employees")
 def list_employees():
-    rows = qbo_query("SELECT * FROM Employee WHERE Active = true MAXRESULTS 1000")
-    return [{"id": e["Id"], "name": e.get("DisplayName")} for e in rows.get("Employee", [])]
+    emps = qbo_query_all("Employee", "WHERE Active = true")
+    return [{"id": e["Id"], "name": e.get("DisplayName")} for e in emps]
 
 
 @app.get("/api/vendors")
 def list_vendors():
-    rows = qbo_query("SELECT * FROM Vendor WHERE Active = true MAXRESULTS 1000")
-    return [{"id": v["Id"], "name": v.get("DisplayName")} for v in rows.get("Vendor", [])]
+    vendors = qbo_query_all("Vendor", "WHERE Active = true")
+    return [{"id": v["Id"], "name": v.get("DisplayName")} for v in vendors]
 
 
 @app.get("/api/items")
 def list_items():
-    rows = qbo_query(
-        "SELECT * FROM Item WHERE Type = 'Service' AND Active = true MAXRESULTS 1000"
-    )
-    return [{"id": i["Id"], "name": i.get("Name")} for i in rows.get("Item", [])]
+    items = qbo_query_all("Item", "WHERE Type = 'Service' AND Active = true")
+    return [{"id": i["Id"], "name": i.get("Name")} for i in items]
 
 
 # ---------------------------------------------------------------------------
