@@ -233,6 +233,7 @@
   .proj-top .h .b { color: var(--good); font-size: 11px; margin-right: 6px; }
   .track { height: 6px; border-radius: 3px; background: var(--field); margin-top: 6px; }
   .fill { height: 100%; border-radius: 3px; background: var(--series-1); min-width: 2px; }
+  .fill .bpart { height: 100%; border-radius: 3px; background: var(--good); }
 
   /* ── Bottom tab bar ──────────────────────────── */
   .tabbar {
@@ -840,7 +841,7 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
     if (e.billable) {
       const b = document.createElement("span");
       b.className = "bill";
-      b.textContent = "$";
+      b.textContent = "• billable";
       top.appendChild(b);
     }
     meta.appendChild(top);
@@ -1337,8 +1338,8 @@ function renderBreakdown(box, entries, keyOf) {
     if (v.billable) {
       const b = document.createElement("span");
       b.className = "b";
-      // fully billable → just the $ marker; partial → the billable share
-      b.textContent = v.billable === v.total ? "$" : "$" + fmtMins(v.billable);
+      // green share of the total that is billable time (no $ — reads as hours)
+      b.textContent = v.billable === v.total ? "all billable" : fmtMins(v.billable) + " billable";
       h.appendChild(b);
     }
     h.append(fmtMins(v.total));
@@ -1348,6 +1349,13 @@ function renderBreakdown(box, entries, keyOf) {
     const fillEl = document.createElement("div");
     fillEl.className = "fill";
     fillEl.style.width = (v.total / max) * 100 + "%";
+    // billable portion tinted green within the total bar
+    if (v.billable) {
+      const bpart = document.createElement("div");
+      bpart.className = "bpart";
+      bpart.style.width = (v.billable / v.total) * 100 + "%";
+      fillEl.appendChild(bpart);
+    }
     track.appendChild(fillEl);
     row.append(top, track);
     box.appendChild(row);
@@ -1388,14 +1396,16 @@ async function renderReport() {
   if (billable) {
     const b = document.createElement("span");
     b.className = "b";
-    b.textContent = billable === total ? " · all billable" : ` · $${fmtMins(billable)} billable`;
+    b.textContent = billable === total
+      ? " · all billable"
+      : ` · ${fmtMins(billable)} billable`;
     $("heroSub").appendChild(b);
   }
   // call out the portion still to invoice (Billable, not yet HasBeenBilled)
   if (unbilled > 0 && unbilled < billable) {
     const u = document.createElement("span");
     u.style.color = "var(--accent)";
-    u.textContent = ` · $${fmtMins(unbilled)} to invoice`;
+    u.textContent = ` · ${fmtMins(unbilled)} to invoice`;
     $("heroSub").appendChild(u);
   }
   renderChart(entries);
