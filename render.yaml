@@ -17,7 +17,8 @@ services:
       - key: QBO_TOKENS_FILE
         value: /data/qbo_tokens.json
       - key: QBO_ENVIRONMENT
-        value: sandbox          # flip to "production" after Intuit grants prod keys
+        sync: false             # dashboard-managed (sandbox|production) — the
+                                # blueprint must NOT reset your production choice
       - key: QBO_CLIENT_ID
         sync: false             # set in the Render dashboard
       - key: QBO_CLIENT_SECRET
