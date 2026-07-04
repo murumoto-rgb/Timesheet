@@ -20,6 +20,8 @@
     --ink: #e6ebf1;
     --muted: #8a97a6;
     --accent: #4c9be8;
+    --series-1: #3987e5;   /* chart mark hue, validated on --panel */
+    --grid: #242c36;       /* hairline gridline, one step off panel */
     --good: #57b894;
     --bad: #e0736b;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
@@ -30,7 +32,8 @@
   body {
     margin: 0 auto; background: var(--bg); color: var(--ink);
     font-family: var(--sans); line-height: 1.5;
-    padding: max(16px, env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom));
+    padding: max(16px, env(safe-area-inset-top)) 16px
+             calc(76px + env(safe-area-inset-bottom));
     max-width: 520px;
   }
   .head { display: flex; align-items: baseline; justify-content: space-between; margin: 4px 2px 16px; }
@@ -100,12 +103,6 @@
     font-size: 12px; font-family: var(--mono); text-transform: uppercase;
     letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; font-weight: 500;
   }
-  .week-total { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
-  .week-total small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 6px; }
-  .week-rows { margin-top: 10px; display: grid; gap: 6px; }
-  .week-row { display: flex; justify-content: space-between; font-size: 14px; gap: 12px; }
-  .week-row .n { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .week-row .h { font-family: var(--mono); flex-shrink: 0; }
   .entry {
     display: flex; align-items: center; gap: 12px;
     padding: 12px 2px; border-top: 1px solid var(--line);
@@ -124,12 +121,91 @@
   }
   .entry .del:active { color: var(--bad); }
   .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
-  #app, #connect, #setup { display: none; }
+
+  /* ── Report view ─────────────────────────────── */
+  .seg { display: flex; gap: 8px; margin-bottom: 14px; }
+  .seg button {
+    flex: 1; padding: 10px; min-height: 42px; border-radius: 10px;
+    background: var(--field); border: 1px solid var(--line); color: var(--muted);
+    font-size: 14px; font-weight: 550; cursor: pointer;
+  }
+  .seg button.on { border-color: var(--accent); color: var(--accent); }
+  .nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .nav .label { font-size: 15px; font-weight: 600; }
+  .nav button {
+    background: var(--field); border: 1px solid var(--line); color: var(--ink);
+    width: 42px; height: 42px; border-radius: 10px; font-size: 18px; cursor: pointer;
+  }
+  .nav button:disabled { opacity: 0.35; }
+  .hero { font-size: 32px; font-weight: 650; letter-spacing: -0.02em; margin: 2px 0 0; }
+  .hero-sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  .hero-sub .b { color: var(--good); }
+  .chart { position: relative; margin: 8px 0 0; }
+  .plot { position: relative; height: 132px; margin-top: 18px; }
+  .gridline {
+    position: absolute; left: 0; right: 34px; height: 1px;
+    background: var(--grid);
+  }
+  .gridline .tick {
+    position: absolute; right: -34px; top: -8px; width: 30px;
+    font-size: 10px; color: var(--muted); font-family: var(--mono);
+    font-variant-numeric: tabular-nums; text-align: left; padding-left: 4px;
+  }
+  .cols {
+    position: absolute; inset: 0 34px 0 0;
+    display: flex; align-items: flex-end; gap: 2px;
+  }
+  .slot {
+    flex: 1; height: 100%; display: flex; align-items: flex-end;
+    justify-content: center; position: relative;
+    background: none; border: none; padding: 0; cursor: pointer;
+  }
+  .col {
+    width: 100%; max-width: 24px; background: var(--series-1);
+    border-radius: 4px 4px 0 0; min-height: 0;
+  }
+  .slot .cap {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    font-size: 10px; font-family: var(--mono); color: var(--ink); white-space: nowrap;
+  }
+  .xlabels { position: relative; height: 16px; margin: 6px 34px 0 0; }
+  .xlabels span {
+    position: absolute; transform: translateX(-50%); top: 0;
+    font-size: 10px; color: var(--muted); font-family: var(--mono);
+    white-space: nowrap;
+  }
+  .xlabels span.today { color: var(--ink); font-weight: 700; }
+  .proj { margin-top: 4px; }
+  .proj-row { padding: 8px 0; }
+  .proj-top { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+  .proj-top .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .proj-top .h { font-family: var(--mono); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .proj-top .h .b { color: var(--good); font-size: 11px; margin-right: 6px; }
+  .track { height: 6px; border-radius: 3px; background: var(--field); margin-top: 6px; }
+  .fill { height: 100%; border-radius: 3px; background: var(--series-1); min-width: 2px; }
+
+  /* ── Bottom tab bar ──────────────────────────── */
+  .tabbar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+    display: flex; justify-content: center; gap: 0;
+    background: rgba(18,22,28,0.96); border-top: 1px solid var(--line);
+    padding: 6px 0 max(6px, env(safe-area-inset-bottom));
+    backdrop-filter: blur(8px);
+  }
+  .tabbar button {
+    flex: 0 1 160px; background: none; border: none; color: var(--muted);
+    font-size: 12px; font-family: var(--sans); cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 6px 0; min-height: 48px;
+  }
+  .tabbar button.on { color: var(--accent); }
+  .tabbar svg { width: 22px; height: 22px; }
+  #app, #connect, #setup, #reportView { display: none; }
 </style>
 </head>
 <body>
 <div class="head">
-  <h1>Timesheet</h1>
+  <h1 id="title">Timesheet</h1>
   <span class="env" id="env"></span>
 </div>
 
@@ -144,64 +220,101 @@
 </div>
 
 <div id="app">
-  <div class="card">
-    <label for="project">Project / client</label>
-    <select id="project"></select>
+  <div id="logView">
+    <div class="card">
+      <label for="project">Project / client</label>
+      <select id="project"></select>
 
-    <div class="row">
-      <div>
-        <label for="employee">Employee</label>
-        <select id="employee"></select>
-      </div>
-      <div>
-        <label for="item">Service</label>
-        <select id="item"></select>
-      </div>
-    </div>
-
-    <div class="row">
-      <div>
-        <label for="date">Date</label>
-        <input type="date" id="date" />
-      </div>
-      <div>
-        <label>Duration</label>
-        <div class="row">
-          <input type="number" id="hours" min="0" inputmode="numeric" placeholder="hrs" />
-          <input type="number" id="minutes" min="0" max="59" inputmode="numeric" placeholder="min" />
+      <div class="row">
+        <div>
+          <label for="employee">Employee</label>
+          <select id="employee"></select>
+        </div>
+        <div>
+          <label for="item">Service</label>
+          <select id="item"></select>
         </div>
       </div>
+
+      <div class="row">
+        <div>
+          <label for="date">Date</label>
+          <input type="date" id="date" />
+        </div>
+        <div>
+          <label>Duration</label>
+          <div class="row">
+            <input type="number" id="hours" min="0" inputmode="numeric" placeholder="hrs" />
+            <input type="number" id="minutes" min="0" max="59" inputmode="numeric" placeholder="min" />
+          </div>
+        </div>
+      </div>
+      <div class="chips" id="chips"></div>
+
+      <label for="desc">Notes</label>
+      <textarea id="desc" placeholder="What did you work on?"></textarea>
+
+      <div class="check">
+        <input type="checkbox" id="billable" />
+        <label for="billable">Billable</label>
+      </div>
+
+      <button class="primary" id="submit">Log time</button>
+      <div class="msg" id="msg"></div>
     </div>
-    <div class="chips" id="chips"></div>
 
-    <label for="desc">Notes</label>
-    <textarea id="desc" placeholder="What did you work on?"></textarea>
-
-    <div class="check">
-      <input type="checkbox" id="billable" />
-      <label for="billable">Billable</label>
+    <div class="card">
+      <h2>Recent entries</h2>
+      <div id="entries"><div class="empty">Loading…</div></div>
     </div>
-
-    <button class="primary" id="submit">Log time</button>
-    <div class="msg" id="msg"></div>
   </div>
 
-  <div class="card">
-    <h2>This week</h2>
-    <div class="week-total" id="weekTotal">–</div>
-    <div class="week-rows" id="weekRows"></div>
-  </div>
+  <div id="reportView">
+    <div class="seg" id="seg">
+      <button data-unit="day">Day</button>
+      <button data-unit="week" class="on">Week</button>
+      <button data-unit="month">Month</button>
+    </div>
 
-  <div class="card">
-    <h2>Recent entries</h2>
-    <div id="entries"><div class="empty">Loading…</div></div>
+    <div class="card">
+      <div class="nav">
+        <button id="prev" aria-label="Previous period">‹</button>
+        <span class="label" id="periodLabel"></span>
+        <button id="next" aria-label="Next period">›</button>
+      </div>
+      <div class="hero" id="heroTotal">0:00</div>
+      <div class="hero-sub" id="heroSub"></div>
+      <div class="chart" id="chart"></div>
+    </div>
+
+    <div class="card">
+      <h2>By project / client</h2>
+      <div class="proj" id="projRows"><div class="empty">No time in this period.</div></div>
+    </div>
+
+    <div class="card">
+      <h2 id="repEntriesTitle">Entries</h2>
+      <div id="repEntries"><div class="empty">–</div></div>
+    </div>
   </div>
 </div>
+
+<nav class="tabbar" id="tabbar" style="display:none">
+  <button data-view="log" class="on" aria-label="Log time">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+    Log
+  </button>
+  <button data-view="report" aria-label="Reports">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>
+    Report
+  </button>
+</nav>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const PRESETS = [[0,15],[0,30],[1,0],[1,30],[2,0],[4,0],[8,0]];
 const REMEMBER = ["project", "employee", "item"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 function fill(sel, items) {
   sel.innerHTML = "";
@@ -213,9 +326,13 @@ function fill(sel, items) {
   });
 }
 
-function fmtDur(h, m) {
-  return (h || 0) + ":" + String(m || 0).padStart(2, "0");
-}
+const fmtDur = (h, m) => (h || 0) + ":" + String(m || 0).padStart(2, "0");
+const fmtMins = (mins) => fmtDur(Math.floor(mins / 60), mins % 60);
+const ymd = (d) => d.getFullYear() + "-" +
+  String(d.getMonth() + 1).padStart(2, "0") + "-" +
+  String(d.getDate()).padStart(2, "0");
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const mins = (e) => (e.hours || 0) * 60 + (e.minutes || 0);
 
 function restoreSelection(sel) {
   const saved = localStorage.getItem("last-" + sel.id);
@@ -241,112 +358,332 @@ function buildChips() {
   $("minutes").addEventListener("input", clear);
 }
 
-async function loadEntries() {
+// ── Entry rows (shared by Log + Report) ─────────────────────────────
+function renderEntryRows(box, entries, { showDate = true } = {}) {
+  if (!entries.length) {
+    box.innerHTML = '<div class="empty">No entries.</div>';
+    return;
+  }
+  box.innerHTML = "";
+  entries.forEach((e) => {
+    const row = document.createElement("div");
+    row.className = "entry";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const top = document.createElement("div");
+    top.className = "top";
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = e.customer || "(no client)";
+    top.appendChild(who);
+    if (e.billable) {
+      const b = document.createElement("span");
+      b.className = "bill";
+      b.textContent = "$";
+      top.appendChild(b);
+    }
+    meta.appendChild(top);
+    if (e.description) {
+      const d = document.createElement("div");
+      d.className = "desc";
+      d.textContent = e.description;
+      meta.appendChild(d);
+    }
+    const dur = document.createElement("span");
+    dur.className = "dur";
+    dur.textContent = fmtDur(e.hours, e.minutes);
+    const del = document.createElement("button");
+    del.className = "del";
+    del.textContent = "×";
+    del.setAttribute("aria-label", "Delete entry");
+    del.onclick = async () => {
+      if (!confirm(`Delete ${fmtDur(e.hours, e.minutes)} on ${e.customer || "no client"} (${e.date})?`)) return;
+      del.disabled = true;
+      const res = await fetch("/api/timeactivity/" + e.id, { method: "DELETE" });
+      if (res.ok) refreshData();
+      else { del.disabled = false; alert("Delete failed: " + (await res.text())); }
+    };
+    if (showDate) {
+      const date = document.createElement("span");
+      date.className = "date";
+      date.textContent = (e.date || "").slice(5);
+      row.appendChild(date);
+    }
+    row.append(meta, dur, del);
+    box.appendChild(row);
+  });
+}
+
+async function loadRecent() {
   const box = $("entries");
   try {
     const entries = await (await fetch("/api/timeactivities?days=14")).json();
-    renderWeek(entries);
     if (!entries.length) {
       box.innerHTML = '<div class="empty">No entries in the last 14 days.</div>';
       return;
     }
-    box.innerHTML = "";
-    entries.forEach((e) => {
-      const row = document.createElement("div");
-      row.className = "entry";
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      const top = document.createElement("div");
-      top.className = "top";
-      const who = document.createElement("span");
-      who.className = "who";
-      who.textContent = e.customer || "(no client)";
-      top.appendChild(who);
-      if (e.billable) {
-        const b = document.createElement("span");
-        b.className = "bill";
-        b.textContent = "$";
-        top.appendChild(b);
-      }
-      meta.appendChild(top);
-      if (e.description) {
-        const d = document.createElement("div");
-        d.className = "desc";
-        d.textContent = e.description;
-        meta.appendChild(d);
-      }
-      const date = document.createElement("span");
-      date.className = "date";
-      date.textContent = (e.date || "").slice(5);
-      const dur = document.createElement("span");
-      dur.className = "dur";
-      dur.textContent = fmtDur(e.hours, e.minutes);
-      const del = document.createElement("button");
-      del.className = "del";
-      del.textContent = "×";
-      del.setAttribute("aria-label", "Delete entry");
-      del.onclick = async () => {
-        if (!confirm(`Delete ${fmtDur(e.hours, e.minutes)} on ${e.customer || "no client"} (${e.date})?`)) return;
-        del.disabled = true;
-        const res = await fetch("/api/timeactivity/" + e.id, { method: "DELETE" });
-        if (res.ok) loadEntries();
-        else { del.disabled = false; alert("Delete failed: " + (await res.text())); }
-      };
-      row.append(date, meta, dur, del);
-      box.appendChild(row);
-    });
-  } catch (err) {
+    renderEntryRows(box, entries);
+  } catch {
     box.innerHTML = '<div class="empty">Could not load entries.</div>';
   }
 }
 
-function renderWeek(entries) {
-  // Week starts Monday, computed in local time.
+// ── Report state ────────────────────────────────────────────────────
+const rep = { unit: "week", anchor: new Date() };
+
+function mondayOf(d) {
+  return addDays(d, -((d.getDay() + 6) % 7));
+}
+
+function periodRange() {
+  const a = rep.anchor;
+  if (rep.unit === "day") return { start: a, end: a };
+  if (rep.unit === "week") {
+    const s = mondayOf(a);
+    return { start: s, end: addDays(s, 6) };
+  }
+  return {
+    start: new Date(a.getFullYear(), a.getMonth(), 1),
+    end: new Date(a.getFullYear(), a.getMonth() + 1, 0),
+  };
+}
+
+function periodLabel() {
+  const today = ymd(new Date());
+  const { start, end } = periodRange();
+  if (rep.unit === "day") {
+    if (ymd(rep.anchor) === today) return "Today";
+    if (ymd(rep.anchor) === ymd(addDays(new Date(), -1))) return "Yesterday";
+    return rep.anchor.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  }
+  if (rep.unit === "week") {
+    if (ymd(mondayOf(new Date())) === ymd(start)) return "This week";
+    const sameMonth = start.getMonth() === end.getMonth();
+    return `${MONTHS[start.getMonth()]} ${start.getDate()} – ${sameMonth ? "" : MONTHS[end.getMonth()] + " "}${end.getDate()}`;
+  }
   const now = new Date();
-  const day = (now.getDay() + 6) % 7;
-  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day);
-  const start = monday.getFullYear() + "-" +
-    String(monday.getMonth() + 1).padStart(2, "0") + "-" +
-    String(monday.getDate()).padStart(2, "0");
-  const byClient = new Map();
-  let total = 0;
+  if (start.getFullYear() === now.getFullYear() && start.getMonth() === now.getMonth()) return "This month";
+  return `${MONTHS[start.getMonth()]} ${start.getFullYear()}`;
+}
+
+function shiftPeriod(dir) {
+  if (rep.unit === "day") rep.anchor = addDays(rep.anchor, dir);
+  else if (rep.unit === "week") rep.anchor = addDays(rep.anchor, 7 * dir);
+  else rep.anchor = new Date(rep.anchor.getFullYear(), rep.anchor.getMonth() + dir, 1);
+  renderReport();
+}
+
+async function fetchRange(start, end) {
+  const res = await fetch(`/api/timeactivities?start=${ymd(start)}&end=${ymd(end)}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// ── Column chart (single series — hours per day) ────────────────────
+function renderChart(entries) {
+  const box = $("chart");
+  box.innerHTML = "";
+  if (rep.unit === "day") return;  // a chart of one bar is not a chart
+
+  const { start, end } = periodRange();
+  const nDays = Math.round((end - start) / 86400000) + 1;
+  const perDay = new Array(nDays).fill(0);
   entries.forEach((e) => {
-    if (!e.date || e.date < start) return;
-    const mins = (e.hours || 0) * 60 + (e.minutes || 0);
-    total += mins;
-    const key = e.customer || "(no client)";
-    byClient.set(key, (byClient.get(key) || 0) + mins);
+    if (!e.date) return;
+    const i = Math.round((new Date(e.date + "T00:00") - start) / 86400000);
+    if (i >= 0 && i < nDays) perDay[i] += mins(e);
   });
-  const totalBox = $("weekTotal");
-  totalBox.textContent = fmtDur(Math.floor(total / 60), total % 60);
-  const small = document.createElement("small");
-  small.textContent = "hours since Mon";
-  totalBox.appendChild(small);
-  const rows = $("weekRows");
-  rows.innerHTML = "";
-  [...byClient.entries()].sort((a, b) => b[1] - a[1]).forEach(([name, mins]) => {
-    const r = document.createElement("div");
-    r.className = "week-row";
+
+  const maxM = Math.max(...perDay);
+  if (maxM === 0) {
+    box.innerHTML = '<div class="empty">No time in this period.</div>';
+    return;
+  }
+  // clean axis: pick an hour step so there are 2–4 gridlines
+  const steps = [1, 2, 4, 8, 12, 24];
+  const maxH = maxM / 60;
+  const step = steps.find((s) => maxH / s <= 4) || 24;
+  const topH = Math.ceil(maxH / step) * step;
+
+  const plot = document.createElement("div");
+  plot.className = "plot";
+  for (let h = step; h <= topH; h += step) {
+    const g = document.createElement("div");
+    g.className = "gridline";
+    g.style.bottom = (h / topH) * 100 + "%";
+    const t = document.createElement("span");
+    t.className = "tick";
+    t.textContent = h + "h";
+    g.appendChild(t);
+    plot.appendChild(g);
+  }
+  const base = document.createElement("div");
+  base.className = "gridline";
+  base.style.bottom = "0";
+  base.style.background = "var(--line)";
+  plot.appendChild(base);
+
+  const cols = document.createElement("div");
+  cols.className = "cols";
+  const maxIdx = perDay.indexOf(maxM);
+  const todayIdx = Math.round((new Date(ymd(new Date()) + "T00:00") - start) / 86400000);
+  perDay.forEach((m, i) => {
+    const slot = document.createElement("button");
+    slot.className = "slot";
+    const d = addDays(start, i);
+    slot.setAttribute("aria-label", `${ymd(d)}: ${fmtMins(m)}`);
+    slot.onclick = () => { rep.unit = "day"; rep.anchor = d; syncSeg(); renderReport(); };
+    const col = document.createElement("div");
+    col.className = "col";
+    const pct = m ? Math.max((m / 60 / topH) * 100, 2) : 0;
+    col.style.height = pct + "%";
+    if (i === maxIdx && rep.unit === "week") {   // label the extreme only
+      const cap = document.createElement("span");
+      cap.className = "cap";
+      cap.textContent = fmtMins(m);
+      cap.style.bottom = `calc(${pct}% + 4px)`;
+      slot.appendChild(cap);
+    }
+    slot.appendChild(col);
+    cols.appendChild(slot);
+  });
+  plot.appendChild(cols);
+  box.appendChild(plot);
+
+  const xl = document.createElement("div");
+  xl.className = "xlabels";
+  for (let i = 0; i < nDays; i++) {
+    const text = rep.unit === "week" ? "MTWTFSS"[i] : (i % 7 === 0 ? String(i + 1) : "");
+    if (!text && i !== todayIdx) continue;
+    const s = document.createElement("span");
+    s.textContent = text || String(i + 1);
+    s.style.left = ((i + 0.5) / nDays) * 100 + "%";
+    if (i === todayIdx) s.classList.add("today");
+    xl.appendChild(s);
+  }
+  box.appendChild(xl);
+}
+
+function renderProjects(entries) {
+  const box = $("projRows");
+  const byClient = new Map();
+  entries.forEach((e) => {
+    const key = e.customer || "(no client)";
+    const cur = byClient.get(key) || { total: 0, billable: 0 };
+    cur.total += mins(e);
+    if (e.billable) cur.billable += mins(e);
+    byClient.set(key, cur);
+  });
+  if (!byClient.size) {
+    box.innerHTML = '<div class="empty">No time in this period.</div>';
+    return;
+  }
+  box.innerHTML = "";
+  const rows = [...byClient.entries()].sort((a, b) => b[1].total - a[1].total);
+  const max = rows[0][1].total;
+  rows.forEach(([name, v]) => {
+    const row = document.createElement("div");
+    row.className = "proj-row";
+    const top = document.createElement("div");
+    top.className = "proj-top";
     const n = document.createElement("span");
     n.className = "n";
     n.textContent = name;
     const h = document.createElement("span");
     h.className = "h";
-    h.textContent = fmtDur(Math.floor(mins / 60), mins % 60);
-    r.append(n, h);
-    rows.appendChild(r);
+    if (v.billable) {
+      const b = document.createElement("span");
+      b.className = "b";
+      // fully billable → just the $ marker; partial → the billable share
+      b.textContent = v.billable === v.total ? "$" : "$" + fmtMins(v.billable);
+      h.appendChild(b);
+    }
+    h.append(fmtMins(v.total));
+    top.append(n, h);
+    const track = document.createElement("div");
+    track.className = "track";
+    const fillEl = document.createElement("div");
+    fillEl.className = "fill";
+    fillEl.style.width = (v.total / max) * 100 + "%";
+    track.appendChild(fillEl);
+    row.append(top, track);
+    box.appendChild(row);
   });
 }
 
+let repSeq = 0;
+async function renderReport() {
+  $("periodLabel").textContent = periodLabel();
+  const { start, end } = periodRange();
+  // don't page into the future
+  $("next").disabled = end >= new Date(new Date().setHours(0, 0, 0, 0)) && ymd(end) >= ymd(new Date());
+  const seq = ++repSeq;
+  let entries;
+  try {
+    entries = await fetchRange(start, end);
+  } catch (e) {
+    if (seq === repSeq) $("repEntries").innerHTML = '<div class="empty">Could not load: ' + e.message + "</div>";
+    return;
+  }
+  if (seq !== repSeq) return;  // a newer render superseded this one
+
+  let total = 0, billable = 0;
+  entries.forEach((e) => { total += mins(e); if (e.billable) billable += mins(e); });
+  $("heroTotal").textContent = fmtMins(total);
+  $("heroSub").innerHTML = "";
+  $("heroSub").append("hours total");
+  if (billable) {
+    const b = document.createElement("span");
+    b.className = "b";
+    b.textContent = billable === total ? " · all billable" : ` · $${fmtMins(billable)} billable`;
+    $("heroSub").appendChild(b);
+  }
+  renderChart(entries);
+  renderProjects(entries);
+  $("repEntriesTitle").textContent = "Entries — " + periodLabel();
+  renderEntryRows($("repEntries"), entries, { showDate: rep.unit !== "day" });
+}
+
+function syncSeg() {
+  document.querySelectorAll("#seg button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.unit === rep.unit));
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────
+function showView(view) {
+  $("logView").style.display = view === "log" ? "block" : "none";
+  $("reportView").style.display = view === "report" ? "block" : "none";
+  $("title").textContent = view === "report" ? "Report" : "Timesheet";
+  document.querySelectorAll("#tabbar button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.view === view));
+  if (view === "report") renderReport();
+}
+
+function refreshData() {
+  loadRecent();
+  if ($("reportView").style.display === "block") renderReport();
+}
+
+// ── Boot + submit ───────────────────────────────────────────────────
 async function boot() {
-  $("date").value = new Date().toISOString().slice(0, 10);
+  $("date").value = ymd(new Date());
   buildChips();
+  document.querySelectorAll("#seg button").forEach((b) => {
+    b.onclick = () => { rep.unit = b.dataset.unit; rep.anchor = new Date(); syncSeg(); renderReport(); };
+  });
+  $("prev").onclick = () => shiftPeriod(-1);
+  $("next").onclick = () => shiftPeriod(1);
+  document.querySelectorAll("#tabbar button").forEach((b) => {
+    b.onclick = () => showView(b.dataset.view);
+  });
+
   const status = await (await fetch("/api/status")).json();
   $("env").textContent = status.environment;
   $("env").classList.toggle("production", status.environment === "production");
   if (!status.configured) { $("setup").style.display = "block"; return; }
   if (!status.connected) { $("connect").style.display = "block"; return; }
   $("app").style.display = "block";
+  $("tabbar").style.display = "flex";
 
   const [proj, emps, items] = await Promise.all([
     fetch("/api/projects").then((r) => r.json()),
@@ -376,7 +713,7 @@ async function boot() {
   fill($("employee"), emps);
   fill($("item"), items);
   REMEMBER.forEach((id) => restoreSelection($(id)));
-  loadEntries();
+  loadRecent();
 }
 
 async function submit() {
@@ -422,7 +759,7 @@ async function submit() {
     $("minutes").value = "";
     $("desc").value = "";
     document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
-    loadEntries();
+    refreshData();
   } catch (e) {
     msg.textContent = "Failed: " + e.message;
     msg.className = "msg bad";

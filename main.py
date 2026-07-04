@@ -10,6 +10,7 @@ Run:
     # then open http://localhost:8000  and click "Connect QuickBooks"
 """
 import os
+import re
 import json
 import time
 import base64
@@ -276,12 +277,22 @@ def create_time(entry: TimeEntry):
 # ---------------------------------------------------------------------------
 # Routes: recent entries + delete
 # ---------------------------------------------------------------------------
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
 @app.get("/api/timeactivities")
-def list_time(days: int = 14):
-    start = (date.today() - timedelta(days=days)).isoformat()
+def list_time(days: int = 14, start: str | None = None, end: str | None = None):
+    """Entries in a date range. Either ?days=N back from today, or ?start=&end=."""
+    for d in (start, end):
+        if d and not _DATE_RE.match(d):
+            raise HTTPException(400, "Dates must be YYYY-MM-DD.")
+    if not start:
+        start = (date.today() - timedelta(days=days)).isoformat()
+    where = f"TxnDate >= '{start}'"
+    if end:
+        where += f" AND TxnDate <= '{end}'"
     rows = qbo_query(
-        f"SELECT * FROM TimeActivity WHERE TxnDate >= '{start}' "
-        "ORDERBY TxnDate DESC MAXRESULTS 200"
+        f"SELECT * FROM TimeActivity WHERE {where} ORDERBY TxnDate DESC MAXRESULTS 1000"
     )
     entries = []
     for t in rows.get("TimeActivity", []):

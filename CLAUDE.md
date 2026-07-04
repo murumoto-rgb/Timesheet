@@ -118,10 +118,14 @@ Field rules that trip people up:
 
 ## Built so far (beyond the original scaffold)
 
-- Recent-entries list (`GET /api/timeactivities?days=N`) with delete
-  (`DELETE /api/timeactivity/{id}` — reads the entity for its `SyncToken`,
-  then posts `?operation=delete`).
-- This-week summary grouped by client/project (computed client-side).
+- Recent-entries list (`GET /api/timeactivities?days=N` or `?start=&end=`)
+  with delete (`DELETE /api/timeactivity/{id}` — reads the entity for its
+  `SyncToken`, then posts `?operation=delete`).
+- Report tab (bottom tab bar): Day / Week / Month periods with prev/next
+  navigation, hero total + billable split, hours-per-day column chart
+  (tap a column to drill into that day), per-client/project proportional
+  bars, and the period's entry list. All computed client-side from one
+  range fetch.
 - Mobile-first UI: duration preset chips, remembered last-used
   project/employee/service (localStorage), 16px inputs (no iOS zoom).
 - PWA installability: `static/manifest.webmanifest`, icons, apple-touch meta —
