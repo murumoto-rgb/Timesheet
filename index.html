@@ -724,12 +724,23 @@ async function loadRecent() {
 // ── Edit / repeat an existing entry ─────────────────────────────────
 function fillFormFromEntry(e, dateOverride) {
   showView("log");
-  // project / client
-  let sel = null;
-  if (e.projectId) sel = pickerItems.projects.find((r) => r.id === e.projectId);
-  if (!sel && e.customerId) sel = pickerItems.clients.find((r) => r.id === e.customerId);
+  // project / client — some companies store project time with the project
+  // in CustomerRef, so check the projects list for customerId too
+  let sel = null, selType = null;
+  if (e.projectId) {
+    sel = pickerItems.projects.find((r) => r.id === e.projectId);
+    selType = "project";
+  }
+  if (!sel && e.customerId) {
+    sel = pickerItems.projects.find((r) => r.id === e.customerId);
+    selType = "project";
+    if (!sel) {
+      sel = pickerItems.clients.find((r) => r.id === e.customerId);
+      selType = "client";
+    }
+  }
   // don't let smart-default rules overwrite the entry's own values
-  setProject(sel ? { ...sel, type: e.projectId ? "project" : "client" } : null, false, false);
+  setProject(sel ? { ...sel, type: selType } : null, false, false);
   // who
   const wantId = e.vendorId || e.employeeId;
   const wantType = e.vendorId ? "vendor" : "employee";

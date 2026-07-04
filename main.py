@@ -506,11 +506,27 @@ def _post_timeactivity(payload, params=None):
     return resp.json().get("TimeActivity", resp.json())
 
 
+def _save_timeactivity(entry: TimeEntry, payload):
+    """Post the payload; if the company rejects ProjectRef (error 9341 —
+    common config-dependent quirk), retry once with the project itself as
+    the CustomerRef, which is how QBO stores project time internally."""
+    try:
+        return _post_timeactivity(payload)
+    except HTTPException as exc:
+        if entry.project_id and "ProjectRef" in str(exc.detail):
+            log.warning("ProjectRef rejected; retrying with project as CustomerRef")
+            retry = dict(payload)
+            retry.pop("ProjectRef", None)
+            retry["CustomerRef"] = {"value": entry.project_id}
+            return _post_timeactivity(retry)
+        raise
+
+
 @app.post("/api/timeactivity")
 def create_time(entry: TimeEntry):
     if not (entry.employee_id or entry.vendor_id):
         raise HTTPException(400, "Pick an employee or vendor.")
-    return _post_timeactivity(_timeactivity_payload(entry))
+    return _save_timeactivity(entry, _timeactivity_payload(entry))
 
 
 @app.put("/api/timeactivity/{entry_id}")
@@ -530,7 +546,7 @@ def update_time(entry_id: str, entry: TimeEntry):
     payload = _timeactivity_payload(entry)
     payload["Id"] = entry_id
     payload["SyncToken"] = read.json()["TimeActivity"]["SyncToken"]
-    return _post_timeactivity(payload)
+    return _save_timeactivity(entry, payload)
 
 
 # ---------------------------------------------------------------------------
