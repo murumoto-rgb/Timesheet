@@ -16,6 +16,7 @@ import json
 import time
 import base64
 import hashlib
+import logging
 import secrets
 import urllib.parse
 from datetime import date, timedelta
@@ -83,9 +84,23 @@ API_BASE = (
 MINOR_VERSION = "75"
 TOKENS_FILE = os.path.join(BASE_DIR, os.environ.get("QBO_TOKENS_FILE", "qbo_tokens.json"))
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("qbo-timesheet")
+
 app = FastAPI(title="QBO Timesheet")
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 _pending_states: set[str] = set()  # CSRF state (fine for a single local user)
+
+
+def _qbo_error(resp):
+    """Log a QBO error with its intuit_tid (support trace id) and return an
+    HTTPException that surfaces both to the client."""
+    tid = resp.headers.get("intuit_tid", "")
+    log.error("QBO error %s tid=%s: %s", resp.status_code, tid, resp.text[:1000])
+    detail = resp.text
+    if tid:
+        detail += f"\n(intuit_tid: {tid})"
+    return HTTPException(resp.status_code, detail)
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +217,8 @@ def _token_request(payload):
         timeout=30,
     )
     if resp.status_code >= 400:
+        tid = resp.headers.get("intuit_tid", "")
+        log.error("Token endpoint error %s tid=%s: %s", resp.status_code, tid, resp.text[:500])
         raise HTTPException(resp.status_code, f"Intuit token endpoint: {resp.text}")
     return resp.json()
 
@@ -236,7 +253,7 @@ def qbo_query(statement):
         timeout=30,
     )
     if resp.status_code >= 400:
-        raise HTTPException(resp.status_code, resp.text)
+        raise _qbo_error(resp)
     return resp.json().get("QueryResponse", {})
 
 
@@ -404,7 +421,7 @@ def create_time(entry: TimeEntry):
     )
     if resp.status_code >= 400:
         # Surface QBO's fault message so validation errors are readable.
-        raise HTTPException(resp.status_code, resp.text)
+        raise _qbo_error(resp)
     return resp.json().get("TimeActivity", resp.json())
 
 
@@ -460,7 +477,7 @@ def delete_time(entry_id: str):
         timeout=30,
     )
     if read.status_code >= 400:
-        raise HTTPException(read.status_code, read.text)
+        raise _qbo_error(read)
     sync_token = read.json()["TimeActivity"]["SyncToken"]
 
     resp = requests.post(
@@ -471,5 +488,5 @@ def delete_time(entry_id: str):
         timeout=30,
     )
     if resp.status_code >= 400:
-        raise HTTPException(resp.status_code, resp.text)
+        raise _qbo_error(resp)
     return {"deleted": entry_id}
