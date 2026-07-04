@@ -325,11 +325,9 @@
           <input type="date" id="date" />
         </div>
         <div>
-          <label>Duration</label>
-          <div class="row">
-            <input type="number" id="hours" min="0" inputmode="numeric" placeholder="hrs" />
-            <input type="number" id="minutes" min="0" max="59" inputmode="numeric" placeholder="min" />
-          </div>
+          <label for="durh">Hours</label>
+          <input type="number" id="durh" min="0" step="0.25" inputmode="decimal"
+                 placeholder="e.g. 1.5" />
         </div>
       </div>
       <div class="chips" id="chips"></div>
@@ -436,7 +434,10 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const PRESETS = [[0,15],[0,30],[1,0],[1,30],[2,0],[4,0],[8,0]];
+const PRESETS = [0.25, 0.5, 1, 1.5, 2, 4, 8];  // decimal hours
+// decimal hours ⇄ minutes
+const hoursToMins = (h) => Math.round((parseFloat(h) || 0) * 60);
+const minsToHours = (m) => parseFloat((m / 60).toFixed(2));
 const REMEMBER = ["item"];   // "who" and "project" are remembered separately
 const ROUND_MINUTES = 15;    // durations round UP to this at save (0 = off)
 let editingId = null;        // id of the entry being edited, or null
@@ -540,21 +541,19 @@ function restoreSelection(sel) {
 
 function buildChips() {
   const box = $("chips");
-  PRESETS.forEach(([h, m]) => {
+  PRESETS.forEach((h) => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "chip";
-    b.textContent = fmtDur(h, m);
+    b.textContent = String(h);
     b.onclick = () => {
-      $("hours").value = h;
-      $("minutes").value = m;
+      $("durh").value = h;
       [...box.children].forEach((c) => c.classList.toggle("on", c === b));
     };
     box.appendChild(b);
   });
   const clear = () => [...box.children].forEach((c) => c.classList.remove("on"));
-  $("hours").addEventListener("input", clear);
-  $("minutes").addEventListener("input", clear);
+  $("durh").addEventListener("input", clear);
 }
 
 // ── Searchable project/client picker ────────────────────────────────
@@ -741,8 +740,8 @@ function fillFormFromEntry(e, dateOverride) {
   // service, date, duration, notes, billable
   if (e.itemId) $("item").value = e.itemId;
   $("date").value = dateOverride || e.date || ymd(new Date());
-  $("hours").value = e.hours || "";
-  $("minutes").value = e.minutes || "";
+  const totalMins = (e.hours || 0) * 60 + (e.minutes || 0);
+  $("durh").value = totalMins ? minsToHours(totalMins) : "";
   $("desc").value = e.description || "";
   $("billable").checked = !!e.billable;
   document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
@@ -771,8 +770,7 @@ function cancelEdit() {
   editingId = null;
   $("submit").textContent = "Log time";
   $("cancelEdit").style.display = "none";
-  $("hours").value = "";
-  $("minutes").value = "";
+  $("durh").value = "";
   $("desc").value = "";
   $("billable").checked = true;  // billable is the default for new entries
   $("msg").className = "msg";
@@ -1294,24 +1292,20 @@ function showLoadError(msg) {
 async function submit() {
   const msg = $("msg");
   msg.className = "msg";
-  let hours = parseInt($("hours").value || "0", 10);
-  let minutes = parseInt($("minutes").value || "0", 10);
-  if (hours === 0 && minutes === 0) {
-    msg.textContent = "Enter a duration first.";
+  let total = hoursToMins($("durh").value);
+  if (total <= 0) {
+    msg.textContent = "Enter the hours first (e.g. 1.5).";
     msg.className = "msg bad";
     return;
   }
   // billing rounds up to the next quarter hour
   let rounded = false;
   if (ROUND_MINUTES > 0) {
-    const total = hours * 60 + minutes;
     const up = Math.ceil(total / ROUND_MINUTES) * ROUND_MINUTES;
-    if (up !== total) {
-      rounded = true;
-      hours = Math.floor(up / 60);
-      minutes = up % 60;
-    }
+    if (up !== total) { rounded = true; total = up; }
   }
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
   const whoOpt = selectedWho();
   if (!whoOpt) {
     msg.textContent = "Pick an employee or vendor first.";
@@ -1352,14 +1346,13 @@ async function submit() {
     localStorage.setItem("last-who-type", whoOpt.dataset.type);
     REMEMBER.forEach((id) => localStorage.setItem("last-" + id, $(id).value));
     if (editing) cancelEdit();       // resets button + clears fields
-    $("hours").value = "";
-    $("minutes").value = "";
+    $("durh").value = "";
     $("desc").value = "";
     document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
     $("billable").checked = true;  // every new entry defaults to billable
     msg.textContent =
       (editing ? "Updated ✓  entry #" : "Logged ✓  entry #") + (data.Id || "") +
-      (rounded ? `  · ${fmtDur(hours, minutes)} (rounded up)` : "");
+      (rounded ? `  · ${minsToHours(total)}h (rounded up)` : "");
     msg.className = "msg good";
     refreshData();
   } catch (e) {
