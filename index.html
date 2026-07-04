@@ -597,18 +597,31 @@ let recentIds = [];      // most-recently-used distinct ids, newest first
 async function loadFrequents() {
   try {
     const entries = await getJSON("/api/timeactivities?days=60");
-    const counts = new Map();
-    const seen = new Set();
-    recentIds = [];
-    // entries arrive newest-first, so first-seen order == recency order
+    const counts = new Map();            // 60-day usage (picker + week grid)
+    const month = new Map();             // last 30 days: {count, mins, last}
+    const cutoff = ymd(addDays(new Date(), -30));
     entries.forEach((e) => {
       const id = e.projectId || e.customerId;
       if (!id) return;
       counts.set(id, (counts.get(id) || 0) + 1);
-      if (!seen.has(id)) { seen.add(id); recentIds.push(id); }
+      if (e.date && e.date >= cutoff) {
+        const s = month.get(id) || { count: 0, mins: 0, last: "" };
+        s.count += 1;
+        s.mins += mins(e);
+        if (e.date > s.last) s.last = e.date;
+        month.set(id, s);
+      }
     });
     frequentIds = [...counts.entries()]
       .sort((a, b) => b[1] - a[1]).slice(0, 15).map(([id]) => id);
+    // rank the last month by how often you worked the project, then by hours,
+    // then by most-recent day — so your active projects lead, stably.
+    recentIds = [...month.entries()]
+      .sort((a, b) =>
+        b[1].count - a[1].count ||
+        b[1].mins - a[1].mins ||
+        (a[1].last < b[1].last ? 1 : -1))
+      .map(([id]) => id);
     renderRecentChips();
   } catch { /* frequents are a nicety — ignore failures */ }
 }
