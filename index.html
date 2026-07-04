@@ -652,18 +652,26 @@ function idToItem(id) {
   return cl ? { ...cl, type: "client" } : null;
 }
 
-// ── Recent-project chips: 5 most-recently-used, newest first ────────
+// Short chip label: last segment after ":", minus the repetitive word
+// "Residence" (falls back to the full segment if stripping empties it).
+function chipLabel(name) {
+  let s = name.includes(":") ? name.split(":").pop() : name;
+  const trimmed = s.replace(/\bresidence\b/gi, "").replace(/\s+/g, " ").trim();
+  return trimmed || s;
+}
+
+// ── Recent-project chips: top 10 of the last 30 days ────────────────
 function renderRecentChips() {
   const box = $("recentChips");
   box.innerHTML = "";
-  const items = recentIds.map(recentChipItem).filter(Boolean).slice(0, 5);
+  const items = recentIds.map(recentChipItem).filter(Boolean).slice(0, 10);
   if (!items.length) { $("recentCard").style.display = "none"; return; }
   $("recentCard").style.display = "block";
   items.forEach((it) => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "chip";
-    b.textContent = it.name.includes(":") ? it.name.split(":").pop() : it.name;
+    b.textContent = chipLabel(it.name);
     b.title = it.name;
     b.dataset.id = it.id;
     b.onclick = () => {
