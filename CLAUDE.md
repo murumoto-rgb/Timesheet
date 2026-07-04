@@ -136,8 +136,15 @@ Field rules that trip people up:
 - Graceful unconfigured state (missing `.env` shows setup instructions instead
   of crashing on import).
 
+## Built so far (continued)
+
+- **Vendor mode**: `/api/vendors`; the "Employee / vendor" dropdown groups both,
+  and create/update send `EmployeeRef` or `VendorRef` with the right `NameOf`.
+- **Edit an entry**: tap a recent/report row to load it into the form; saves via
+  `PUT /api/timeactivity/{id}` (reads `SyncToken`, then posts the full update).
+- **Per-service breakdown** in the Report tab, alongside per-client.
+
 ## Backlog (not yet built)
 
-- Toggle to log under a **Vendor** instead of an Employee.
-- Edit an existing entry (requires `SyncToken` — read it, then sparse update).
 - Timer mode (start/stop instead of typing a duration).
+- CSV export of a period's entries.

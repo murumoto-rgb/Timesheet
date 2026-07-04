@@ -89,6 +89,13 @@
   }
   button.primary:active { filter: brightness(1.1); }
   button.primary:disabled { opacity: 0.5; }
+  button.secondary {
+    width: 100%; margin-top: 10px; padding: 12px; min-height: 46px;
+    background: none; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 10px; font-size: 15px; cursor: pointer;
+  }
+  .entry.editable { cursor: pointer; }
+  .entry.editing { outline: 1px solid var(--accent); border-radius: 8px; }
   .msg { margin-top: 14px; font-size: 13px; font-family: var(--mono); display: none; }
   .msg.good { color: var(--good); display: block; }
   .msg.bad { color: var(--bad); display: block; white-space: pre-wrap; word-break: break-word; }
@@ -277,7 +284,7 @@
 
       <div class="row">
         <div>
-          <label for="employee">Employee</label>
+          <label for="employee">Employee / vendor</label>
           <select id="employee"></select>
         </div>
         <div>
@@ -310,11 +317,12 @@
       </div>
 
       <button class="primary" id="submit">Log time</button>
+      <button class="secondary" id="cancelEdit" style="display:none">Cancel edit</button>
       <div class="msg" id="msg"></div>
     </div>
 
     <div class="card">
-      <h2>Recent entries</h2>
+      <h2 id="recentTitle">Recent entries</h2>
       <div id="entries"><div class="empty">Loading…</div></div>
     </div>
   </div>
@@ -340,6 +348,11 @@
     <div class="card">
       <h2>By project / client</h2>
       <div class="proj" id="projRows"><div class="empty">No time in this period.</div></div>
+    </div>
+
+    <div class="card">
+      <h2>By service</h2>
+      <div class="proj" id="serviceRows"><div class="empty">No time in this period.</div></div>
     </div>
 
     <div class="card">
@@ -377,7 +390,8 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const PRESETS = [[0,15],[0,30],[1,0],[1,30],[2,0],[4,0],[8,0]];
-const REMEMBER = ["employee", "item"];
+const REMEMBER = ["item"];   // "who" and "project" are remembered separately
+let editingId = null;        // id of the entry being edited, or null
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 function fill(sel, items) {
@@ -511,6 +525,8 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
       d.textContent = e.description;
       meta.appendChild(d);
     }
+    row.classList.add("editable");
+    meta.onclick = () => startEdit(e);
     const dur = document.createElement("span");
     dur.className = "dur";
     dur.textContent = fmtDur(e.hours, e.minutes);
@@ -548,6 +564,49 @@ async function loadRecent() {
   } catch {
     box.innerHTML = '<div class="empty">Could not load entries.</div>';
   }
+}
+
+// ── Edit an existing entry ──────────────────────────────────────────
+function startEdit(e) {
+  editingId = e.id;
+  showView("log");
+  // project / client
+  let sel = null;
+  if (e.projectId) sel = pickerItems.projects.find((r) => r.id === e.projectId);
+  if (!sel && e.customerId) sel = pickerItems.clients.find((r) => r.id === e.customerId);
+  setProject(sel ? { ...sel, type: e.projectId ? "project" : "client" } : null, false);
+  // who
+  const wantId = e.vendorId || e.employeeId;
+  const wantType = e.vendorId ? "vendor" : "employee";
+  const opt = [...$("employee").options].find(
+    (o) => o.value === wantId && o.dataset.type === wantType
+  );
+  if (opt) opt.selected = true;
+  // service, date, duration, notes, billable
+  if (e.itemId) $("item").value = e.itemId;
+  $("date").value = e.date || ymd(new Date());
+  $("hours").value = e.hours || "";
+  $("minutes").value = e.minutes || "";
+  $("desc").value = e.description || "";
+  $("billable").checked = !!e.billable;
+  document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+
+  $("submit").textContent = "Update entry";
+  $("cancelEdit").style.display = "block";
+  $("msg").className = "msg";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function cancelEdit() {
+  editingId = null;
+  $("submit").textContent = "Log time";
+  $("cancelEdit").style.display = "none";
+  $("hours").value = "";
+  $("minutes").value = "";
+  $("desc").value = "";
+  $("billable").checked = false;
+  $("msg").className = "msg";
+  document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
 }
 
 // ── Report state ────────────────────────────────────────────────────
@@ -686,22 +745,21 @@ function renderChart(entries) {
   box.appendChild(xl);
 }
 
-function renderProjects(entries) {
-  const box = $("projRows");
-  const byClient = new Map();
+function renderBreakdown(box, entries, keyOf) {
+  const groups = new Map();
   entries.forEach((e) => {
-    const key = e.customer || "(no client)";
-    const cur = byClient.get(key) || { total: 0, billable: 0 };
+    const key = keyOf(e);
+    const cur = groups.get(key) || { total: 0, billable: 0 };
     cur.total += mins(e);
     if (e.billable) cur.billable += mins(e);
-    byClient.set(key, cur);
+    groups.set(key, cur);
   });
-  if (!byClient.size) {
+  if (!groups.size) {
     box.innerHTML = '<div class="empty">No time in this period.</div>';
     return;
   }
   box.innerHTML = "";
-  const rows = [...byClient.entries()].sort((a, b) => b[1].total - a[1].total);
+  const rows = [...groups.entries()].sort((a, b) => b[1].total - a[1].total);
   const max = rows[0][1].total;
   rows.forEach(([name, v]) => {
     const row = document.createElement("div");
@@ -761,7 +819,8 @@ async function renderReport() {
     $("heroSub").appendChild(b);
   }
   renderChart(entries);
-  renderProjects(entries);
+  renderBreakdown($("projRows"), entries, (e) => e.customer || "(no client)");
+  renderBreakdown($("serviceRows"), entries, (e) => e.service || "(no service)");
   $("repEntriesTitle").textContent = "Entries — " + periodLabel();
   renderEntryRows($("repEntries"), entries, { showDate: rep.unit !== "day" });
 }
@@ -828,11 +887,12 @@ async function boot() {
   $("app").style.display = "block";
   $("tabbar").style.display = "flex";
 
-  let proj, emps, items;
+  let proj, emps, vends, items;
   try {
-    [proj, emps, items] = await Promise.all([
+    [proj, emps, vends, items] = await Promise.all([
       getJSON("/api/projects"),
       getJSON("/api/employees"),
+      getJSON("/api/vendors"),
       getJSON("/api/items"),
     ]);
   } catch (e) {
@@ -849,10 +909,43 @@ async function boot() {
   const lastId = localStorage.getItem("last-project");
   setProject(all.find((r) => r.id === lastId) || all[0] || null, false);
 
-  fill($("employee"), emps);
+  // Who: employees and vendors in one dropdown, each option tagged by type.
+  const who = $("employee");
+  who.innerHTML = "";
+  const addWhoGroup = (label, rows, type) => {
+    if (!rows.length) return;
+    const g = document.createElement("optgroup");
+    g.label = label;
+    rows.forEach((r) => {
+      const o = document.createElement("option");
+      o.value = r.id;
+      o.textContent = r.name;
+      o.dataset.type = type;
+      g.appendChild(o);
+    });
+    who.appendChild(g);
+  };
+  addWhoGroup("Employees", emps, "employee");
+  addWhoGroup("Vendors", vends, "vendor");
+  restoreWho();
+
   fill($("item"), items);
   REMEMBER.forEach((id) => restoreSelection($(id)));
   loadRecent();
+}
+
+function selectedWho() {
+  return $("employee").selectedOptions[0] || null;
+}
+
+function restoreWho() {
+  const id = localStorage.getItem("last-who-id");
+  const type = localStorage.getItem("last-who-type");
+  if (!id) return;
+  const opt = [...$("employee").options].find(
+    (o) => o.value === id && o.dataset.type === type
+  );
+  if (opt) opt.selected = true;
 }
 
 async function getJSON(url) {
@@ -886,16 +979,23 @@ async function submit() {
     msg.className = "msg bad";
     return;
   }
+  const whoOpt = selectedWho();
+  if (!whoOpt) {
+    msg.textContent = "Pick an employee or vendor first.";
+    msg.className = "msg bad";
+    return;
+  }
   $("submit").disabled = true;
 
   const body = {
-    employee_id: $("employee").value,
     item_id: $("item").value,
     hours, minutes,
     description: $("desc").value,
     txn_date: $("date").value,
     billable: $("billable").checked,
   };
+  if (whoOpt.dataset.type === "vendor") body.vendor_id = whoOpt.value;
+  else body.employee_id = whoOpt.value;
   if (selProject && selProject.type === "project") {
     body.project_id = selProject.id;
     body.customer_id = selProject.parentId;
@@ -903,21 +1003,28 @@ async function submit() {
     body.customer_id = selProject.id;
   }
 
+  const editing = editingId;
   try {
-    const res = await fetch("/api/timeactivity", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const res = await fetch(
+      editing ? "/api/timeactivity/" + editing : "/api/timeactivity",
+      {
+        method: editing ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
-    msg.textContent = "Logged ✓  entry #" + (data.Id || "");
-    msg.className = "msg good";
+    localStorage.setItem("last-who-id", whoOpt.value);
+    localStorage.setItem("last-who-type", whoOpt.dataset.type);
     REMEMBER.forEach((id) => localStorage.setItem("last-" + id, $(id).value));
+    if (editing) cancelEdit();       // resets button + clears fields
     $("hours").value = "";
     $("minutes").value = "";
     $("desc").value = "";
     document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+    msg.textContent = (editing ? "Updated ✓  entry #" : "Logged ✓  entry #") + (data.Id || "");
+    msg.className = "msg good";
     refreshData();
   } catch (e) {
     msg.textContent = "Failed: " + e.message;
@@ -928,6 +1035,7 @@ async function submit() {
 }
 
 $("submit").addEventListener("click", submit);
+$("cancelEdit").addEventListener("click", cancelEdit);
 boot();
 </script>
 </body>

@@ -430,6 +430,12 @@ def list_employees():
     return [{"id": e["Id"], "name": e.get("DisplayName")} for e in rows.get("Employee", [])]
 
 
+@app.get("/api/vendors")
+def list_vendors():
+    rows = qbo_query("SELECT * FROM Vendor WHERE Active = true MAXRESULTS 1000")
+    return [{"id": v["Id"], "name": v.get("DisplayName")} for v in rows.get("Vendor", [])]
+
+
 @app.get("/api/items")
 def list_items():
     rows = qbo_query(
@@ -442,8 +448,9 @@ def list_items():
 # Routes: create a time entry
 # ---------------------------------------------------------------------------
 class TimeEntry(BaseModel):
-    employee_id: str
     item_id: str
+    employee_id: str | None = None
+    vendor_id: str | None = None  # log under a vendor instead of an employee
     hours: int = 0
     minutes: int = 0
     description: str = ""
@@ -454,20 +461,19 @@ class TimeEntry(BaseModel):
     customer_id: str | None = None  # project's parent, or the client itself
 
 
-@app.post("/api/timeactivity")
-def create_time(entry: TimeEntry):
-    access_token, realm_id = get_access_token()
-
-    payload = {
-        "NameOf": "Employee",
-        "EmployeeRef": {"value": entry.employee_id},
-        "ItemRef": {"value": entry.item_id},  # required on create
+def _timeactivity_payload(entry: TimeEntry):
+    """Build the TimeActivity body shared by create and update."""
+    if entry.vendor_id:
+        payload = {"NameOf": "Vendor", "VendorRef": {"value": entry.vendor_id}}
+    else:
+        payload = {"NameOf": "Employee", "EmployeeRef": {"value": entry.employee_id}}
+    payload |= {
+        "ItemRef": {"value": entry.item_id},  # required
         "Hours": entry.hours,
         "Minutes": entry.minutes,
         "Description": entry.description,
         "TxnDate": entry.txn_date or date.today().isoformat(),
     }
-
     # With Projects enabled, set ProjectRef + the parent CustomerRef.
     if entry.project_id:
         payload["ProjectRef"] = {"value": entry.project_id}
@@ -482,7 +488,11 @@ def create_time(entry: TimeEntry):
             payload["HourlyRate"] = entry.hourly_rate
     else:
         payload["BillableStatus"] = "NotBillable"
+    return payload
 
+
+def _post_timeactivity(payload, params=None):
+    access_token, realm_id = get_access_token()
     resp = requests.post(
         f"{API_BASE}/v3/company/{realm_id}/timeactivity",
         headers={
@@ -490,7 +500,7 @@ def create_time(entry: TimeEntry):
             "Content-Type": "application/json",
             "Accept": "application/json",
         },
-        params={"minorversion": MINOR_VERSION},
+        params={"minorversion": MINOR_VERSION, **(params or {})},
         json=payload,
         timeout=30,
     )
@@ -498,6 +508,33 @@ def create_time(entry: TimeEntry):
         # Surface QBO's fault message so validation errors are readable.
         raise _qbo_error(resp)
     return resp.json().get("TimeActivity", resp.json())
+
+
+@app.post("/api/timeactivity")
+def create_time(entry: TimeEntry):
+    if not (entry.employee_id or entry.vendor_id):
+        raise HTTPException(400, "Pick an employee or vendor.")
+    return _post_timeactivity(_timeactivity_payload(entry))
+
+
+@app.put("/api/timeactivity/{entry_id}")
+def update_time(entry_id: str, entry: TimeEntry):
+    if not (entry.employee_id or entry.vendor_id):
+        raise HTTPException(400, "Pick an employee or vendor.")
+    access_token, realm_id = get_access_token()
+    # Update needs the current SyncToken — read the entity first.
+    read = requests.get(
+        f"{API_BASE}/v3/company/{realm_id}/timeactivity/{entry_id}",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        params={"minorversion": MINOR_VERSION},
+        timeout=30,
+    )
+    if read.status_code >= 400:
+        raise _qbo_error(read)
+    payload = _timeactivity_payload(entry)
+    payload["Id"] = entry_id
+    payload["SyncToken"] = read.json()["TimeActivity"]["SyncToken"]
+    return _post_timeactivity(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -530,10 +567,17 @@ def list_time(days: int = 14, start: str | None = None, end: str | None = None):
                 "minutes": t.get("Minutes", 0),
                 "description": t.get("Description", ""),
                 "employee": (t.get("EmployeeRef") or t.get("VendorRef") or {}).get("name"),
+                "nameOf": t.get("NameOf"),
+                "employeeId": (t.get("EmployeeRef") or {}).get("value"),
+                "vendorId": (t.get("VendorRef") or {}).get("value"),
+                "itemId": (t.get("ItemRef") or {}).get("value"),
+                "service": (t.get("ItemRef") or {}).get("name"),
                 # CustomerRef carries the project's name when the entry is on a project.
                 "customer": (t.get("CustomerRef") or {}).get("name"),
+                "customerId": (t.get("CustomerRef") or {}).get("value"),
                 "projectId": (t.get("ProjectRef") or {}).get("value"),
                 "billable": t.get("BillableStatus") == "Billable",
+                "hourlyRate": t.get("HourlyRate"),
             }
         )
     return entries
