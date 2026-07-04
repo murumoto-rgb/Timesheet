@@ -1,5 +1,8 @@
 // Service worker: shows the daily reminder and focuses the app on tap.
 // The reminder message is fixed here (server sends a payloadless push).
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+
 self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification("Timesheet", {

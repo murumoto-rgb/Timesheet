@@ -118,7 +118,7 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 # current 6-digit code from an authenticator app (1Password, Google
 # Authenticator, etc). Unset = password-only.
 TOTP_SECRET = os.environ.get("TOTP_SECRET", "").replace(" ", "").upper()
-_PUBLIC_PATHS = {"/", "/login", "/api/status", "/eula", "/privacy"}
+_PUBLIC_PATHS = {"/", "/login", "/api/status", "/eula", "/privacy", "/sw.js"}
 
 
 def _totp(secret_b32, when=None, step=30, digits=6):
@@ -329,6 +329,18 @@ def index():
     return FileResponse(
         os.path.join(BASE_DIR, "index.html"),
         headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/sw.js")
+def service_worker():
+    # Served from root so the worker's scope is "/" (covers the whole app);
+    # from /static it would only control /static and serviceWorker.ready
+    # would never resolve for the page at /.
+    return FileResponse(
+        os.path.join(BASE_DIR, "static", "sw.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
     )
 
 

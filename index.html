@@ -712,7 +712,7 @@ async function enableReminders() {
   try {
     const perm = await Notification.requestPermission();
     if (perm !== "granted") { showToast("Notifications weren't allowed. Enable them in Settings for this app.", "", null); return; }
-    const reg = await withTimeout(navigator.serviceWorker.register("/static/sw.js"), 8000, "Service worker");
+    const reg = await withTimeout(navigator.serviceWorker.register("/sw.js"), 8000, "Service worker");
     await withTimeout(navigator.serviceWorker.ready, 8000, "Service worker");
     const cfg = await getJSON("/api/push/config");
     let sub = await reg.pushManager.getSubscription();
@@ -1086,16 +1086,25 @@ async function renderWeekGrid() {
   pickerItems.projects.forEach((r) => itemMap.set(r.id, { ...r, type: "project" }));
   pickerItems.clients.forEach((r) => { if (!itemMap.has(r.id)) itemMap.set(r.id, { ...r, type: "client" }); });
   const rowsById = new Map();
+  const shortName = (n) => (n && n.includes(":") ? n.split(":").pop() : n);
   const rowFor = (id, fallbackName) => {
     if (!rowsById.has(id)) {
       let item = itemMap.get(id) || null;
       if (!item && fallbackName) {
-        // fall back to matching by name (e.g. renamed or oddly-ref'd customers)
+        // try a name match (renamed/oddly-ref'd customers)
         item = [...itemMap.values()].find((it) => it.name === fallbackName) || null;
       }
+      // Still unresolved but the entry carries a real id + name — use them
+      // directly, so tapping logs to the exact customer without needing a
+      // picker match (the id is what actually fills the right project).
+      if (!item && id !== "none" && fallbackName) {
+        item = { id, name: fallbackName, type: "client" };
+      }
+      const full = (item && item.name) || fallbackName || "(no client)";
       rowsById.set(id, {
         item,
-        name: (item && item.name) || fallbackName || "(no client)",
+        name: shortName(full) || full,   // weekly shows the short sub/project name
+        fullName: full,                  // tooltip keeps the full Client:Sub
         days: new Array(7).fill(0),
         total: 0,
       });
@@ -1126,7 +1135,7 @@ async function renderWeekGrid() {
   rows.forEach((r) => {
     const div = wgEl("div", "wg-row");
     const name = wgEl("span", "wg-name", r.name);
-    name.title = r.name;
+    name.title = r.fullName || r.name;
     div.appendChild(name);
     r.days.forEach((m, i) => {
       const b = document.createElement("button");
@@ -1418,7 +1427,7 @@ async function boot() {
   });
   $("remindLink").onclick = (ev) => { ev.preventDefault(); enableReminders(); };
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
 
   const status = await (await fetch("/api/status")).json();
