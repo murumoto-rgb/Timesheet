@@ -405,22 +405,18 @@ def callback(code: str = "", state: str = "", realmId: str = ""):
 # ---------------------------------------------------------------------------
 @app.get("/api/projects")
 def list_projects():
-    """Return QBO Projects (with their parent customer) and top-level clients."""
+    """Return QBO Projects (with their parent customer) and all other customers
+    — top-level clients AND sub-customers/jobs (shown by qualified name)."""
     rows = qbo_query("SELECT * FROM Customer WHERE Active = true MAXRESULTS 1000")
     customers = rows.get("Customer", [])
     projects, clients = [], []
     for c in customers:
+        name = c.get("FullyQualifiedName") or c.get("DisplayName")
         if c.get("IsProject"):
             parent = c.get("ParentRef", {})
-            projects.append(
-                {
-                    "id": c["Id"],
-                    "name": c.get("FullyQualifiedName", c.get("DisplayName")),
-                    "parentId": parent.get("value"),
-                }
-            )
-        elif not c.get("Job"):  # a plain top-level customer, not a sub-customer/job
-            clients.append({"id": c["Id"], "name": c.get("DisplayName")})
+            projects.append({"id": c["Id"], "name": name, "parentId": parent.get("value")})
+        else:
+            clients.append({"id": c["Id"], "name": name})
     return {"projects": projects, "clients": clients}
 
 

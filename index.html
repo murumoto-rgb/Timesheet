@@ -822,7 +822,11 @@ async function renderWeekGrid() {
   const rowsById = new Map();
   const rowFor = (id, fallbackName) => {
     if (!rowsById.has(id)) {
-      const item = itemMap.get(id) || null;
+      let item = itemMap.get(id) || null;
+      if (!item && fallbackName) {
+        // fall back to matching by name (e.g. renamed or oddly-ref'd customers)
+        item = [...itemMap.values()].find((it) => it.name === fallbackName) || null;
+      }
       rowsById.set(id, {
         item,
         name: (item && item.name) || fallbackName || "(no client)",
@@ -863,17 +867,21 @@ async function renderWeekGrid() {
       b.type = "button";
       b.className = "wg-cell" + (m ? " has" : "");
       b.textContent = m ? fmtCell(m) : "·";
-      if (r.item) {
-        b.onclick = () => {
-          setProject(r.item);
-          $("date").value = ymd(addDays(start, i));
-          showView("log");
-          window.scrollTo({ top: 0 });
-          $("hours").focus();
-        };
-      } else {
-        b.disabled = true;
-      }
+      // Always respond to a tap: switch to the Log form with the date set.
+      // If we couldn't match the row to a picker item, ask for a manual pick.
+      b.onclick = () => {
+        if (r.item) setProject(r.item);
+        $("date").value = ymd(addDays(start, i));
+        showView("log");
+        const msg = $("msg");
+        if (!r.item) {
+          msg.textContent = `Couldn't match "${r.name}" — pick the project/client above.`;
+          msg.className = "msg bad";
+        } else {
+          msg.className = "msg";
+        }
+        window.scrollTo({ top: 0 });
+      };
       div.appendChild(b);
     });
     div.appendChild(wgEl("span", "wg-tot", r.total ? fmtMins(r.total) : ""));
