@@ -1,0 +1,29 @@
+name: keep-render-awake
+
+# Pings the app so Render's FREE tier doesn't sleep after ~15 min idle.
+# Not needed on the Starter plan (always-on) — harmless if left enabled.
+# If your Render URL differs, set a repo variable RENDER_URL (Settings →
+# Secrets and variables → Actions → Variables), else the default below is used.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every 10 minutes (well under the 15-min sleep)
+  workflow_dispatch: {}       # allow a manual run from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake the app
+        env:
+          URL: ${{ vars.RENDER_URL || 'https://qbo-timesheet.onrender.com' }}
+        run: |
+          # /api/status is public (no auth) and cheap. Retry to cover a
+          # cold start; never fail the job (avoids noisy failure emails).
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 90 "$URL/api/status" || echo 000)
+            echo "attempt $i -> HTTP $code"
+            [ "$code" = "200" ] && break
+            sleep 30
+          done
+          exit 0
