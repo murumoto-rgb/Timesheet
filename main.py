@@ -36,9 +36,43 @@ CLIENT_SECRET = os.environ.get("QBO_CLIENT_SECRET", "")
 REDIRECT_URI = os.environ.get("QBO_REDIRECT_URI", "http://localhost:8000/callback")
 ENVIRONMENT = os.environ.get("QBO_ENVIRONMENT", "sandbox").lower()
 
-AUTH_URL = "https://appcenter.intuit.com/connect/oauth2"
-TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 SCOPE = "com.intuit.quickbooks.accounting"
+
+# OAuth endpoints come from Intuit's OpenID discovery document (best practice —
+# they stay current if Intuit ever moves an endpoint). The documented values
+# below are the fallback if the discovery fetch fails, so auth never breaks.
+DISCOVERY_URL = (
+    "https://developer.api.intuit.com/.well-known/openid_sandbox_configuration"
+    if ENVIRONMENT == "sandbox"
+    else "https://developer.api.intuit.com/.well-known/openid_configuration"
+)
+_FALLBACK_AUTH_URL = "https://appcenter.intuit.com/connect/oauth2"
+_FALLBACK_TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
+_discovery_cache: dict[str, str] = {}
+
+
+def _discover():
+    """Fetch + cache authorization/token endpoints from Intuit's discovery doc."""
+    if not _discovery_cache:
+        try:
+            doc = requests.get(
+                DISCOVERY_URL, headers={"Accept": "application/json"}, timeout=15
+            ).json()
+            _discovery_cache["auth"] = doc["authorization_endpoint"]
+            _discovery_cache["token"] = doc["token_endpoint"]
+        except Exception:
+            # Network hiccup or schema change — fall back to the documented URLs.
+            _discovery_cache["auth"] = _FALLBACK_AUTH_URL
+            _discovery_cache["token"] = _FALLBACK_TOKEN_URL
+    return _discovery_cache
+
+
+def auth_url():
+    return _discover()["auth"]
+
+
+def token_url():
+    return _discover()["token"]
 
 API_BASE = (
     "https://sandbox-quickbooks.api.intuit.com"
@@ -158,7 +192,7 @@ def _basic_auth_header():
 
 def _token_request(payload):
     resp = requests.post(
-        TOKEN_URL,
+        token_url(),
         headers={
             "Authorization": _basic_auth_header(),
             "Content-Type": "application/x-www-form-urlencoded",
@@ -252,7 +286,7 @@ def connect():
         "redirect_uri": REDIRECT_URI,
         "state": state,
     }
-    return RedirectResponse(f"{AUTH_URL}?{urllib.parse.urlencode(params)}")
+    return RedirectResponse(f"{auth_url()}?{urllib.parse.urlencode(params)}")
 
 
 @app.get("/callback")
