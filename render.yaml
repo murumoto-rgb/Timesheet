@@ -1,0 +1,27 @@
+# Render blueprint — deploy with "New + → Blueprint" at dashboard.render.com
+# Starter plan + 1GB disk so qbo_tokens.json survives restarts and deploys.
+services:
+  - type: web
+    name: qbo-timesheet
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips '*'
+    autoDeploy: true
+    disk:
+      name: qbo-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: QBO_TOKENS_FILE
+        value: /data/qbo_tokens.json
+      - key: QBO_ENVIRONMENT
+        value: sandbox          # flip to "production" after Intuit grants prod keys
+      - key: QBO_CLIENT_ID
+        sync: false             # set in the Render dashboard
+      - key: QBO_CLIENT_SECRET
+        sync: false
+      - key: QBO_REDIRECT_URI
+        sync: false             # https://<your-app>.onrender.com/callback
+      - key: APP_PASSWORD
+        sync: false             # pick a good password — this gates the whole app

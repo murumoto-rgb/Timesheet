@@ -214,6 +214,13 @@
   fill in your Intuit app's Client ID and Secret, then restart.</p>
 </div>
 
+<div class="card" id="loginCard" style="display:none">
+  <label for="pw">App password</label>
+  <input type="password" id="pw" autocomplete="current-password" />
+  <button class="primary" id="pwGo">Sign in</button>
+  <div class="msg" id="pwMsg"></div>
+</div>
+
 <div class="card connect" id="connect">
   <p class="sub">Not connected to QuickBooks yet.</p>
   <a href="/connect">Connect QuickBooks</a>
@@ -681,6 +688,22 @@ async function boot() {
   $("env").textContent = status.environment;
   $("env").classList.toggle("production", status.environment === "production");
   if (!status.configured) { $("setup").style.display = "block"; return; }
+  if (status.auth_required && !status.authed) {
+    $("loginCard").style.display = "block";
+    const go = async () => {
+      const res = await fetch("/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: $("pw").value }),
+      });
+      if (res.ok) location.reload();
+      else { $("pwMsg").textContent = "Wrong password."; $("pwMsg").className = "msg bad"; }
+    };
+    $("pwGo").onclick = go;
+    $("pw").addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    $("pw").focus();
+    return;
+  }
   if (!status.connected) { $("connect").style.display = "block"; return; }
   $("app").style.display = "block";
   $("tabbar").style.display = "flex";

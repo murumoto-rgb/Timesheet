@@ -11,16 +11,18 @@ Run:
 """
 import os
 import re
+import hmac
 import json
 import time
 import base64
+import hashlib
 import secrets
 import urllib.parse
 from datetime import date, timedelta
 
 import requests
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import RedirectResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -50,6 +52,54 @@ TOKENS_FILE = os.path.join(BASE_DIR, os.environ.get("QBO_TOKENS_FILE", "qbo_toke
 app = FastAPI(title="QBO Timesheet")
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 _pending_states: set[str] = set()  # CSRF state (fine for a single local user)
+
+
+# ---------------------------------------------------------------------------
+# Password gate (only active when APP_PASSWORD is set — required for hosting)
+# ---------------------------------------------------------------------------
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+_PUBLIC_PATHS = {"/", "/login", "/api/status"}
+
+
+def _auth_cookie_value():
+    key = hashlib.sha256(f"{APP_PASSWORD}:{CLIENT_SECRET}".encode()).digest()
+    return hmac.new(key, b"qbo-timesheet-auth-v1", hashlib.sha256).hexdigest()
+
+
+def _is_authed(request: Request) -> bool:
+    if not APP_PASSWORD:
+        return True
+    return hmac.compare_digest(request.cookies.get("ts_auth", ""), _auth_cookie_value())
+
+
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    path = request.url.path
+    if APP_PASSWORD and path not in _PUBLIC_PATHS and not path.startswith("/static/"):
+        if not _is_authed(request):
+            return JSONResponse({"detail": "Sign in required."}, status_code=401)
+    return await call_next(request)
+
+
+class Login(BaseModel):
+    password: str
+
+
+@app.post("/login")
+def login(body: Login, request: Request):
+    if APP_PASSWORD and not hmac.compare_digest(body.password, APP_PASSWORD):
+        raise HTTPException(401, "Wrong password.")
+    resp = JSONResponse({"ok": True})
+    if APP_PASSWORD:
+        resp.set_cookie(
+            "ts_auth",
+            _auth_cookie_value(),
+            max_age=180 * 24 * 3600,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+        )
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +185,13 @@ def index():
 
 
 @app.get("/api/status")
-def status():
+def status(request: Request):
     return {
         "connected": _load_tokens() is not None,
         "environment": ENVIRONMENT,
         "configured": bool(CLIENT_ID and CLIENT_SECRET),
+        "auth_required": bool(APP_PASSWORD),
+        "authed": _is_authed(request),
     }
 
 
