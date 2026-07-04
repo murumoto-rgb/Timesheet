@@ -828,17 +828,23 @@ async function boot() {
   $("app").style.display = "block";
   $("tabbar").style.display = "flex";
 
-  const [proj, emps, items] = await Promise.all([
-    fetch("/api/projects").then((r) => r.json()),
-    fetch("/api/employees").then((r) => r.json()),
-    fetch("/api/items").then((r) => r.json()),
-  ]);
+  let proj, emps, items;
+  try {
+    [proj, emps, items] = await Promise.all([
+      getJSON("/api/projects"),
+      getJSON("/api/employees"),
+      getJSON("/api/items"),
+    ]);
+  } catch (e) {
+    showLoadError(e.message);
+    return;
+  }
 
-  pickerItems = { projects: proj.projects, clients: proj.clients };
+  pickerItems = { projects: proj.projects || [], clients: proj.clients || [] };
   initPicker();
   const all = [
-    ...proj.projects.map((r) => ({ ...r, type: "project" })),
-    ...proj.clients.map((r) => ({ ...r, type: "client" })),
+    ...pickerItems.projects.map((r) => ({ ...r, type: "project" })),
+    ...pickerItems.clients.map((r) => ({ ...r, type: "client" })),
   ];
   const lastId = localStorage.getItem("last-project");
   setProject(all.find((r) => r.id === lastId) || all[0] || null, false);
@@ -847,6 +853,27 @@ async function boot() {
   fill($("item"), items);
   REMEMBER.forEach((id) => restoreSelection($(id)));
   loadRecent();
+}
+
+async function getJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json()).detail || ""; } catch { detail = await res.text(); }
+    throw new Error(`${url} → ${res.status}${detail ? ": " + detail : ""}`);
+  }
+  return res.json();
+}
+
+function showLoadError(msg) {
+  const box = document.createElement("div");
+  box.className = "card";
+  box.innerHTML = '<h2>Couldn\'t load your QuickBooks data</h2>' +
+    '<div class="msg bad" style="display:block"></div>' +
+    '<p class="sub" style="margin-top:12px">If this persists, try ' +
+    '<a href="/connect" style="color:var(--accent)">reconnecting QuickBooks</a>.</p>';
+  box.querySelector(".msg").textContent = msg;
+  $("logView").prepend(box);
 }
 
 async function submit() {
