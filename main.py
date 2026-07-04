@@ -153,6 +153,10 @@ async def require_password(request: Request, call_next):
     path = request.url.path
     if APP_PASSWORD and path not in _PUBLIC_PATHS and not path.startswith("/static/"):
         if not _is_authed(request):
+            # Browser page navigations get sent to the sign-in screen; API
+            # calls get a JSON 401 the frontend can handle.
+            if request.method == "GET" and not path.startswith("/api/"):
+                return RedirectResponse("/")
             return JSONResponse({"detail": "Sign in required."}, status_code=401)
     return await call_next(request)
 
