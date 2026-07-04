@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Time Log</title>
+<style>
+  :root {
+    --bg: #12161c;
+    --panel: #1b2129;
+    --line: #2b333e;
+    --ink: #e6ebf1;
+    --muted: #8a97a6;
+    --accent: #4c9be8;
+    --good: #57b894;
+    --bad: #e0736b;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.5;
+    display: flex; justify-content: center; padding: 32px 16px;
+  }
+  .card {
+    width: 100%; max-width: 460px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 28px;
+  }
+  .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .env {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+  label {
+    display: block; font-family: var(--mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted);
+    margin: 16px 0 6px;
+  }
+  input, select, textarea {
+    width: 100%; background: #0e1217; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px 11px; font-size: 14px; font-family: var(--sans);
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(76,155,232,0.2);
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .dur { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+  .check input { width: auto; }
+  .check label { margin: 0; }
+  button {
+    width: 100%; margin-top: 24px; padding: 12px;
+    background: var(--accent); color: #06121f; border: none; border-radius: 6px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .msg { margin-top: 16px; font-size: 13px; font-family: var(--mono); display: none; }
+  .msg.good { color: var(--good); display: block; }
+  .msg.bad { color: var(--bad); display: block; white-space: pre-wrap; word-break: break-word; }
+  .connect { text-align: center; padding: 8px 0; }
+  .connect a {
+    display: inline-block; margin-top: 12px; padding: 11px 20px;
+    background: var(--accent); color: #06121f; border-radius: 6px;
+    text-decoration: none; font-weight: 600; font-size: 14px;
+  }
+  #form { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <h1>Time Log</h1>
+    <span class="env" id="env"></span>
+  </div>
+  <p class="sub">Record an entry straight into QuickBooks.</p>
+
+  <div class="connect" id="connect" style="display:none">
+    <p class="sub">Not connected to QuickBooks yet.</p>
+    <a href="/connect">Connect QuickBooks</a>
+  </div>
+
+  <div id="form">
+    <label for="project">Project / client</label>
+    <select id="project"></select>
+
+    <label for="employee">Employee</label>
+    <select id="employee"></select>
+
+    <label for="item">Service</label>
+    <select id="item"></select>
+
+    <div class="row">
+      <div>
+        <label for="date">Date</label>
+        <input type="date" id="date" />
+      </div>
+      <div>
+        <label>Duration</label>
+        <div class="dur">
+          <input type="number" id="hours" min="0" placeholder="hrs" />
+          <input type="number" id="minutes" min="0" max="59" placeholder="min" />
+        </div>
+      </div>
+    </div>
+
+    <label for="desc">Notes</label>
+    <textarea id="desc" placeholder="What did you work on?"></textarea>
+
+    <div class="check">
+      <input type="checkbox" id="billable" />
+      <label for="billable">Billable</label>
+    </div>
+
+    <button id="submit">Log time</button>
+    <div class="msg" id="msg"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function fill(sel, items, valueKey, labelKey, dataFn) {
+  sel.innerHTML = "";
+  items.forEach((it) => {
+    const o = document.createElement("option");
+    o.value = it[valueKey];
+    o.textContent = it[labelKey];
+    if (dataFn) dataFn(o, it);
+    sel.appendChild(o);
+  });
+}
+
+async function boot() {
+  $("date").value = new Date().toISOString().slice(0, 10);
+  const status = await (await fetch("/api/status")).json();
+  $("env").textContent = status.environment;
+  if (!status.connected) {
+    $("connect").style.display = "block";
+    return;
+  }
+  $("form").style.display = "block";
+
+  const [proj, emps, items] = await Promise.all([
+    fetch("/api/projects").then((r) => r.json()),
+    fetch("/api/employees").then((r) => r.json()),
+    fetch("/api/items").then((r) => r.json()),
+  ]);
+
+  // Projects first (with their parent id), then plain clients.
+  const sel = $("project");
+  sel.innerHTML = "";
+  const addGroup = (label, rows, type) => {
+    if (!rows.length) return;
+    const g = document.createElement("optgroup");
+    g.label = label;
+    rows.forEach((r) => {
+      const o = document.createElement("option");
+      o.value = r.id;
+      o.textContent = r.name;
+      o.dataset.type = type;
+      if (r.parentId) o.dataset.parent = r.parentId;
+      g.appendChild(o);
+    });
+    sel.appendChild(g);
+  };
+  addGroup("Projects", proj.projects, "project");
+  addGroup("Clients", proj.clients, "client");
+
+  fill($("employee"), emps, "id", "name");
+  fill($("item"), items, "id", "name");
+}
+
+async function submit() {
+  const opt = $("project").selectedOptions[0];
+  const msg = $("msg");
+  msg.className = "msg";
+  $("submit").disabled = true;
+
+  const body = {
+    employee_id: $("employee").value,
+    item_id: $("item").value,
+    hours: parseInt($("hours").value || "0", 10),
+    minutes: parseInt($("minutes").value || "0", 10),
+    description: $("desc").value,
+    txn_date: $("date").value,
+    billable: $("billable").checked,
+  };
+  if (opt && opt.dataset.type === "project") {
+    body.project_id = opt.value;
+    body.customer_id = opt.dataset.parent;
+  } else if (opt) {
+    body.customer_id = opt.value;
+  }
+
+  try {
+    const res = await fetch("/api/timeactivity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    msg.textContent = "Logged \u2713  entry #" + (data.Id || "");
+    msg.className = "msg good";
+    $("hours").value = "";
+    $("minutes").value = "";
+    $("desc").value = "";
+  } catch (e) {
+    msg.textContent = "Failed: " + e.message;
+    msg.className = "msg bad";
+  } finally {
+    $("submit").disabled = false;
+  }
+}
+
+$("submit").addEventListener("click", submit);
+boot();
+</script>
+</body>
+</html>
