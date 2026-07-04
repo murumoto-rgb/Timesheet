@@ -27,6 +27,17 @@ cp .env.example .env
 
 ## 3. Run
 
+**Mac, no terminal:** put `Timesheet.command` on your Desktop and double-click
+it. It pulls the latest code from GitHub, installs dependencies into a private
+virtualenv, starts the server, and opens the app. Keep the window open while
+you use the app. One-time install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/murumoto-rgb/Timesheet/main/Timesheet.command -o ~/Desktop/Timesheet.command && chmod +x ~/Desktop/Timesheet.command
+```
+
+**Manual:**
+
 ```bash
 pip install -r requirements.txt
 uvicorn main:app --reload
