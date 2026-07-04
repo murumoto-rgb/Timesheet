@@ -26,3 +26,8 @@ services:
         sync: false             # https://<your-app>.onrender.com/callback
       - key: APP_PASSWORD
         sync: false             # pick a good password — this gates the whole app
+      # Optional daily-reminder push (VAPID keys auto-generate on the disk):
+      - key: REMINDER_HOUR
+        value: "17"             # local hour to nudge if nothing logged (24h)
+      - key: REMINDER_TZ
+        value: America/Los_Angeles

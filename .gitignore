@@ -1,5 +1,6 @@
 .env
 qbo_tokens.json
+qbo_push.json
 __pycache__/
 *.pyc
 .venv/

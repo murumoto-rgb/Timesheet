@@ -19,8 +19,14 @@ import struct
 import hashlib
 import logging
 import secrets
+import threading
 import urllib.parse
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 import requests
 from fastapi import FastAPI, HTTPException, Request
@@ -203,35 +209,58 @@ def _sb_headers():
     }
 
 
-def _load_tokens():
+# Push data (VAPID keys + subscriptions) persists next to the tokens.
+PUSH_FILE = os.path.join(os.path.dirname(TOKENS_FILE) or BASE_DIR, "qbo_push.json")
+
+
+def _load_blob(path, sb_id):
     if SUPABASE_URL and SUPABASE_KEY:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/qbo_tokens",
-            params={"id": "eq.1", "select": "data"},
+            params={"id": f"eq.{sb_id}", "select": "data"},
             headers=_sb_headers(),
             timeout=15,
         )
         resp.raise_for_status()
         rows = resp.json()
         return rows[0]["data"] if rows else None
-    if not os.path.exists(TOKENS_FILE):
+    if not os.path.exists(path):
         return None
-    with open(TOKENS_FILE) as f:
-        return json.load(f)
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, ValueError):
+        return None  # empty/corrupt file — treat as absent
 
 
-def _save_tokens(data):
+def _save_blob(path, sb_id, data):
     if SUPABASE_URL and SUPABASE_KEY:
         resp = requests.post(
             f"{SUPABASE_URL}/rest/v1/qbo_tokens",
             headers={**_sb_headers(), "Prefer": "resolution=merge-duplicates"},
-            json=[{"id": 1, "data": data}],
+            json=[{"id": sb_id, "data": data}],
             timeout=15,
         )
         resp.raise_for_status()
         return
-    with open(TOKENS_FILE, "w") as f:
+    with open(path, "w") as f:
         json.dump(data, f, indent=2)
+
+
+def _load_tokens():
+    return _load_blob(TOKENS_FILE, 1)
+
+
+def _save_tokens(data):
+    _save_blob(TOKENS_FILE, 1, data)
+
+
+def _load_push():
+    return _load_blob(PUSH_FILE, 2) or {}
+
+
+def _save_push(data):
+    _save_blob(PUSH_FILE, 2, data)
 
 
 def _basic_auth_header():
@@ -608,3 +637,169 @@ def delete_time(entry_id: str):
     if resp.status_code >= 400:
         raise _qbo_error(resp)
     return {"deleted": entry_id}
+
+
+# ---------------------------------------------------------------------------
+# Daily reminder — Web Push (payloadless VAPID; message lives in the SW).
+# Self-contained: VAPID keys are generated once and persisted with the push
+# blob, so no manual key setup is needed. Reminders only fire when at least
+# one device has subscribed. Config via env: REMINDER_HOUR (default 17),
+# REMINDER_TZ (default America/Los_Angeles), REMINDER_WEEKDAYS_ONLY (default 1).
+# ---------------------------------------------------------------------------
+REMINDER_HOUR = int(os.environ.get("REMINDER_HOUR", "17"))
+REMINDER_TZ = os.environ.get("REMINDER_TZ", "America/Los_Angeles")
+REMINDER_WEEKDAYS_ONLY = os.environ.get("REMINDER_WEEKDAYS_ONLY", "1") != "0"
+_push_lock = threading.Lock()
+
+
+def _b64u(b):
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+
+def _vapid():
+    """Return the persisted VAPID keypair, generating + saving it on first use."""
+    with _push_lock:
+        push = _load_push()
+        if not push.get("vapid"):
+            priv = ec.generate_private_key(ec.SECP256R1())
+            priv_pem = priv.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ).decode()
+            pub_raw = priv.public_key().public_bytes(
+                serialization.Encoding.X962,
+                serialization.PublicFormat.UncompressedPoint,
+            )
+            push["vapid"] = {"private_pem": priv_pem, "app_key": _b64u(pub_raw)}
+            push.setdefault("subs", [])
+            _save_push(push)
+        return push["vapid"]
+
+
+def _vapid_jwt(endpoint):
+    """Signed ES256 VAPID JWT scoped to the push endpoint's origin."""
+    parts = urllib.parse.urlsplit(endpoint)
+    aud = f"{parts.scheme}://{parts.netloc}"
+    header = _b64u(json.dumps({"typ": "JWT", "alg": "ES256"}).encode())
+    claims = _b64u(json.dumps({
+        "aud": aud,
+        "exp": int(time.time()) + 12 * 3600,
+        "sub": "mailto:mb@baykalconsulting.com",
+    }).encode())
+    priv = serialization.load_pem_private_key(_vapid()["private_pem"].encode(), password=None)
+    der = priv.sign(f"{header}.{claims}".encode(), ec.ECDSA(hashes.SHA256()))
+    r, s = decode_dss_signature(der)
+    sig = _b64u(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
+    return f"{header}.{claims}.{sig}"
+
+
+def _send_push(sub):
+    """POST a payloadless push to one subscription. Returns False if the
+    subscription is gone (404/410) so the caller can prune it."""
+    endpoint = sub.get("endpoint")
+    if not endpoint:
+        return True
+    try:
+        resp = requests.post(
+            endpoint,
+            headers={
+                "Authorization": f"vapid t={_vapid_jwt(endpoint)},k={_vapid()['app_key']}",
+                "TTL": "86400",
+            },
+            timeout=15,
+        )
+        if resp.status_code in (404, 410):
+            return False
+        if resp.status_code >= 400:
+            log.warning("push send %s: %s", resp.status_code, resp.text[:200])
+        return True
+    except Exception as e:
+        log.warning("push send error: %s", e)
+        return True
+
+
+def _notify_all():
+    """Send the reminder to every subscribed device; prune dead subs."""
+    push = _load_push()
+    subs = push.get("subs", [])
+    if not subs:
+        return 0
+    alive = [s for s in subs if _send_push(s)]
+    if len(alive) != len(subs):
+        push["subs"] = alive
+        _save_push(push)
+    return len(alive)
+
+
+def _logged_time_today(tz_today):
+    try:
+        rows = qbo_query(
+            f"SELECT * FROM TimeActivity WHERE TxnDate = '{tz_today}' MAXRESULTS 1"
+        )
+        return bool(rows.get("TimeActivity"))
+    except Exception:
+        return True  # on any doubt, don't nag
+
+
+def _reminder_tick():
+    push = _load_push()
+    if not push.get("subs"):
+        return
+    now = datetime.now(ZoneInfo(REMINDER_TZ))
+    today = now.date().isoformat()
+    if push.get("last_reminder") == today:
+        return
+    if now.hour < REMINDER_HOUR:
+        return
+    if REMINDER_WEEKDAYS_ONLY and now.weekday() >= 5:
+        return
+    # one QBO check per day, inside the window
+    push["last_reminder"] = today
+    _save_push(push)
+    if not _logged_time_today(today):
+        n = _notify_all()
+        log.info("daily reminder sent to %d device(s)", n)
+
+
+def _reminder_loop():
+    while True:
+        try:
+            _reminder_tick()
+        except Exception as e:
+            log.warning("reminder tick error: %s", e)
+        time.sleep(900)  # every 15 min
+
+
+@app.on_event("startup")
+def _start_reminder():
+    threading.Thread(target=_reminder_loop, daemon=True).start()
+
+
+class PushSub(BaseModel):
+    endpoint: str
+    keys: dict | None = None
+
+
+@app.get("/api/push/config")
+def push_config():
+    return {"appKey": _vapid()["app_key"], "reminderHour": REMINDER_HOUR}
+
+
+@app.post("/api/push/subscribe")
+def push_subscribe(sub: PushSub):
+    with _push_lock:
+        push = _load_push()
+        push.setdefault("subs", [])
+        if not any(s.get("endpoint") == sub.endpoint for s in push["subs"]):
+            push["subs"].append(sub.model_dump())
+            _save_push(push)
+    return {"subscribed": True, "devices": len(_load_push().get("subs", []))}
+
+
+@app.post("/api/push/test")
+def push_test():
+    n = _notify_all()
+    if not n:
+        raise HTTPException(400, "No subscribed devices. Enable reminders first.")
+    return {"sent": n}

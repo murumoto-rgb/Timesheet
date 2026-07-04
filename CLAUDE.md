@@ -165,7 +165,18 @@ Field rules that trip people up:
   cancel-edit).
 - **Week tab**: projects × Mon–Sun grid (rows = this week's entries plus
   frequent projects, sorted by hours; day/row/grand totals). Tapping a cell
-  prefills the Log form with that project and date.
+  types decimal hours inline and posts a new entry for that project+day
+  (falls back to the Log form when who/service can't be auto-resolved).
+- **Quick-log cards**: top repeated combos (who+project+service+duration,
+  last 60 days) shown atop the Log tab; one tap posts instantly with an
+  Undo toast.
+- **Recent-project chips** under the Project field (top frequent projects).
+- **Daily reminder push** (optional): payloadless Web Push, VAPID keys
+  auto-generated + persisted with `_load_push`/`_save_push`. A background
+  thread (`_reminder_loop`) nudges once/day past `REMINDER_HOUR` in
+  `REMINDER_TZ` if no time is logged (weekdays only by default). Enrolled
+  via the "Daily reminders" footer link; message lives in `static/sw.js`.
+  Only `cryptography` was added (payloadless avoids the http-ece dep).
 
 ## Backlog (not yet built)
 

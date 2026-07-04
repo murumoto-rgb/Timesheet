@@ -270,6 +270,42 @@
   }
   .wg-foot .wg-cell, .wg-foot .wg-name { color: var(--muted); font-size: 10px; }
   .wg-foot .wg-tot { color: var(--ink); font-weight: 650; }
+
+  /* ── Quick-log cards ──────────────────────────── */
+  #quickCards { display: flex; flex-direction: column; gap: 8px; }
+  .qcard {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 12px 14px; min-height: 52px; text-align: left; cursor: pointer;
+    background: var(--field); border: 1px solid var(--line); border-radius: 10px;
+    color: var(--ink);
+  }
+  .qcard:active { border-color: var(--accent); }
+  .qcard .qc-main { flex: 1; min-width: 0; }
+  .qcard .qc-proj { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .qcard .qc-sub { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .qcard .qc-dur { font-family: var(--mono); font-size: 16px; flex-shrink: 0; }
+  .qcard .qc-bill { color: var(--good); font-size: 12px; }
+
+  /* ── Toast (undo) ─────────────────────────────── */
+  .toast {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 30;
+    display: flex; align-items: center; gap: 14px; max-width: 90vw;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+    padding: 10px 10px 10px 18px; box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+    font-size: 14px;
+  }
+  .toast button {
+    background: var(--accent); color: #06121f; border: none; border-radius: 999px;
+    padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; min-height: 36px;
+  }
+
+  /* inline week-grid input */
+  .wg-cell input {
+    width: 100%; height: 100%; min-height: 40px; text-align: center;
+    background: var(--field); border: 1px solid var(--accent); border-radius: 6px;
+    color: var(--ink); font-family: var(--mono); font-size: 13px; padding: 0;
+  }
 </style>
 </head>
 <body>
@@ -302,11 +338,17 @@
 
 <div id="app">
   <div id="logView">
+    <div class="card" id="quickCard" style="display:none">
+      <h2>Quick log — one tap</h2>
+      <div id="quickCards"></div>
+    </div>
+
     <div class="card">
       <label for="projectBtn">Project / client</label>
       <button type="button" class="pickbtn" id="projectBtn">
         <span id="projectName">Select…</span>
       </button>
+      <div class="chips" id="projChips"></div>
 
       <div class="row">
         <div>
@@ -404,6 +446,7 @@
 
   <div class="foot">
     <a href="/mfa-setup">Set up two-factor</a> ·
+    <a href="#" id="remindLink">Daily reminders</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
 </div>
@@ -415,6 +458,11 @@
            autocomplete="off" autocorrect="off" autocapitalize="off" />
     <div class="picker-list" id="pickerList"></div>
   </div>
+</div>
+
+<div id="toast" class="toast" style="display:none">
+  <span id="toastMsg"></span>
+  <button id="toastAction" type="button"></button>
 </div>
 
 <nav class="tabbar" id="tabbar" style="display:none">
@@ -560,19 +608,32 @@ function buildChips() {
 let pickerItems = { projects: [], clients: [] };
 let selProject = null;   // {id, name, type: "project"|"client", parentId?}
 let frequentIds = [];    // most-used project/client ids, last 60 days
+let quickCombos = [];    // most-repeated full entries, last 60 days
 
 async function loadFrequents() {
   try {
     const entries = await getJSON("/api/timeactivities?days=60");
     const counts = new Map();
+    const combos = new Map();
     entries.forEach((e) => {
       const id = e.projectId || e.customerId;
       if (id) counts.set(id, (counts.get(id) || 0) + 1);
+      // a quick-log combo = who + project + service + duration + billable
+      const who = e.vendorId ? "v" + e.vendorId : "e" + e.employeeId;
+      const key = [who, id || "", e.itemId || "", mins(e), e.billable ? 1 : 0].join("|");
+      const c = combos.get(key) || { count: 0, e };
+      c.count += 1;
+      combos.set(key, c);
     });
     frequentIds = [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 15)
-      .map(([id]) => id);
+      .sort((a, b) => b[1] - a[1]).slice(0, 15).map(([id]) => id);
+    quickCombos = [...combos.values()]
+      .filter((c) => c.count >= 2 && mins(c.e) > 0 && (c.e.employeeId || c.e.vendorId) && c.e.itemId)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+      .map((c) => c.e);
+    renderQuickCards();
+    renderProjChips();
   } catch { /* frequents are a nicety — ignore failures */ }
 }
 
@@ -583,11 +644,164 @@ function frequentItems() {
   return frequentIds.map((id) => byId.get(id)).filter(Boolean);
 }
 
+// ── Quick-log cards: one tap to post a repeated entry, with Undo ─────
+function renderQuickCards() {
+  const box = $("quickCards");
+  box.innerHTML = "";
+  if (!quickCombos.length) { $("quickCard").style.display = "none"; return; }
+  $("quickCard").style.display = "block";
+  quickCombos.forEach((e) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "qcard";
+    const main = document.createElement("div");
+    main.className = "qc-main";
+    const proj = document.createElement("div");
+    proj.className = "qc-proj";
+    const nm = e.customer || "(no client)";
+    proj.textContent = nm.includes(":") ? nm.split(":").pop() : nm;
+    proj.title = nm;
+    const sub = document.createElement("div");
+    sub.className = "qc-sub";
+    sub.textContent = e.service || "";
+    main.append(proj, sub);
+    const dur = document.createElement("span");
+    dur.className = "qc-dur";
+    dur.textContent = minsToHours(mins(e)) + "h";
+    if (e.billable) {
+      const bl = document.createElement("span");
+      bl.className = "qc-bill";
+      bl.textContent = " $";
+      dur.appendChild(bl);
+    }
+    b.append(main, dur);
+    b.onclick = () => quickLog(e);
+    box.appendChild(b);
+  });
+}
+
+async function quickLog(e) {
+  const body = {
+    item_id: e.itemId,
+    hours: e.hours || 0,
+    minutes: e.minutes || 0,
+    txn_date: ymd(new Date()),
+    billable: !!e.billable,
+    description: e.description || "",
+  };
+  if (e.vendorId) body.vendor_id = e.vendorId; else body.employee_id = e.employeeId;
+  const cid = e.projectId || e.customerId;
+  if (cid) body.customer_id = cid;
+  try {
+    const res = await fetch("/api/timeactivity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    showToast(`Logged ${e.customer || ""} · ${minsToHours(mins(e))}h`, "Undo", async () => {
+      await fetch("/api/timeactivity/" + data.Id, { method: "DELETE" });
+      refreshData();
+    });
+    refreshData();
+  } catch (err) {
+    showToast("Quick log failed: " + err.message, "", null);
+  }
+}
+
+// ── Daily reminder push ─────────────────────────────────────────────
+function urlBase64ToUint8Array(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const s = (b64 + pad).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(s);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+const withTimeout = (promise, ms, label) =>
+  Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(label + " timed out")), ms)),
+  ]);
+
+async function enableReminders() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+    showToast("Reminders need the installed app. On iPhone: Share → Add to Home Screen, then open from the icon.", "", null);
+    return;
+  }
+  showToast("Enabling reminders…", "", null);
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { showToast("Notifications weren't allowed. Enable them in Settings for this app.", "", null); return; }
+    const reg = await withTimeout(navigator.serviceWorker.register("/static/sw.js"), 8000, "Service worker");
+    await withTimeout(navigator.serviceWorker.ready, 8000, "Service worker");
+    const cfg = await getJSON("/api/push/config");
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await withTimeout(reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(cfg.appKey),
+      }), 10000, "Subscription");
+    }
+    const res = await fetch("/api/push/subscribe", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sub.toJSON()),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const h = cfg.reminderHour;
+    const hr = ((h + 11) % 12 + 1) + (h < 12 ? " AM" : " PM");
+    showToast(`Daily reminders on. You'll get a nudge around ${hr} if nothing's logged.`, "", null);
+  } catch (e) {
+    showToast("Couldn't enable reminders: " + e.message, "", null);
+  }
+}
+
+let toastTimer = null;
+function showToast(text, actionLabel, onAction) {
+  clearTimeout(toastTimer);
+  $("toastMsg").textContent = text;
+  const btn = $("toastAction");
+  if (actionLabel && onAction) {
+    btn.style.display = "";
+    btn.textContent = actionLabel;
+    btn.onclick = () => { hideToast(); onAction(); };
+  } else {
+    btn.style.display = "none";
+  }
+  $("toast").style.display = "flex";
+  toastTimer = setTimeout(hideToast, 6000);
+}
+function hideToast() { $("toast").style.display = "none"; }
+
 function setProject(item, save = true, apply = true) {
   selProject = item;
   $("projectName").textContent = item ? item.name : "Select…";
   if (item && save) localStorage.setItem("last-project", item.id);
   if (apply) applyRules();
+  markProjChips();
+}
+
+// Top frequent projects as one-tap chips beneath the picker button.
+function renderProjChips() {
+  const box = $("projChips");
+  box.innerHTML = "";
+  frequentItems().slice(0, 5).forEach((it) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    // last path segment keeps chips short (e.g. "Clevenger Residence")
+    b.textContent = it.name.includes(":") ? it.name.split(":").pop() : it.name;
+    b.title = it.name;
+    b.dataset.id = it.id;
+    b.onclick = () => setProject(it);
+    box.appendChild(b);
+  });
+  markProjChips();
+}
+
+function markProjChips() {
+  [...$("projChips").children].forEach((c) =>
+    c.classList.toggle("on", !!selProject && c.dataset.id === selProject.id));
 }
 
 function renderPickerList(q) {
@@ -802,6 +1016,93 @@ const fmtCell = (m) =>
   m >= 60 ? Math.floor(m / 60) + ":" + String(m % 60).padStart(2, "0")
           : ":" + String(m).padStart(2, "0");
 
+// Resolve the "who" and service for a quick inline/grid entry, using the
+// smart-default rules and last-used values — no form interaction.
+function resolveWhoOption() {
+  const id = localStorage.getItem("last-who-id");
+  const type = localStorage.getItem("last-who-type");
+  let opt = null;
+  if (id) opt = [...$("employee").options].find((o) => o.value === id && o.dataset.type === type);
+  return opt || $("employee").selectedOptions[0] || $("employee").options[0] || null;
+}
+function resolveServiceId(projectItem, whoOpt) {
+  const projRule = projectItem ? RULES.project.find((r) => r.name.test(projectItem.name)) : null;
+  const whoRule = whoOpt ? RULES.who.find((r) => r.name.test(whoOpt.textContent)) : null;
+  const rule = projRule || whoRule;
+  if (rule) {
+    const opt = findServiceOption(rule.service);
+    if (opt) return opt.value;
+  }
+  return localStorage.getItem("last-item") || $("item").value || "";
+}
+
+function openCellInForm(r, dayIndex, start) {
+  if (r.item) setProject(r.item);
+  $("date").value = ymd(addDays(start, dayIndex));
+  showView("log");
+  const msg = $("msg");
+  if (!r.item) {
+    msg.textContent = `Couldn't match "${r.name}" — pick the project/client above.`;
+    msg.className = "msg bad";
+  } else {
+    msg.className = "msg";
+  }
+  window.scrollTo({ top: 0 });
+}
+
+// Tap a grid cell → type decimal hours inline → posts a new entry for that
+// project + day. Falls back to the Log form when who/service can't be resolved.
+function inlineCell(cell, r, dayIndex, start) {
+  const whoOpt = resolveWhoOption();
+  const itemId = r.item ? resolveServiceId(r.item, whoOpt) : "";
+  if (!r.item || !whoOpt || !itemId) { openCellInForm(r, dayIndex, start); return; }
+
+  const prev = cell.textContent;
+  cell.textContent = "";
+  const inp = document.createElement("input");
+  inp.type = "number"; inp.step = "0.25"; inp.min = "0"; inp.inputMode = "decimal";
+  cell.appendChild(inp);
+  inp.focus();
+
+  let done = false;
+  const restore = () => { if (!done) { done = true; cell.textContent = prev; } };
+  const commit = async () => {
+    if (done) return;
+    const val = parseFloat(inp.value);
+    if (!val || val <= 0) { restore(); return; }
+    done = true;
+    let total = hoursToMins(val);
+    if (ROUND_MINUTES > 0) total = Math.ceil(total / ROUND_MINUTES) * ROUND_MINUTES;
+    const body = {
+      item_id: itemId,
+      hours: Math.floor(total / 60), minutes: total % 60,
+      txn_date: ymd(addDays(start, dayIndex)),
+      billable: true, description: "",
+      customer_id: r.item.id,
+    };
+    if (whoOpt.dataset.type === "vendor") body.vendor_id = whoOpt.value;
+    else body.employee_id = whoOpt.value;
+    cell.textContent = "…";
+    try {
+      const res = await fetch("/api/timeactivity", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      showToast(`Logged ${r.name} · ${minsToHours(total)}h`, "", null);
+    } catch (err) {
+      showToast("Failed: " + err.message, "", null);
+    }
+    renderWeekGrid();
+    loadRecent();
+  };
+  inp.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); commit(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); restore(); }
+  });
+  inp.addEventListener("blur", commit);
+}
+
 let wgSeq = 0;
 async function renderWeekGrid() {
   const start = mondayOf(wg.anchor);
@@ -876,21 +1177,7 @@ async function renderWeekGrid() {
       b.type = "button";
       b.className = "wg-cell" + (m ? " has" : "");
       b.textContent = m ? fmtCell(m) : "·";
-      // Always respond to a tap: switch to the Log form with the date set.
-      // If we couldn't match the row to a picker item, ask for a manual pick.
-      b.onclick = () => {
-        if (r.item) setProject(r.item);
-        $("date").value = ymd(addDays(start, i));
-        showView("log");
-        const msg = $("msg");
-        if (!r.item) {
-          msg.textContent = `Couldn't match "${r.name}" — pick the project/client above.`;
-          msg.className = "msg bad";
-        } else {
-          msg.className = "msg";
-        }
-        window.scrollTo({ top: 0 });
-      };
+      b.onclick = () => inlineCell(b, r, i, start);
       div.appendChild(b);
     });
     div.appendChild(wgEl("span", "wg-tot", r.total ? fmtMins(r.total) : ""));
@@ -1173,6 +1460,10 @@ async function boot() {
   document.querySelectorAll("#tabbar button").forEach((b) => {
     b.onclick = () => showView(b.dataset.view);
   });
+  $("remindLink").onclick = (ev) => { ev.preventDefault(); enableReminders(); };
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+  }
 
   const status = await (await fetch("/api/status")).json();
   $("env").textContent = status.environment;
