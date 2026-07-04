@@ -630,7 +630,9 @@ def list_time(days: int = 14, start: str | None = None, end: str | None = None):
                 "customer": (t.get("CustomerRef") or {}).get("name"),
                 "customerId": (t.get("CustomerRef") or {}).get("value"),
                 "projectId": (t.get("ProjectRef") or {}).get("value"),
-                "billable": t.get("BillableStatus") == "Billable",
+                # billable work = billable-not-yet-invoiced OR already-invoiced
+                "billable": t.get("BillableStatus") in ("Billable", "HasBeenBilled"),
+                "billableStatus": t.get("BillableStatus"),
                 "hourlyRate": t.get("HourlyRate"),
             }
         )

@@ -158,8 +158,12 @@ Field rules that trip people up:
   service PR + billable; Garner Consulting → PE; project name containing
   GCG → GCG (project rule beats who rule). Rules set defaults on selection
   and never fire while editing an existing entry.
-- **Report person filter**: Everyone / per employee-or-vendor select that
-  scopes the hero, chart, breakdowns, and entry list.
+- **Report person filter**: chips (All + each employee/vendor with time in
+  the period, shown only when >1 person — same as the Week tab) that scope
+  the hero, chart, breakdowns, and entry list.
+- **Billable = billable work**, counting both `Billable` (not yet invoiced)
+  and `HasBeenBilled` (already invoiced). The API also returns the raw
+  `billableStatus` per entry.
 - **Repeat entry**: ⟳ on every entry row copies it into the form as a new
   entry dated today.
 - **Duration rounding**: durations round UP to 15 min at save

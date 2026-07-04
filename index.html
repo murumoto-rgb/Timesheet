@@ -404,9 +404,7 @@
       <button data-unit="week" class="on">Week</button>
       <button data-unit="month">Month</button>
     </div>
-    <select id="repWho" style="margin-bottom:14px">
-      <option value="">Everyone</option>
-    </select>
+    <div class="chips" id="repPeople" style="margin-bottom:14px"></div>
 
     <div class="card">
       <div class="nav">
@@ -1157,7 +1155,25 @@ async function renderWeekGrid() {
 }
 
 // ── Report state ────────────────────────────────────────────────────
-const rep = { unit: "week", anchor: new Date() };
+const rep = { unit: "week", anchor: new Date(), person: "" };  // person "" = All
+
+// People-filter chips for the report (employees + vendors with time in the
+// period). Same pattern as the week grid; only shown when >1 person.
+function renderRepPeople(people) {
+  const box = $("repPeople");
+  box.innerHTML = "";
+  if (people.length < 2) return;
+  const mk = (label, val) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip" + (rep.person === val ? " on" : "");
+    b.textContent = label;
+    b.onclick = () => { rep.person = val; renderReport(); };
+    box.appendChild(b);
+  };
+  mk("All", "");
+  people.forEach((p) => mk(p, p));
+}
 
 function mondayOf(d) {
   return addDays(d, -((d.getDay() + 6) % 7));
@@ -1354,8 +1370,11 @@ async function renderReport() {
   }
   if (seq !== repSeq) return;  // a newer render superseded this one
 
-  const person = $("repWho").value;
-  if (person) entries = entries.filter((e) => e.employee === person);
+  // people with time in this period → filter chips; then scope the report
+  const people = [...new Set(entries.map((e) => e.employee).filter(Boolean))].sort();
+  if (rep.person && !people.includes(rep.person)) rep.person = "";
+  renderRepPeople(people);
+  if (rep.person) entries = entries.filter((e) => e.employee === rep.person);
 
   let total = 0, billable = 0;
   entries.forEach((e) => { total += mins(e); if (e.billable) billable += mins(e); });
@@ -1496,16 +1515,6 @@ async function boot() {
   REMEMBER.forEach((id) => restoreSelection($(id)));
   applyRules();          // apply smart defaults for the restored selections
   buildTemplates();
-
-  // report person filter: everyone + each employee/vendor
-  const rw = $("repWho");
-  [...emps, ...vends].forEach((p) => {
-    const o = document.createElement("option");
-    o.value = p.name;
-    o.textContent = p.name;
-    rw.appendChild(o);
-  });
-  rw.onchange = () => renderReport();
 
   loadRecent();
   loadFrequents();
