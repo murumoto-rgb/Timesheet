@@ -309,6 +309,7 @@
       <div class="chips" id="chips"></div>
 
       <label for="desc">Notes</label>
+      <select id="template" style="margin-bottom:8px"></select>
       <textarea id="desc" placeholder="What did you work on?"></textarea>
 
       <div class="check">
@@ -333,6 +334,9 @@
       <button data-unit="week" class="on">Week</button>
       <button data-unit="month">Month</button>
     </div>
+    <select id="repWho" style="margin-bottom:14px">
+      <option value="">Everyone</option>
+    </select>
 
     <div class="card">
       <div class="nav">
@@ -392,6 +396,79 @@ const $ = (id) => document.getElementById(id);
 const PRESETS = [[0,15],[0,30],[1,0],[1,30],[2,0],[4,0],[8,0]];
 const REMEMBER = ["item"];   // "who" and "project" are remembered separately
 let editingId = null;        // id of the entry being edited, or null
+
+const TEMPLATES = [
+  "Document review.",
+  "Communications.",
+  "Document review, communications.",
+  "Data reduction and analysis.",
+  "Travel to/from site, conduct site visit, data review and organization.",
+  "Structural analysis, document review.",
+];
+
+// Smart defaults, matched by name (case-insensitive). Project rules beat
+// who rules. They set defaults on selection — you can always override.
+const RULES = {
+  who: [
+    { name: /murat baykal/i, service: "PR", billable: true },
+    { name: /garner consulting/i, service: "PE" },
+  ],
+  project: [
+    { name: /gcg/i, service: "GCG" },
+  ],
+};
+
+function findServiceOption(code) {
+  const opts = [...$("item").options];
+  const low = code.toLowerCase();
+  return (
+    opts.find((o) => o.textContent.trim().toLowerCase() === low) ||
+    opts.find((o) => o.textContent.trim().toLowerCase().startsWith(low)) ||
+    opts.find((o) => o.textContent.toLowerCase().includes(low)) ||
+    null
+  );
+}
+
+function activeProjectRule() {
+  if (!selProject) return null;
+  return RULES.project.find((r) => r.name.test(selProject.name)) || null;
+}
+
+function applyRules() {
+  // project rule wins; otherwise the who rule (if any) applies
+  const projRule = activeProjectRule();
+  const whoOpt = selectedWho();
+  const whoRule = whoOpt
+    ? RULES.who.find((r) => r.name.test(whoOpt.textContent))
+    : null;
+  const rule = projRule || whoRule;
+  if (rule) {
+    const opt = findServiceOption(rule.service);
+    if (opt) $("item").value = opt.value;
+  }
+  if (whoRule && whoRule.billable !== undefined) {
+    $("billable").checked = whoRule.billable;
+  }
+}
+
+function buildTemplates() {
+  const sel = $("template");
+  sel.innerHTML = "";
+  const ph = document.createElement("option");
+  ph.value = "";
+  ph.textContent = "Insert a standard description…";
+  sel.appendChild(ph);
+  TEMPLATES.forEach((t) => {
+    const o = document.createElement("option");
+    o.value = t;
+    o.textContent = t;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => {
+    if (sel.value) $("desc").value = sel.value;
+    sel.value = "";
+  };
+}
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 function fill(sel, items) {
@@ -439,11 +516,35 @@ function buildChips() {
 // ── Searchable project/client picker ────────────────────────────────
 let pickerItems = { projects: [], clients: [] };
 let selProject = null;   // {id, name, type: "project"|"client", parentId?}
+let frequentIds = [];    // most-used project/client ids, last 60 days
 
-function setProject(item, save = true) {
+async function loadFrequents() {
+  try {
+    const entries = await getJSON("/api/timeactivities?days=60");
+    const counts = new Map();
+    entries.forEach((e) => {
+      const id = e.projectId || e.customerId;
+      if (id) counts.set(id, (counts.get(id) || 0) + 1);
+    });
+    frequentIds = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15)
+      .map(([id]) => id);
+  } catch { /* frequents are a nicety — ignore failures */ }
+}
+
+function frequentItems() {
+  const byId = new Map();
+  pickerItems.projects.forEach((r) => byId.set(r.id, { ...r, type: "project" }));
+  pickerItems.clients.forEach((r) => { if (!byId.has(r.id)) byId.set(r.id, { ...r, type: "client" }); });
+  return frequentIds.map((id) => byId.get(id)).filter(Boolean);
+}
+
+function setProject(item, save = true, apply = true) {
   selProject = item;
   $("projectName").textContent = item ? item.name : "Select…";
   if (item && save) localStorage.setItem("last-project", item.id);
+  if (apply) applyRules();
 }
 
 function renderPickerList(q) {
@@ -451,9 +552,15 @@ function renderPickerList(q) {
   const list = $("pickerList");
   list.innerHTML = "";
   const match = (rows) => rows.filter((r) => r.name.toLowerCase().includes(q));
+  const groups = [];
+  if (!q) {
+    const freq = frequentItems();
+    if (freq.length) groups.push(["Frequent", freq, null]);
+  }
+  groups.push(["Projects", match(pickerItems.projects), "project"]);
+  groups.push(["Clients", match(pickerItems.clients), "client"]);
   let any = false;
-  [["Projects", match(pickerItems.projects), "project"],
-   ["Clients", match(pickerItems.clients), "client"]].forEach(([label, rows, type]) => {
+  groups.forEach(([label, rows, type]) => {
     if (!rows.length) return;
     any = true;
     const g = document.createElement("div");
@@ -466,7 +573,7 @@ function renderPickerList(q) {
       b.className = "pick-item";
       b.textContent = r.name;
       if (selProject && selProject.id === r.id) b.classList.add("sel");
-      b.onclick = () => { setProject({ ...r, type }); closePicker(); };
+      b.onclick = () => { setProject({ ...r, type: type || r.type }); closePicker(); };
       list.appendChild(b);
     });
   });
@@ -574,7 +681,8 @@ function startEdit(e) {
   let sel = null;
   if (e.projectId) sel = pickerItems.projects.find((r) => r.id === e.projectId);
   if (!sel && e.customerId) sel = pickerItems.clients.find((r) => r.id === e.customerId);
-  setProject(sel ? { ...sel, type: e.projectId ? "project" : "client" } : null, false);
+  // don't let smart-default rules overwrite the entry's own values
+  setProject(sel ? { ...sel, type: e.projectId ? "project" : "client" } : null, false, false);
   // who
   const wantId = e.vendorId || e.employeeId;
   const wantType = e.vendorId ? "vendor" : "employee";
@@ -807,6 +915,9 @@ async function renderReport() {
   }
   if (seq !== repSeq) return;  // a newer render superseded this one
 
+  const person = $("repWho").value;
+  if (person) entries = entries.filter((e) => e.employee === person);
+
   let total = 0, billable = 0;
   entries.forEach((e) => { total += mins(e); if (e.billable) billable += mins(e); });
   $("heroTotal").textContent = fmtMins(total);
@@ -928,10 +1039,25 @@ async function boot() {
   addWhoGroup("Employees", emps, "employee");
   addWhoGroup("Vendors", vends, "vendor");
   restoreWho();
+  who.addEventListener("change", applyRules);
 
   fill($("item"), items);
   REMEMBER.forEach((id) => restoreSelection($(id)));
+  applyRules();          // apply smart defaults for the restored selections
+  buildTemplates();
+
+  // report person filter: everyone + each employee/vendor
+  const rw = $("repWho");
+  [...emps, ...vends].forEach((p) => {
+    const o = document.createElement("option");
+    o.value = p.name;
+    o.textContent = p.name;
+    rw.appendChild(o);
+  });
+  rw.onchange = () => renderReport();
+
   loadRecent();
+  loadFrequents();
 }
 
 function selectedWho() {

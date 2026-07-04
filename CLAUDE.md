@@ -143,6 +143,16 @@ Field rules that trip people up:
 - **Edit an entry**: tap a recent/report row to load it into the form; saves via
   `PUT /api/timeactivity/{id}` (reads `SyncToken`, then posts the full update).
 - **Per-service breakdown** in the Report tab, alongside per-client.
+- **Frequent picks**: picker sheet leads with the top-15 most-used
+  projects/clients from the last 60 days of entries.
+- **Notes templates**: dropdown of standard descriptions (edit the
+  `TEMPLATES` array in `index.html`).
+- **Smart defaults** (`RULES` in `index.html`, name-matched): Murat Baykal →
+  service PR + billable; Garner Consulting → PE; project name containing
+  GCG → GCG (project rule beats who rule). Rules set defaults on selection
+  and never fire while editing an existing entry.
+- **Report person filter**: Everyone / per employee-or-vendor select that
+  scopes the hero, chart, breakdowns, and entry list.
 
 ## Backlog (not yet built)
 
