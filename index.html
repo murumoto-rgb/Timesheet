@@ -96,6 +96,11 @@
   }
   .entry.editable { cursor: pointer; }
   .entry.editing { outline: 1px solid var(--accent); border-radius: 8px; }
+  #editBanner {
+    background: rgba(76,155,232,0.14); border: 1px solid var(--accent);
+    color: var(--accent); border-radius: 8px; padding: 10px 12px;
+    font-size: 13px; margin-bottom: 14px;
+  }
   .msg { margin-top: 14px; font-size: 13px; font-family: var(--mono); display: none; }
   .msg.good { color: var(--good); display: block; }
   .msg.bad { color: var(--bad); display: block; white-space: pre-wrap; word-break: break-word; }
@@ -329,6 +334,7 @@
     </div>
 
     <div class="card" id="logForm">
+      <div id="editBanner" style="display:none">✎ Editing an existing entry — saving updates it</div>
       <label for="projectBtn">Project / client</label>
       <button type="button" class="pickbtn" id="projectBtn">
         <span id="projectName">Select…</span>
@@ -935,6 +941,7 @@ function startEdit(e) {
   fillFormFromEntry(e);
   $("submit").textContent = "Update entry";
   $("cancelEdit").style.display = "block";
+  $("editBanner").style.display = "block";
   $("msg").className = "msg";
 }
 
@@ -942,6 +949,7 @@ function copyEntry(e) {
   editingId = null;
   $("submit").textContent = "Log time";
   $("cancelEdit").style.display = "none";
+  $("editBanner").style.display = "none";
   fillFormFromEntry(e, ymd(new Date()));  // same entry, dated today
   const msg = $("msg");
   msg.textContent = "Copied to a new entry for today — review and tap Log time.";
@@ -952,6 +960,7 @@ function cancelEdit() {
   editingId = null;
   $("submit").textContent = "Log time";
   $("cancelEdit").style.display = "none";
+  $("editBanner").style.display = "none";
   $("durh").value = "";
   $("desc").value = "";
   $("billable").checked = true;  // billable is the default for new entries
@@ -1000,90 +1009,37 @@ function resolveWhoOption() {
   if (id) opt = [...$("employee").options].find((o) => o.value === id && o.dataset.type === type);
   return opt || $("employee").selectedOptions[0] || $("employee").options[0] || null;
 }
-function resolveServiceId(projectItem, whoOpt) {
-  const projRule = projectItem ? RULES.project.find((r) => r.name.test(projectItem.name)) : null;
-  const whoRule = whoOpt ? RULES.who.find((r) => r.name.test(whoOpt.textContent)) : null;
-  const rule = projRule || whoRule;
-  if (rule) {
-    const opt = findServiceOption(rule.service);
-    if (opt) return opt.value;
-  }
-  return localStorage.getItem("last-item") || $("item").value || "";
-}
-
 function personWhoOption() {
   // when the week is filtered to a person, log/prefill as that person
   if (!wg.person) return null;
   return [...$("employee").options].find((o) => o.textContent === wg.person) || null;
 }
 
+// Tap a blank cell → open the Log form pre-filled as a NEW entry for that
+// project + day, with me (or the filtered person) and my default service.
 function openCellInForm(r, dayIndex, start) {
-  if (r.item) setProject(r.item);
-  const pOpt = personWhoOption();
-  if (pOpt) pOpt.selected = true;
+  cancelEdit();  // ensure a fresh (non-edit) entry, banner off
+  const who = personWhoOption() || resolveWhoOption();
+  if (who) who.selected = true;
+  if (r.item) setProject(r.item);   // setProject → applyRules picks the service
   $("date").value = ymd(addDays(start, dayIndex));
   showView("log");
-  const msg = $("msg");
-  if (!r.item) {
-    msg.textContent = `Couldn't match "${r.name}" — pick the project/client above.`;
-    msg.className = "msg bad";
-  } else {
-    msg.className = "msg";
-  }
   window.scrollTo({ top: 0 });
 }
 
-// Tap a grid cell → type decimal hours inline → posts a new entry for that
-// project + day. Falls back to the Log form when who/service can't be resolved.
-function inlineCell(cell, r, dayIndex, start) {
-  const whoOpt = personWhoOption() || resolveWhoOption();
-  const itemId = r.item ? resolveServiceId(r.item, whoOpt) : "";
-  if (!r.item || !whoOpt || !itemId) { openCellInForm(r, dayIndex, start); return; }
-
-  const prev = cell.textContent;
-  cell.textContent = "";
-  const inp = document.createElement("input");
-  inp.type = "number"; inp.step = "0.25"; inp.min = "0"; inp.inputMode = "decimal";
-  cell.appendChild(inp);
-  inp.focus();
-
-  let done = false;
-  const restore = () => { if (!done) { done = true; cell.textContent = prev; } };
-  const commit = async () => {
-    if (done) return;
-    const val = parseFloat(inp.value);
-    if (!val || val <= 0) { restore(); return; }
-    done = true;
-    let total = hoursToMins(val);
-    if (ROUND_MINUTES > 0) total = Math.ceil(total / ROUND_MINUTES) * ROUND_MINUTES;
-    const body = {
-      item_id: itemId,
-      hours: Math.floor(total / 60), minutes: total % 60,
-      txn_date: ymd(addDays(start, dayIndex)),
-      billable: true, description: "",
-      customer_id: r.item.id,
-    };
-    if (whoOpt.dataset.type === "vendor") body.vendor_id = whoOpt.value;
-    else body.employee_id = whoOpt.value;
-    cell.textContent = "…";
-    try {
-      const res = await fetch("/api/timeactivity", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      showToast(`Logged ${r.name} · ${minsToHours(total)}h`, "", null);
-    } catch (err) {
-      showToast("Failed: " + err.message, "", null);
+// Tap a grid cell: edit the existing entry there, or open a fresh form.
+function weekCellTap(r, dayIndex, start) {
+  const cellEntries = (r.dayEntries && r.dayEntries[dayIndex]) || [];
+  if (cellEntries.length) {
+    startEdit(cellEntries[0]);   // most recent first (entries sorted desc)
+    if (cellEntries.length > 1) {
+      const msg = $("msg");
+      msg.textContent = `Editing the latest of ${cellEntries.length} entries here — the others are in Recent entries.`;
+      msg.className = "msg good";
     }
-    renderWeekGrid();
-    loadRecent();
-  };
-  inp.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter") { ev.preventDefault(); commit(); }
-    else if (ev.key === "Escape") { ev.preventDefault(); restore(); }
-  });
-  inp.addEventListener("blur", commit);
+  } else {
+    openCellInForm(r, dayIndex, start);
+  }
 }
 
 let wgSeq = 0;
@@ -1139,6 +1095,7 @@ async function renderWeekGrid() {
         name: shortName(full) || full,   // weekly shows the short sub/project name
         fullName: full,                  // tooltip keeps the full Client:Sub
         days: new Array(7).fill(0),
+        dayEntries: Array.from({ length: 7 }, () => []),  // entries per day
         total: 0,
       });
     }
@@ -1147,7 +1104,7 @@ async function renderWeekGrid() {
   entries.forEach((e) => {
     const r = rowFor(e.projectId || e.customerId || "none", e.customer);
     const i = Math.round((new Date(e.date + "T00:00") - start) / 86400000);
-    if (i >= 0 && i < 7) { r.days[i] += mins(e); r.total += mins(e); }
+    if (i >= 0 && i < 7) { r.days[i] += mins(e); r.total += mins(e); r.dayEntries[i].push(e); }
   });
   // pad with frequent projects so common rows are tappable even when empty
   frequentItems().forEach((it) => {
@@ -1175,7 +1132,7 @@ async function renderWeekGrid() {
       b.type = "button";
       b.className = "wg-cell" + (m ? " has" : "");
       b.textContent = m ? fmtCell(m) : "·";
-      b.onclick = () => inlineCell(b, r, i, start);
+      b.onclick = () => weekCellTap(r, i, start);
       div.appendChild(b);
     });
     div.appendChild(wgEl("span", "wg-tot", r.total ? fmtMins(r.total) : ""));

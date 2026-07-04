@@ -167,9 +167,13 @@ Field rules that trip people up:
 - **Billable by default** for all new entries (boot, post-submit reset,
   cancel-edit).
 - **Week tab**: projects × Mon–Sun grid (rows = this week's entries plus
-  frequent projects, sorted by hours; day/row/grand totals). Tapping a cell
-  types decimal hours inline and posts a new entry for that project+day
-  (falls back to the Log form when who/service can't be auto-resolved).
+  frequent projects, sorted by hours; day/row/grand totals) with a people
+  filter (All + each employee/vendor with time that week; shown only when
+  >1 person). Tapping a **blank** cell opens the Log form pre-filled (that
+  day, that project, me/filtered person, rule-picked service) as a new
+  entry; tapping a cell with an **existing** entry opens it for editing
+  with a highlighted "Editing an existing entry" banner (PUT update). No
+  inline entry from the grid.
 - **Recent-project chips**: card atop the Log tab with the top 5 projects of
   the **last 30 days**, ranked by entry count (then hours, then most-recent
   day) — so active projects lead stably instead of noisy last-touched order.
