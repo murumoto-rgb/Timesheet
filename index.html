@@ -74,7 +74,10 @@
   }
   .chip.on { border-color: var(--accent); color: var(--accent); }
   .check { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
-  .check input { width: 22px; height: 22px; min-height: 0; accent-color: var(--accent); }
+  .check input {
+    width: 22px; height: 22px; min-height: 0; padding: 0;
+    appearance: auto; -webkit-appearance: checkbox; accent-color: var(--accent);
+  }
   .check label { margin: 0; font-size: 13px; text-transform: none; letter-spacing: 0; font-family: var(--sans); color: var(--ink); }
   button.primary {
     width: 100%; margin-top: 20px; padding: 14px; min-height: 50px;
