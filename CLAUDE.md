@@ -167,10 +167,9 @@ Field rules that trip people up:
   frequent projects, sorted by hours; day/row/grand totals). Tapping a cell
   types decimal hours inline and posts a new entry for that project+day
   (falls back to the Log form when who/service can't be auto-resolved).
-- **Quick-log cards**: top repeated combos (who+project+service+duration,
-  last 60 days) shown atop the Log tab; one tap posts instantly with an
-  Undo toast.
-- **Recent-project chips** under the Project field (top frequent projects).
+- **Recent-project chips**: card atop the Log tab with the 5
+  most-recently-used projects (newest first). Tapping one selects it in the
+  form (applying smart-default rules) and scrolls the form to the top.
 - **Daily reminder push** (optional): payloadless Web Push, VAPID keys
   auto-generated + persisted with `_load_push`/`_save_push`. A background
   thread (`_reminder_loop`) nudges once/day past `REMINDER_HOUR` in

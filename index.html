@@ -271,21 +271,6 @@
   .wg-foot .wg-cell, .wg-foot .wg-name { color: var(--muted); font-size: 10px; }
   .wg-foot .wg-tot { color: var(--ink); font-weight: 650; }
 
-  /* ── Quick-log cards ──────────────────────────── */
-  #quickCards { display: flex; flex-direction: column; gap: 8px; }
-  .qcard {
-    display: flex; align-items: center; gap: 10px; width: 100%;
-    padding: 12px 14px; min-height: 52px; text-align: left; cursor: pointer;
-    background: var(--field); border: 1px solid var(--line); border-radius: 10px;
-    color: var(--ink);
-  }
-  .qcard:active { border-color: var(--accent); }
-  .qcard .qc-main { flex: 1; min-width: 0; }
-  .qcard .qc-proj { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .qcard .qc-sub { font-size: 12px; color: var(--muted); font-family: var(--mono); }
-  .qcard .qc-dur { font-family: var(--mono); font-size: 16px; flex-shrink: 0; }
-  .qcard .qc-bill { color: var(--good); font-size: 12px; }
-
   /* ── Toast (undo) ─────────────────────────────── */
   .toast {
     position: fixed; left: 50%; transform: translateX(-50%);
@@ -338,17 +323,16 @@
 
 <div id="app">
   <div id="logView">
-    <div class="card" id="quickCard" style="display:none">
-      <h2>Quick log — one tap</h2>
-      <div id="quickCards"></div>
+    <div class="card" id="recentCard" style="display:none">
+      <h2>Recent projects</h2>
+      <div class="chips" id="recentChips"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="logForm">
       <label for="projectBtn">Project / client</label>
       <button type="button" class="pickbtn" id="projectBtn">
         <span id="projectName">Select…</span>
       </button>
-      <div class="chips" id="projChips"></div>
 
       <div class="row">
         <div>
@@ -608,32 +592,24 @@ function buildChips() {
 let pickerItems = { projects: [], clients: [] };
 let selProject = null;   // {id, name, type: "project"|"client", parentId?}
 let frequentIds = [];    // most-used project/client ids, last 60 days
-let quickCombos = [];    // most-repeated full entries, last 60 days
+let recentIds = [];      // most-recently-used distinct ids, newest first
 
 async function loadFrequents() {
   try {
     const entries = await getJSON("/api/timeactivities?days=60");
     const counts = new Map();
-    const combos = new Map();
+    const seen = new Set();
+    recentIds = [];
+    // entries arrive newest-first, so first-seen order == recency order
     entries.forEach((e) => {
       const id = e.projectId || e.customerId;
-      if (id) counts.set(id, (counts.get(id) || 0) + 1);
-      // a quick-log combo = who + project + service + duration + billable
-      const who = e.vendorId ? "v" + e.vendorId : "e" + e.employeeId;
-      const key = [who, id || "", e.itemId || "", mins(e), e.billable ? 1 : 0].join("|");
-      const c = combos.get(key) || { count: 0, e };
-      c.count += 1;
-      combos.set(key, c);
+      if (!id) return;
+      counts.set(id, (counts.get(id) || 0) + 1);
+      if (!seen.has(id)) { seen.add(id); recentIds.push(id); }
     });
     frequentIds = [...counts.entries()]
       .sort((a, b) => b[1] - a[1]).slice(0, 15).map(([id]) => id);
-    quickCombos = [...combos.values()]
-      .filter((c) => c.count >= 2 && mins(c.e) > 0 && (c.e.employeeId || c.e.vendorId) && c.e.itemId)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5)
-      .map((c) => c.e);
-    renderQuickCards();
-    renderProjChips();
+    renderRecentChips();
   } catch { /* frequents are a nicety — ignore failures */ }
 }
 
@@ -644,70 +620,40 @@ function frequentItems() {
   return frequentIds.map((id) => byId.get(id)).filter(Boolean);
 }
 
-// ── Quick-log cards: one tap to post a repeated entry, with Undo ─────
-function renderQuickCards() {
-  const box = $("quickCards");
-  box.innerHTML = "";
-  if (!quickCombos.length) { $("quickCard").style.display = "none"; return; }
-  $("quickCard").style.display = "block";
-  quickCombos.forEach((e) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "qcard";
-    const main = document.createElement("div");
-    main.className = "qc-main";
-    const proj = document.createElement("div");
-    proj.className = "qc-proj";
-    const nm = e.customer || "(no client)";
-    proj.textContent = nm.includes(":") ? nm.split(":").pop() : nm;
-    proj.title = nm;
-    const sub = document.createElement("div");
-    sub.className = "qc-sub";
-    sub.textContent = e.service || "";
-    main.append(proj, sub);
-    const dur = document.createElement("span");
-    dur.className = "qc-dur";
-    dur.textContent = minsToHours(mins(e)) + "h";
-    if (e.billable) {
-      const bl = document.createElement("span");
-      bl.className = "qc-bill";
-      bl.textContent = " $";
-      dur.appendChild(bl);
-    }
-    b.append(main, dur);
-    b.onclick = () => quickLog(e);
-    box.appendChild(b);
-  });
+function idToItem(id) {
+  const proj = pickerItems.projects.find((r) => r.id === id);
+  if (proj) return { ...proj, type: "project" };
+  const cl = pickerItems.clients.find((r) => r.id === id);
+  return cl ? { ...cl, type: "client" } : null;
 }
 
-async function quickLog(e) {
-  const body = {
-    item_id: e.itemId,
-    hours: e.hours || 0,
-    minutes: e.minutes || 0,
-    txn_date: ymd(new Date()),
-    billable: !!e.billable,
-    description: e.description || "",
-  };
-  if (e.vendorId) body.vendor_id = e.vendorId; else body.employee_id = e.employeeId;
-  const cid = e.projectId || e.customerId;
-  if (cid) body.customer_id = cid;
-  try {
-    const res = await fetch("/api/timeactivity", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    showToast(`Logged ${e.customer || ""} · ${minsToHours(mins(e))}h`, "Undo", async () => {
-      await fetch("/api/timeactivity/" + data.Id, { method: "DELETE" });
-      refreshData();
-    });
-    refreshData();
-  } catch (err) {
-    showToast("Quick log failed: " + err.message, "", null);
-  }
+// ── Recent-project chips: 5 most-recently-used, newest first ────────
+function renderRecentChips() {
+  const box = $("recentChips");
+  box.innerHTML = "";
+  const items = recentIds.map(idToItem).filter(Boolean).slice(0, 5);
+  if (!items.length) { $("recentCard").style.display = "none"; return; }
+  $("recentCard").style.display = "block";
+  items.forEach((it) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = it.name.includes(":") ? it.name.split(":").pop() : it.name;
+    b.title = it.name;
+    b.dataset.id = it.id;
+    b.onclick = () => {
+      setProject(it);
+      // fill the form below and bring it to the top of the screen
+      $("logForm").scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    box.appendChild(b);
+  });
+  markRecentChips();
+}
+
+function markRecentChips() {
+  [...$("recentChips").children].forEach((c) =>
+    c.classList.toggle("on", !!selProject && c.dataset.id === selProject.id));
 }
 
 // ── Daily reminder push ─────────────────────────────────────────────
@@ -778,30 +724,7 @@ function setProject(item, save = true, apply = true) {
   $("projectName").textContent = item ? item.name : "Select…";
   if (item && save) localStorage.setItem("last-project", item.id);
   if (apply) applyRules();
-  markProjChips();
-}
-
-// Top frequent projects as one-tap chips beneath the picker button.
-function renderProjChips() {
-  const box = $("projChips");
-  box.innerHTML = "";
-  frequentItems().slice(0, 5).forEach((it) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "chip";
-    // last path segment keeps chips short (e.g. "Clevenger Residence")
-    b.textContent = it.name.includes(":") ? it.name.split(":").pop() : it.name;
-    b.title = it.name;
-    b.dataset.id = it.id;
-    b.onclick = () => setProject(it);
-    box.appendChild(b);
-  });
-  markProjChips();
-}
-
-function markProjChips() {
-  [...$("projChips").children].forEach((c) =>
-    c.classList.toggle("on", !!selProject && c.dataset.id === selProject.id));
+  markRecentChips();
 }
 
 function renderPickerList(q) {
