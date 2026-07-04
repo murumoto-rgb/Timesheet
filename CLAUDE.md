@@ -73,15 +73,14 @@ old QB Desktop API — use exactly what's below.
 ### Creating a time entry
 `POST {base}/v3/company/{realmId}/timeactivity?minorversion=70`
 
-Minimum viable payload (Projects enabled, non-payroll):
+Minimum viable payload (non-payroll):
 
 ```json
 {
   "NameOf": "Employee",
   "EmployeeRef": { "value": "55" },
   "ItemRef":     { "value": "5" },
-  "ProjectRef":  { "value": "416296152" },
-  "CustomerRef": { "value": "2" },
+  "CustomerRef": { "value": "416296152" },
   "Hours": 2,
   "Minutes": 30,
   "TxnDate": "2026-07-03",
@@ -92,9 +91,14 @@ Minimum viable payload (Projects enabled, non-payroll):
 
 Field rules that trip people up:
 - **`ItemRef` is REQUIRED on create.** Every entry needs a Service item.
-- With Projects on, set **both** `ProjectRef` (the project's `Customer.Id`) and
-  `CustomerRef` (the project's `ParentRef.value`). For a plain client, set only
-  `CustomerRef`.
+- **A Project is a sub-customer** (`IsProject: true`). Attach project time via
+  `CustomerRef` = the **project's own `Customer.Id`** — QBO derives the parent
+  client from the project's `ParentRef`. Same for a plain client or a job: only
+  `CustomerRef`, set to that entity's id.
+- **Do NOT send `ProjectRef` on TimeActivity.** It exists but is gated to US +
+  QBO Advanced / Enterprise Suite; other companies reject it with
+  `"Invalid ProjectRef"` (code 9341). `CustomerRef`=project id works on every
+  Projects-enabled tier. (Confirmed against this company's live 9341 error.)
 - `NameOf` is `"Employee"` or `"Vendor"`; pair it with `EmployeeRef` or `VendorRef`.
 - `BillableStatus`: `"Billable"` | `"NotBillable"` | `"HasBeenBilled"`. Billable
   requires a `CustomerRef`. Add `HourlyRate` to override the item's rate.

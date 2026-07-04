@@ -470,15 +470,18 @@ def _timeactivity_payload(entry: TimeEntry):
         "Description": entry.description,
         "TxnDate": entry.txn_date or date.today().isoformat(),
     }
-    # With Projects enabled, set ProjectRef + the parent CustomerRef.
-    if entry.project_id:
-        payload["ProjectRef"] = {"value": entry.project_id}
-        if entry.customer_id:
-            payload["CustomerRef"] = {"value": entry.customer_id}
-    elif entry.customer_id:
-        payload["CustomerRef"] = {"value": entry.customer_id}
+    # A QBO Project IS a sub-customer (IsProject=true), so time attaches to it
+    # through CustomerRef = the project's own Customer.Id; QBO derives the
+    # parent client from the project's ParentRef. We do NOT send ProjectRef:
+    # it is gated to US + QBO Advanced/Enterprise and is rejected elsewhere
+    # ("Invalid ProjectRef", code 9341). CustomerRef=project id works on every
+    # Projects-enabled tier. `customer_id` (the parent) is no longer used to
+    # build CustomerRef — only for the billable check below.
+    billable_ref = entry.project_id or entry.customer_id
+    if billable_ref:
+        payload["CustomerRef"] = {"value": billable_ref}
 
-    if entry.billable and entry.customer_id:
+    if entry.billable and billable_ref:
         payload["BillableStatus"] = "Billable"
         if entry.hourly_rate:
             payload["HourlyRate"] = entry.hourly_rate
@@ -506,27 +509,11 @@ def _post_timeactivity(payload, params=None):
     return resp.json().get("TimeActivity", resp.json())
 
 
-def _save_timeactivity(entry: TimeEntry, payload):
-    """Post the payload; if the company rejects ProjectRef (error 9341 —
-    common config-dependent quirk), retry once with the project itself as
-    the CustomerRef, which is how QBO stores project time internally."""
-    try:
-        return _post_timeactivity(payload)
-    except HTTPException as exc:
-        if entry.project_id and "ProjectRef" in str(exc.detail):
-            log.warning("ProjectRef rejected; retrying with project as CustomerRef")
-            retry = dict(payload)
-            retry.pop("ProjectRef", None)
-            retry["CustomerRef"] = {"value": entry.project_id}
-            return _post_timeactivity(retry)
-        raise
-
-
 @app.post("/api/timeactivity")
 def create_time(entry: TimeEntry):
     if not (entry.employee_id or entry.vendor_id):
         raise HTTPException(400, "Pick an employee or vendor.")
-    return _save_timeactivity(entry, _timeactivity_payload(entry))
+    return _post_timeactivity(_timeactivity_payload(entry))
 
 
 @app.put("/api/timeactivity/{entry_id}")
@@ -546,7 +533,7 @@ def update_time(entry_id: str, entry: TimeEntry):
     payload = _timeactivity_payload(entry)
     payload["Id"] = entry_id
     payload["SyncToken"] = read.json()["TimeActivity"]["SyncToken"]
-    return _save_timeactivity(entry, payload)
+    return _post_timeactivity(payload)
 
 
 # ---------------------------------------------------------------------------
