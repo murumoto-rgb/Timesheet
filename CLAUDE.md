@@ -162,8 +162,9 @@ Field rules that trip people up:
   the period, shown only when >1 person — same as the Week tab) that scope
   the hero, chart, breakdowns, and entry list.
 - **Billable = billable work**, counting both `Billable` (not yet invoiced)
-  and `HasBeenBilled` (already invoiced). The API also returns the raw
-  `billableStatus` per entry.
+  and `HasBeenBilled` (already invoiced). The report hero splits it:
+  "$X billable · $Y to invoice" (Y = the not-yet-invoiced `Billable`
+  portion, shown only when 0 < Y < X). API returns raw `billableStatus`.
 - **Repeat entry**: ⟳ on every entry row copies it into the form as a new
   entry dated today.
 - **Duration rounding**: durations round UP to 15 min at save

@@ -1376,8 +1376,12 @@ async function renderReport() {
   renderRepPeople(people);
   if (rep.person) entries = entries.filter((e) => e.employee === rep.person);
 
-  let total = 0, billable = 0;
-  entries.forEach((e) => { total += mins(e); if (e.billable) billable += mins(e); });
+  let total = 0, billable = 0, unbilled = 0;
+  entries.forEach((e) => {
+    total += mins(e);
+    if (e.billable) billable += mins(e);                    // billable work
+    if (e.billableStatus === "Billable") unbilled += mins(e);  // not yet invoiced
+  });
   $("heroTotal").textContent = fmtMins(total);
   $("heroSub").innerHTML = "";
   $("heroSub").append("hours total");
@@ -1386,6 +1390,13 @@ async function renderReport() {
     b.className = "b";
     b.textContent = billable === total ? " · all billable" : ` · $${fmtMins(billable)} billable`;
     $("heroSub").appendChild(b);
+  }
+  // call out the portion still to invoice (Billable, not yet HasBeenBilled)
+  if (unbilled > 0 && unbilled < billable) {
+    const u = document.createElement("span");
+    u.style.color = "var(--accent)";
+    u.textContent = ` · $${fmtMins(unbilled)} to invoice`;
+    $("heroSub").appendChild(u);
   }
   renderChart(entries);
   renderBreakdown($("projRows"), entries, (e) => e.customer || "(no client)");
