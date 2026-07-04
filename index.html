@@ -385,6 +385,7 @@
         <span class="label" id="wgLabel"></span>
         <button id="wgNext" aria-label="Next week">›</button>
       </div>
+      <div class="chips" id="wgPeople" style="margin-bottom:12px"></div>
       <div id="wgGrid"><div class="empty">Loading…</div></div>
       <p class="sub" style="margin-top:10px">Tap a cell to log time for that
       project and day.</p>
@@ -959,7 +960,25 @@ function cancelEdit() {
 }
 
 // ── Week grid (projects × Mon–Sun) ──────────────────────────────────
-const wg = { anchor: new Date() };
+const wg = { anchor: new Date(), person: "" };  // person "" = All
+
+// People-filter chips for the week grid (employees + vendors with time
+// that week). Only shown when more than one person contributed.
+function renderWgPeople(people) {
+  const box = $("wgPeople");
+  box.innerHTML = "";
+  if (people.length < 2) return;
+  const mk = (label, val) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip" + (wg.person === val ? " on" : "");
+    b.textContent = label;
+    b.onclick = () => { wg.person = val; renderWeekGrid(); };
+    box.appendChild(b);
+  };
+  mk("All", "");
+  people.forEach((p) => mk(p, p));
+}
 
 function wgEl(tag, cls, text) {
   const n = document.createElement(tag);
@@ -992,8 +1011,16 @@ function resolveServiceId(projectItem, whoOpt) {
   return localStorage.getItem("last-item") || $("item").value || "";
 }
 
+function personWhoOption() {
+  // when the week is filtered to a person, log/prefill as that person
+  if (!wg.person) return null;
+  return [...$("employee").options].find((o) => o.textContent === wg.person) || null;
+}
+
 function openCellInForm(r, dayIndex, start) {
   if (r.item) setProject(r.item);
+  const pOpt = personWhoOption();
+  if (pOpt) pOpt.selected = true;
   $("date").value = ymd(addDays(start, dayIndex));
   showView("log");
   const msg = $("msg");
@@ -1009,7 +1036,7 @@ function openCellInForm(r, dayIndex, start) {
 // Tap a grid cell → type decimal hours inline → posts a new entry for that
 // project + day. Falls back to the Log form when who/service can't be resolved.
 function inlineCell(cell, r, dayIndex, start) {
-  const whoOpt = resolveWhoOption();
+  const whoOpt = personWhoOption() || resolveWhoOption();
   const itemId = r.item ? resolveServiceId(r.item, whoOpt) : "";
   if (!r.item || !whoOpt || !itemId) { openCellInForm(r, dayIndex, start); return; }
 
@@ -1080,6 +1107,12 @@ async function renderWeekGrid() {
     return;
   }
   if (seq !== wgSeq) return;
+
+  // people who logged time this week → filter chips; then scope the grid
+  const people = [...new Set(entries.map((e) => e.employee).filter(Boolean))].sort();
+  if (wg.person && !people.includes(wg.person)) wg.person = "";  // reset if gone
+  renderWgPeople(people);
+  if (wg.person) entries = entries.filter((e) => e.employee === wg.person);
 
   // rows keyed by project/client id
   const itemMap = new Map();
