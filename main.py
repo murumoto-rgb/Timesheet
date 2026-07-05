@@ -21,6 +21,7 @@ import logging
 import secrets
 import threading
 import urllib.parse
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -94,7 +95,15 @@ TOKENS_FILE = os.path.join(BASE_DIR, os.environ.get("QBO_TOKENS_FILE", "qbo_toke
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("qbo-timesheet")
 
-app = FastAPI(title="QBO Timesheet")
+@asynccontextmanager
+async def _lifespan(app):
+    # Start the daily-reminder background thread on startup (lifespan replaces
+    # the deprecated @app.on_event("startup")). _reminder_loop is defined below.
+    threading.Thread(target=_reminder_loop, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="QBO Timesheet", lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 _pending_states: set[str] = set()  # CSRF state (fine for a single local user)
 
@@ -118,6 +127,11 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 # current 6-digit code from an authenticator app (1Password, Google
 # Authenticator, etc). Unset = password-only.
 TOTP_SECRET = os.environ.get("TOTP_SECRET", "").replace(" ", "").upper()
+if TOTP_SECRET and not APP_PASSWORD:
+    # MFA is layered on top of the password gate; without APP_PASSWORD the gate
+    # is off entirely, so TOTP would be silently inert and the app fully open.
+    log.warning("TOTP_SECRET is set but APP_PASSWORD is empty — the app is UNGATED "
+                "and two-factor is inactive. Set APP_PASSWORD to enable auth.")
 _PUBLIC_PATHS = {"/", "/login", "/api/status", "/eula", "/privacy", "/sw.js"}
 
 
@@ -243,8 +257,15 @@ def _save_blob(path, sb_id, data):
         )
         resp.raise_for_status()
         return
-    with open(path, "w") as f:
+    # Write to a temp file then atomically replace, so a crash mid-write can't
+    # corrupt the blob (a corrupt qbo_tokens.json would drop the rotating
+    # refresh token and force a full re-OAuth).
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
 
 def _load_tokens():
@@ -346,24 +367,32 @@ def _token_request(payload):
     return resp.json()
 
 
+_token_lock = threading.Lock()   # serialize refresh (request thread vs reminder thread)
+
+
 def get_access_token():
     """Return (access_token, realm_id), refreshing the access token if stale."""
     tokens = _load_tokens()
     if not tokens:
         raise HTTPException(401, "Not connected. Open / and click Connect QuickBooks.")
     if time.time() > tokens.get("access_expires_at", 0) - 60:
-        try:
-            fresh = _token_request(
-                {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]}
-            )
-        except HTTPException:
-            # Refresh token revoked or expired — the only fix is to reconnect.
-            raise HTTPException(401, "QuickBooks connection expired. Reconnect from the home screen.")
-        tokens["access_token"] = fresh["access_token"]
-        # Intuit rotates the refresh token — always persist the latest one.
-        tokens["refresh_token"] = fresh.get("refresh_token", tokens["refresh_token"])
-        tokens["access_expires_at"] = time.time() + fresh["expires_in"]
-        _save_tokens(tokens)
+        with _token_lock:
+            # Re-read under the lock: another thread may have just refreshed
+            # (and rotated the refresh token) while we waited.
+            tokens = _load_tokens() or tokens
+            if time.time() > tokens.get("access_expires_at", 0) - 60:
+                try:
+                    fresh = _token_request(
+                        {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]}
+                    )
+                except HTTPException:
+                    # Refresh token revoked or expired — the only fix is to reconnect.
+                    raise HTTPException(401, "QuickBooks connection expired. Reconnect from the home screen.")
+                tokens["access_token"] = fresh["access_token"]
+                # Intuit rotates the refresh token — always persist the latest one.
+                tokens["refresh_token"] = fresh.get("refresh_token", tokens["refresh_token"])
+                tokens["access_expires_at"] = time.time() + fresh["expires_in"]
+                _save_tokens(tokens)
     return tokens["access_token"], tokens["realm_id"]
 
 
@@ -1083,11 +1112,6 @@ def _reminder_loop():
         except Exception as e:
             log.warning("reminder tick error: %s", e)
         time.sleep(900)  # every 15 min
-
-
-@app.on_event("startup")
-def _start_reminder():
-    threading.Thread(target=_reminder_loop, daemon=True).start()
 
 
 class PushSub(BaseModel):

@@ -102,7 +102,6 @@
     border-radius: 10px; font-size: 15px; cursor: pointer;
   }
   .entry.editable { cursor: pointer; }
-  .entry.editing { outline: 1px solid var(--accent); border-radius: 8px; }
   #editBanner {
     background: rgba(76,155,232,0.14); border: 1px solid var(--accent);
     color: var(--accent); border-radius: 8px; padding: 10px 12px;
@@ -417,13 +416,6 @@
     background: var(--accent); color: #06121f; border: none; border-radius: 999px;
     padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; min-height: 36px;
   }
-
-  /* inline week-grid input */
-  .wg-cell input {
-    width: 100%; height: 100%; min-height: 40px; text-align: center;
-    background: var(--field); border: 1px solid var(--accent); border-radius: 6px;
-    color: var(--ink); font-family: var(--mono); font-size: 13px; padding: 0;
-  }
 </style>
 </head>
 <body>
@@ -508,7 +500,7 @@
     </div>
 
     <div class="card">
-      <h2 id="recentTitle">Recent entries</h2>
+      <h2>Recent entries</h2>
       <div id="entries"><div class="empty">Loading…</div></div>
     </div>
   </div>
@@ -630,7 +622,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.25</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.26</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1017,33 +1009,24 @@ function renderPickerList(q) {
       b.type = "button";
       b.className = "pick-item";
       b.textContent = r.name;
-      if (pickerSelId === r.id) b.classList.add("sel");
-      b.onclick = () => {
-        const item = { ...r, type: type || r.type };
-        if (pickerPick) pickerPick(item);
-        else setProject(item);
-        closePicker();
-      };
+      if (selProject && selProject.id === r.id) b.classList.add("sel");
+      b.onclick = () => { setProject({ ...r, type: type || r.type }); closePicker(); };
       list.appendChild(b);
     });
   });
   if (!any) list.innerHTML = '<div class="empty">No matches.</div>';
 }
 
-let pickerPick = null;   // when set, picker selection routes here (People tab)
-let pickerSelId = null;  // id to highlight as currently selected in the list
-function openPicker(onPick, selId) {
-  pickerPick = onPick || null;
-  pickerSelId = selId !== undefined ? selId : (selProject && selProject.id);
+function openPicker() {
   $("picker").hidden = false;
   $("pickerSearch").value = "";
   renderPickerList("");
   setTimeout(() => $("pickerSearch").focus(), 50);
 }
-function closePicker() { $("picker").hidden = true; pickerPick = null; }
+function closePicker() { $("picker").hidden = true; }
 
 function initPicker() {
-  $("projectBtn").onclick = () => openPicker();
+  $("projectBtn").onclick = openPicker;
   $("pickerBack").onclick = closePicker;
   $("pickerSearch").addEventListener("input", (e) => renderPickerList(e.target.value));
   $("pickerSearch").addEventListener("keydown", (e) => {
