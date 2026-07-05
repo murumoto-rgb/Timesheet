@@ -307,6 +307,10 @@
     color: var(--muted); border-radius: 10px; padding: 10px; font-size: 13px; font-family: var(--sans); cursor: pointer; }
   .peo-back { background: none; border: none; color: var(--accent); font-family: var(--sans);
     font-size: 14px; padding: 6px 2px 12px; cursor: pointer; }
+  .sortrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 4px; }
+  .sortseg { display: inline-flex; flex-shrink: 0; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  .sortbtn { border: none; background: none; color: var(--muted); font-family: var(--sans); font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .sortbtn.on { background: var(--accent); color: #06121f; font-weight: 650; }
   /* project totals list (Totals landing) */
   .tot-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; cursor: pointer; }
   .tot-row:not(:last-child) { border-bottom: 1px solid var(--grid); }
@@ -576,7 +580,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.17</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.18</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1427,7 +1431,7 @@ async function fetchRange(start, end) {
 // Requires a project. Each granularity has a natural window of buckets:
 //   Day → this week (7 days) · Week → this month (its weeks)
 //   Month → this quarter (3 months) · Quarter → this year (4 quarters)
-const peo = { unit: "month", anchor: new Date(), projectId: null, projectName: "", expanded: false };
+const peo = { unit: "month", anchor: new Date(), projectId: null, projectName: "", expanded: false, sort: "az" };
 const PEO_COLORS = ["#4c9be8", "#57b894", "#e0a458", "#c98bdb", "#e0736b", "#5bc0c8", "#b7c25a", "#e089b0"];
 const quarterOf = (m) => Math.floor(m / 3);
 
@@ -1522,8 +1526,9 @@ function renderProjectTotals(entries, win) {
     if (e.customer) p.name = e.customer;
     projs.set(id, p);
   });
+  const byValue = peo.sort === "value";
   const rows = [...projs.values()].filter((p) => p.total > 0)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort(byValue ? (a, b) => b.total - a.total : (a, b) => a.name.localeCompare(b.name));
   if (!rows.length) {
     $("peoBody").innerHTML = '<div class="card"><div class="empty">No '
       + (opts.dollars ? "billable value" : "time") + ' logged in ' + escapeHtml(win.title) + '.</div></div>';
@@ -1535,7 +1540,9 @@ function renderProjectTotals(entries, win) {
   let html = '<div class="card"><div class="peo-tot">'
     + `<span class="big">${fmtVal(grand)}${unit}</span>`
     + `<span class="cap">${escapeHtml(win.title)} · ${rows.length} ${rows.length === 1 ? "project" : "projects"}</span></div>`
-    + '<p class="sub" style="margin:0 0 4px">Tap a project for the per-person breakdown.</p>';
+    + '<div class="sortrow"><span class="sub" style="margin:0">Tap a project for the per-person breakdown.</span>'
+    + `<span class="sortseg"><button class="sortbtn${byValue ? "" : " on"}" data-sort="az">A–Z</button>`
+    + `<button class="sortbtn${byValue ? " on" : ""}" data-sort="value">${opts.dollars ? "$" : "Hours"}</button></span></div>`;
   rows.forEach((p) => {
     const billTxt = p.billable === p.total ? "all billable"
       : p.billable ? `${fmtMins(p.billable)} billable` : "none billable";
@@ -1551,6 +1558,9 @@ function renderProjectTotals(entries, win) {
   $("peoBody").innerHTML = html;
   $("peoBody").querySelectorAll(".tot-row").forEach((r) => {
     r.onclick = () => { peo.projectId = r.dataset.id; peo.projectName = r.dataset.name; peo.expanded = false; renderPeople(); };
+  });
+  $("peoBody").querySelectorAll(".sortbtn").forEach((btn) => {
+    btn.onclick = () => { peo.sort = btn.dataset.sort; renderPeople(); };
   });
 }
 
