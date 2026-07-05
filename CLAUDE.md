@@ -223,10 +223,11 @@ Field rules that trip people up:
 
 - **Totals tab** (4th bottom tab; internal ids still `people`/`peo*`):
   hours by project, then per person, over time. Granularity seg
-  **Day/Week/Month/Qtr** (default **Month**), each a natural window of
-  buckets (`peoWindow`): Day→this week (7 days), Week→this month (its
-  weeks), Month→this quarter (3 months), Qtr→this year (4 quarters);
-  prev/next pages by that window. **Landing** (`renderProjectTotals`,
+  **Day/Week/Month/Qtr** (default **Month**) where the selected unit **is**
+  the period shown and summed (`peoWindow`): Day→that day, Week→Mon–Sun,
+  Month→calendar month, Qtr→the quarter; prev/next pages by that unit. The
+  drill-down grid/sparkline split the period into one-finer `buckets`
+  (Day→the day, Week→7 days, Month→its weeks, Qtr→3 months). **Landing** (`renderProjectTotals`,
   shown when `peo.projectId` is null; the tab always resets to it on open):
   every project with hours in the period, **alphabetical**, each a tappable
   row with total, billable split, and a two-tone bar. Tapping a row sets

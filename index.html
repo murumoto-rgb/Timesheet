@@ -524,7 +524,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.8</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.9</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1353,41 +1353,43 @@ function peoInitials(name) {
   return ((parts[0] || "?")[0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
 }
 
-// The window + its buckets for the current granularity/anchor.
+// The selected unit IS the period shown/summed. `buckets` are one level
+// finer, used only for the drill-down grid + sparkline:
+//   Day → the day · Week → 7 days · Month → its weeks · Quarter → 3 months
 function peoWindow() {
-  const a = peo.anchor, y = a.getFullYear();
+  const a = peo.anchor, y = a.getFullYear(), today = ymd(new Date());
   if (peo.unit === "day") {
-    const s = mondayOf(a), buckets = [];
+    const title = ymd(a) === today ? "Today"
+      : ymd(a) === ymd(addDays(new Date(), -1)) ? "Yesterday"
+      : a.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    return { start: a, end: a, buckets: [{ start: a, end: a, label: String(a.getDate()) }], title };
+  }
+  if (peo.unit === "week") {
+    const s = mondayOf(a), e = addDays(s, 6), buckets = [];
     for (let i = 0; i < 7; i++) { const d = addDays(s, i); buckets.push({ start: d, end: d, label: String(d.getDate()) }); }
-    const e = addDays(s, 6);
     const title = ymd(mondayOf(new Date())) === ymd(s) ? "This week"
       : `${MONTHS[s.getMonth()]} ${s.getDate()} – ${s.getMonth() === e.getMonth() ? "" : MONTHS[e.getMonth()] + " "}${e.getDate()}`;
     return { start: s, end: e, buckets, title };
   }
-  if (peo.unit === "week") {
-    const ms = new Date(y, a.getMonth(), 1), me = new Date(y, a.getMonth() + 1, 0);
-    const buckets = []; let ws = mondayOf(ms);
-    while (ws <= me) { const we = addDays(ws, 6); buckets.push({ start: ws, end: we, label: `${ws.getMonth() + 1}/${ws.getDate()}` }); ws = addDays(ws, 7); }
+  if (peo.unit === "month") {
+    const ms = new Date(y, a.getMonth(), 1), me = new Date(y, a.getMonth() + 1, 0), buckets = [];
+    let ws = mondayOf(ms);
+    while (ws <= me) { buckets.push({ start: ws, end: addDays(ws, 6), label: `${ws.getMonth() + 1}/${ws.getDate()}` }); ws = addDays(ws, 7); }
     const now = new Date();
     const title = (y === now.getFullYear() && a.getMonth() === now.getMonth()) ? "This month" : `${MONTHS[a.getMonth()]} ${y}`;
-    return { start: buckets[0].start, end: buckets[buckets.length - 1].end, buckets, title };
+    return { start: ms, end: me, buckets, title };  // exact calendar month
   }
-  if (peo.unit === "month") {
-    const q = quarterOf(a.getMonth()), m0 = q * 3, buckets = [];
-    for (let i = 0; i < 3; i++) buckets.push({ start: new Date(y, m0 + i, 1), end: new Date(y, m0 + i + 1, 0), label: MONTHS[m0 + i] });
-    return { start: new Date(y, m0, 1), end: new Date(y, m0 + 3, 0), buckets, title: `Q${q + 1} ${y}` };
-  }
-  const buckets = [];  // quarter granularity → the year in 4 quarters
-  for (let q = 0; q < 4; q++) buckets.push({ start: new Date(y, q * 3, 1), end: new Date(y, q * 3 + 3, 0), label: `Q${q + 1}` });
-  return { start: new Date(y, 0, 1), end: new Date(y, 11, 31), buckets, title: String(y) };
+  const q = quarterOf(a.getMonth()), m0 = q * 3, buckets = [];  // quarter → 3 months
+  for (let i = 0; i < 3; i++) buckets.push({ start: new Date(y, m0 + i, 1), end: new Date(y, m0 + i + 1, 0), label: MONTHS[m0 + i] });
+  return { start: new Date(y, m0, 1), end: new Date(y, m0 + 3, 0), buckets, title: `Q${q + 1} ${y}` };
 }
 
 function peoShift(dir) {
   const a = peo.anchor;
-  if (peo.unit === "day") peo.anchor = addDays(a, 7 * dir);
-  else if (peo.unit === "week") peo.anchor = new Date(a.getFullYear(), a.getMonth() + dir, 1);
-  else if (peo.unit === "month") peo.anchor = new Date(a.getFullYear(), a.getMonth() + 3 * dir, 1);
-  else peo.anchor = new Date(a.getFullYear() + dir, 0, 1);
+  if (peo.unit === "day") peo.anchor = addDays(a, dir);
+  else if (peo.unit === "week") peo.anchor = addDays(a, 7 * dir);
+  else if (peo.unit === "month") peo.anchor = new Date(a.getFullYear(), a.getMonth() + dir, 1);
+  else peo.anchor = new Date(a.getFullYear(), a.getMonth() + 3 * dir, 1);
   renderPeople();
 }
 
@@ -1539,9 +1541,8 @@ function renderPersonDrill(entries, win) {
   $("peoToggle").onclick = () => { peo.expanded = !peo.expanded; renderPeople(); };
 }
 
-function peoUnitNoun() {
-  return peo.unit === "day" ? "day" : peo.unit === "week" ? "week"
-    : peo.unit === "month" ? "month" : "quarter";
+function peoUnitNoun() {  // names the grid's column granularity (finer than the period)
+  return peo.unit === "quarter" ? "month" : peo.unit === "month" ? "week" : "day";
 }
 function syncPeoSeg() {
   document.querySelectorAll("#peoSeg button").forEach((b) => b.classList.toggle("on", b.dataset.unit === peo.unit));
