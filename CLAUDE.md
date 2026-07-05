@@ -291,7 +291,11 @@ Field rules that trip people up:
   cash) → Period · Received. The trailing SVG line stretches via an explicit
   `width: calc(100% - 34px)` — an SVG is a replaced element and won't fill
   left/right insets with `width:auto` (that bug squished the line into the
-  left third).
+  left third). **Scrub**: drag across the chart (pointer events on `.plot`,
+  `touch-action:none`) → a crosshair + highlighted bar, and the hero swaps
+  to that bucket's exact value + "period · avg <trailing>"; reverts on
+  release (`dashDefaultBig`/`dashDefaultCap`). Headline is rounded
+  (`~159hrs` / `~$39K`); scrub readout is exact (`fmtVal`).
 
 ## Backlog (not yet built)
 

@@ -295,6 +295,9 @@
      axis gutter) so the line spans the full plot and aligns with the bars. */
   .trendline { position: absolute; left: 0; top: 0; width: calc(100% - 34px); height: 100%; pointer-events: none; overflow: visible; }
   .trendline polyline { fill: none; stroke: var(--good); stroke-width: 2px; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+  .dash-cross { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ink);
+    opacity: 0.5; transform: translateX(-50%); pointer-events: none; }
+  .slot.active .col { filter: brightness(1.35); }
   .dash-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 12px; color: var(--muted); }
   .dash-legend span { display: inline-flex; align-items: center; gap: 6px; }
   .lg-bar { width: 12px; height: 10px; border-radius: 2px; background: var(--series-1); }
@@ -625,7 +628,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.23</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.24</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2048,6 +2051,7 @@ function dashRowLabel(i) {
   return s.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 let dashBuckets = [];
+let dashDefaultBig = "", dashDefaultCap = "";   // hero text to restore after scrubbing
 
 let dashSeq = 0;
 async function renderDash() {
@@ -2097,9 +2101,11 @@ async function renderDash() {
   const headline = opts.dollars
     ? "~$" + Math.round(trail[n - 1] / 1000) + "K"
     : "~" + Math.round(trail[n - 1] / 60) + "hrs";
+  dashDefaultBig = headline;
+  dashDefaultCap = `${noun} / ${win.unitNoun} · 12-mo trailing avg`;
   let html = '<div class="card"><div class="dash-hero">'
-    + `<span class="big">${headline}</span>`
-    + `<span class="cap">${noun} / ${win.unitNoun} · 12-mo trailing avg</span></div>`
+    + `<span class="big" id="dashBig">${headline}</span>`
+    + `<span class="cap" id="dashCap">${dashDefaultCap}</span></div>`
     + '<div class="chart" id="dashChart"></div>'
     + `<div class="dash-legend"><span><span class="lg-bar"></span>${Noun} / ${win.unitNoun}</span>`
     + '<span><span class="lg-line"></span>12-mo trailing avg</span></div></div>';
@@ -2177,6 +2183,35 @@ function drawDashChart(box, win, bMetric, trail) {
     xl.appendChild(s);
   });
   box.appendChild(xl);
+
+  // ── Scrub: drag across the chart to read each bucket's value + trailing avg ─
+  const cross = document.createElement("div"); cross.className = "dash-cross"; cross.style.display = "none";
+  cols.appendChild(cross);
+  const slots = [...cols.querySelectorAll(".slot")];
+  const noun = (opts.dollars && dash.metric === "received") ? "received" : "invoiced";
+  const showAt = (i) => {
+    i = Math.max(0, Math.min(n - 1, i));
+    slots.forEach((s, j) => s.classList.toggle("active", j === i));
+    cross.style.display = "block";
+    cross.style.left = ((i + 0.5) / n * 100) + "%";
+    $("dashBig").textContent = bMetric[i] ? fmtVal(bMetric[i]) : "—";
+    $("dashCap").textContent = `${dashRowLabel(i)} ${noun} · avg ${fmtVal(trail[i])}`;
+  };
+  const endScrub = () => {
+    slots.forEach((s) => s.classList.remove("active"));
+    cross.style.display = "none";
+    if ($("dashBig")) { $("dashBig").textContent = dashDefaultBig; $("dashCap").textContent = dashDefaultCap; }
+  };
+  const idxAt = (clientX) => {
+    const r = cols.getBoundingClientRect();
+    return Math.floor((clientX - r.left) / (r.width / n));
+  };
+  plot.style.touchAction = "none";   // let a horizontal drag scrub instead of scroll
+  plot.addEventListener("pointerdown", (e) => { plot.setPointerCapture(e.pointerId); showAt(idxAt(e.clientX)); });
+  plot.addEventListener("pointermove", (e) => { if (e.pointerType === "mouse" && !e.buttons) return; showAt(idxAt(e.clientX)); });
+  plot.addEventListener("pointerup", endScrub);
+  plot.addEventListener("pointercancel", endScrub);
+  plot.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") endScrub(); });
 }
 
 function syncSeg() {
