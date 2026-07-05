@@ -649,7 +649,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.29</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.30</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2183,12 +2183,19 @@ async function renderDash() {
   //   totalMin/billMin → utilization; billValue → effective rate;
   //   billedD/billValue → realization (share of billable work invoiced).
   let mbMin = 0, billedD = 0, totalMin = 0, billMin = 0, billValue = 0;
+  const byClientVal = new Map();   // client → billable value ($), for concentration
   entries.forEach((e) => {
     if (!e.date || !inWin(e.date)) return;
     const m = mins(e);
     totalMin += m;
     if (MB_RE.test(e.employee || "")) mbMin += m;
-    if (e.billable) { billMin += m; billValue += fin(dollarsOf(e)); }
+    if (e.billable) {
+      billMin += m;
+      const d = fin(dollarsOf(e));
+      billValue += d;
+      const c = e.customer || "—";
+      byClientVal.set(c, (byClientVal.get(c) || 0) + d);
+    }
     if (e.billableStatus === "HasBeenBilled") billedD += fin(dollarsOf(e));
   });
   const utilPct = totalMin > 0 ? (billMin / totalMin) * 100 : null;
@@ -2226,6 +2233,33 @@ async function renderDash() {
     + kpiStat(realPct != null ? Math.round(realPct) + "%" : "—", "Realization")
     + kpiStat(effRate != null ? fmtK(effRate) : "—", "Effective / hr")
     + "</div></div>";
+
+  // ── Client concentration: each client's share of billable value over the
+  //    window — a revenue-dependency / risk view (top client flagged if ≥50%). ──
+  const concList = [...byClientVal.entries()].map(([name, v]) => ({ name, v })).filter((c) => c.v > 0).sort((a, b) => b.v - a.v);
+  const concTotal = concList.reduce((s, c) => s + c.v, 0);
+  if (concTotal > 0) {
+    const topN = concList.slice(0, 8);
+    const otherV = concTotal - topN.reduce((s, c) => s + c.v, 0);
+    const top1 = (concList[0].v / concTotal) * 100;
+    const top3 = (concList.slice(0, 3).reduce((s, c) => s + c.v, 0) / concTotal) * 100;
+    const rows = otherV > 0.5 ? [...topN, { name: `Other (${concList.length - topN.length})`, v: otherV, other: true }] : topN;
+    const cmax = rows[0].v || 1;
+    html += '<div class="card money"><h2>Client concentration '
+      + '<span class="asof">share of billable value</span></h2>'
+      + `<div class="money-stats"><div class="mstat"><span class="mnum${top1 >= 50 ? " bad" : ""}">${Math.round(top1)}%</span><span class="mlbl">Top client</span></div>`
+      + `<div class="mstat"><span class="mnum">${Math.round(top3)}%</span><span class="mlbl">Top 3 clients</span></div>`
+      + `<div class="mstat"><span class="mnum">${concList.length}</span><span class="mlbl">Clients billed</span></div></div>`;
+    rows.forEach((c) => {
+      const pct = (c.v / concTotal) * 100;
+      html += '<div class="owe-row"><div class="info">'
+        + `<div class="nm"><span>${escapeHtml(c.name)}</span><span class="h">${Math.round(pct)}%</span></div>`
+        + `<div class="sub">${fmtUSD(c.v)}</div>`
+        + `<div class="bar"><i style="width:${(c.v / cmax) * 100}%${c.other ? ";background:var(--muted)" : ""}"></i></div>`
+        + "</div></div>";
+    });
+    html += "</div>";
+  }
 
   // billed mode shows a Total column too; received (cash) has no "total logged"
   const showTotal = !received;
