@@ -5,3 +5,4 @@ qbo_audit.json
 __pycache__/
 *.pyc
 .venv/
+scratchpad/
