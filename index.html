@@ -649,7 +649,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.28</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.29</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2179,12 +2179,21 @@ async function renderDash() {
   //    hours worked by Murat Baykal in that window. ──
   const winStart = win.buckets[0].start.getTime(), winEnd = win.buckets[n - 1].end.getTime();
   const inWin = (ds) => { const t = new Date(ds + "T00:00").getTime(); return t >= winStart && t <= winEnd; };
-  let mbMin = 0, billedD = 0;
+  // Accumulate practice KPIs over the shown window in one pass:
+  //   totalMin/billMin → utilization; billValue → effective rate;
+  //   billedD/billValue → realization (share of billable work invoiced).
+  let mbMin = 0, billedD = 0, totalMin = 0, billMin = 0, billValue = 0;
   entries.forEach((e) => {
     if (!e.date || !inWin(e.date)) return;
-    if (MB_RE.test(e.employee || "")) mbMin += mins(e);
+    const m = mins(e);
+    totalMin += m;
+    if (MB_RE.test(e.employee || "")) mbMin += m;
+    if (e.billable) { billMin += m; billValue += fin(dollarsOf(e)); }
     if (e.billableStatus === "HasBeenBilled") billedD += fin(dollarsOf(e));
   });
+  const utilPct = totalMin > 0 ? (billMin / totalMin) * 100 : null;
+  const realPct = billValue > 0 ? (billedD / billValue) * 100 : null;
+  const effRate = totalMin > 0 ? billValue / (totalMin / 60) : null;
   let dollars = billedD;
   if (received) { dollars = 0; pmts.forEach((p) => { if (p.date && inWin(p.date)) dollars += fin(Number(p.amount)); }); }
   const mbRate = mbMin > 0 ? dollars / (mbMin / 60) : null;
@@ -2205,6 +2214,18 @@ async function renderDash() {
     + '<div class="chart" id="dashChart"></div>'
     + `<div class="dash-legend"><span><span class="lg-bar"></span>${Noun} / ${win.unitNoun}</span>`
     + '<span><span class="lg-line"></span>12-mo trailing avg</span></div></div>';
+
+  // ── Practice metrics: utilization (billable/total hrs), realization (share
+  //    of billable work invoiced), effective $/hr (billable value ÷ hrs worked),
+  //    all over the shown window. ──
+  const kpiStat = (num, lbl) => `<div class="mstat"><span class="mnum">${num}</span><span class="mlbl">${lbl}</span></div>`;
+  html += '<div class="card money"><h2>Practice metrics '
+    + `<span class="asof">last ${win.buckets.length} ${win.unitNoun}s</span></h2>`
+    + '<div class="money-stats">'
+    + kpiStat(utilPct != null ? Math.round(utilPct) + "%" : "—", "Utilization")
+    + kpiStat(realPct != null ? Math.round(realPct) + "%" : "—", "Realization")
+    + kpiStat(effRate != null ? fmtK(effRate) : "—", "Effective / hr")
+    + "</div></div>";
 
   // billed mode shows a Total column too; received (cash) has no "total logged"
   const showTotal = !received;
