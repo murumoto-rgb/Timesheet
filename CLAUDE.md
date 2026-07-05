@@ -156,8 +156,12 @@ Field rules that trip people up:
   tap drills into that month**), a **"To invoice" card** (per-client
   not-yet-invoiced `Billable` hours in the period, sorted desc, hidden when
   none), per-client/project + per-service proportional bars, and the
-  period's entry list. All computed client-side from one range fetch.
-  `list_time` paginates (`qbo_query_all`) so long ranges never truncate.
+  period's entry list. **Tapping a "By project / client" row jumps to that
+  project's Totals drill-down for the same period** (`goToTotals` sets
+  `peo.unit`/`anchor` from `rep`, then `showView("people", {keepPeo:true})`
+  — Report & Totals share the same period units, so they line up). All
+  computed client-side from one range fetch. `list_time` paginates
+  (`qbo_query_all`) so long ranges never truncate.
 - Mobile-first UI: duration preset chips, remembered last-used
   project/employee/service (localStorage), 16px inputs (no iOS zoom).
 - PWA installability: `static/manifest.webmanifest`, icons, apple-touch meta —

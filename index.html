@@ -244,6 +244,9 @@
   .xlabels > span.today { color: var(--ink); font-weight: 700; }
   .proj { margin-top: 4px; }
   .proj-row { padding: 8px 0; }
+  .proj-row.tappable { cursor: pointer; margin: 0 -8px; padding: 8px; border-radius: 8px; }
+  .proj-row.tappable:active { background: var(--field); }
+  .proj-row.tappable .h::after { content: " ›"; color: var(--muted); font-family: var(--sans); }
   .proj-top { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
   .proj-top .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .proj-top .h { font-family: var(--mono); font-variant-numeric: tabular-nums; flex-shrink: 0; }
@@ -573,7 +576,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.16</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.17</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1806,13 +1809,14 @@ function renderToInvoice(entries) {
   });
 }
 
-function renderBreakdown(box, entries, keyOf) {
+function renderBreakdown(box, entries, keyOf, pick) {
   const groups = new Map();
   entries.forEach((e) => {
     const key = keyOf(e);
-    const cur = groups.get(key) || { total: 0, billable: 0 };
+    const cur = groups.get(key) || { total: 0, billable: 0, id: null };
     cur.total += val(e);
     if (e.billable) cur.billable += val(e);
+    if (pick && cur.id == null) cur.id = pick.idOf(e);
     groups.set(key, cur);
   });
   const rows = [...groups.entries()].filter(([, v]) => v.total > 0).sort((a, b) => b[1].total - a[1].total);
@@ -1825,6 +1829,10 @@ function renderBreakdown(box, entries, keyOf) {
   rows.forEach(([name, v]) => {
     const row = document.createElement("div");
     row.className = "proj-row";
+    if (pick && v.id != null) {   // tap a project → its Totals drill-down
+      row.classList.add("tappable");
+      row.onclick = () => pick.go(v.id, name);
+    }
     const top = document.createElement("div");
     top.className = "proj-top";
     const n = document.createElement("span");
@@ -1923,10 +1931,21 @@ async function renderReport() {
   }
   renderChart(entries);
   renderToInvoice(entries);
-  renderBreakdown($("projRows"), entries, (e) => e.customer || "(no client)");
+  renderBreakdown($("projRows"), entries, (e) => e.customer || "(no client)",
+    { idOf: (e) => e.projectId || e.customerId, go: goToTotals });
   renderBreakdown($("serviceRows"), entries, (e) => e.service || "(no service)");
   $("repEntriesTitle").textContent = "Entries — " + periodLabel();
   renderEntryRows($("repEntries"), entries, { showDate: rep.unit !== "day" });
+}
+
+// From a Report project row → the Totals drill-down for that project, same period.
+function goToTotals(projectId, projectName) {
+  peo.unit = rep.unit;      // Report and Totals share the same period units
+  peo.anchor = rep.anchor;
+  peo.projectId = projectId;
+  peo.projectName = projectName;
+  peo.expanded = false;
+  showView("people", { keepPeo: true });
 }
 
 function syncSeg() {
@@ -1946,7 +1965,7 @@ function rerenderActive() {
 }
 
 // ── Tabs ────────────────────────────────────────────────────────────
-function showView(view) {
+function showView(view, o = {}) {
   $("logView").style.display = view === "log" ? "block" : "none";
   $("weekView").style.display = view === "week" ? "block" : "none";
   $("reportView").style.display = view === "report" ? "block" : "none";
@@ -1956,9 +1975,11 @@ function showView(view) {
     : view === "people" ? "Totals" : "Timesheet";
   document.querySelectorAll("#tabbar button").forEach((b) =>
     b.classList.toggle("on", b.dataset.view === view));
+  window.scrollTo({ top: 0 });
   if (view === "report") renderReport();
   if (view === "week") renderWeekGrid();
-  if (view === "people") { peo.projectId = null; peo.expanded = false; renderPeople(); }
+  // tab clicks land on the project list; keepPeo preserves a drill-in target
+  if (view === "people") { if (!o.keepPeo) { peo.projectId = null; peo.expanded = false; } renderPeople(); }
 }
 
 function refreshData() {
