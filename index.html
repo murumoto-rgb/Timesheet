@@ -286,9 +286,9 @@
   #app, #connect, #setup, #reportView, #weekView, #peopleView, #dashView { display: none; }
 
   /* ── Dashboard tab (invoiced trend + trailing average + table) ────── */
-  .dash-hero { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
-  .dash-hero .big { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
-  .dash-hero .cap { color: var(--muted); font-size: 12.5px; text-align: right; }
+  .dash-hero { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-bottom: 6px; }
+  .dash-hero .big { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+  .dash-hero .cap { color: var(--muted); font-size: 12.5px; text-align: left; }
   /* explicit width (not auto) — an SVG is a replaced element and won't stretch
      to left/right insets with width:auto, which squished the line into the
      left of the chart. calc matches the .cols box (plot width minus the 34px
@@ -625,7 +625,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.22</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.23</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2093,9 +2093,13 @@ async function renderDash() {
   const grandTotal = bTotal.reduce((a, b) => a + b, 0);
   const n = win.buckets.length;
 
+  // headline is a rounded approximation: hours → "~159hrs", dollars → "~$39K"
+  const headline = opts.dollars
+    ? "~$" + Math.round(trail[n - 1] / 1000) + "K"
+    : "~" + Math.round(trail[n - 1] / 60) + "hrs";
   let html = '<div class="card"><div class="dash-hero">'
-    + `<span class="big">${fmtVal(trail[n - 1])}</span>`
-    + `<span class="cap">${noun} / ${win.unitNoun}<br>12-mo trailing avg</span></div>`
+    + `<span class="big">${headline}</span>`
+    + `<span class="cap">${noun} / ${win.unitNoun} · 12-mo trailing avg</span></div>`
     + '<div class="chart" id="dashChart"></div>'
     + `<div class="dash-legend"><span><span class="lg-bar"></span>${Noun} / ${win.unitNoun}</span>`
     + '<span><span class="lg-line"></span>12-mo trailing avg</span></div></div>';
