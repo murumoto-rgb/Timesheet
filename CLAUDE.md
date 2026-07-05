@@ -125,6 +125,11 @@ Field rules that trip people up:
   `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` are set (diskless Render free tier).
 - Surface QBO fault responses verbatim (they contain the real validation error).
 - Never commit `.env` or `qbo_tokens.json`.
+- **Build number**: `#buildInfo` in `index.html`'s footer shows `build
+  YYYY.MM.DD.N` (single source of truth — one string in the HTML). BUMP it
+  on every push (increment N same-day, or roll the date), and state the new
+  build number at the end of each response so the user can confirm the
+  deployed version matches.
 
 ## Built so far (beyond the original scaffold)
 
