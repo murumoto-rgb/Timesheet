@@ -196,8 +196,9 @@ Field rules that trip people up:
   (`.bpart` inside `.fill`). API returns raw `billableStatus`.
 - **Repeat entry**: ⟳ on every entry row copies it into the form as a new
   entry dated today.
-- **Duration rounding**: durations round UP to 15 min at save
-  (`ROUND_MINUTES` in `index.html`; the success message notes the rounding).
+- **Duration rounding**: durations round to the NEAREST 30 min (half hour)
+  at save, floored so a logged entry never rounds to 0 (`ROUND_MINUTES` in
+  `index.html`; the success message notes the rounding).
 - **Billable by default** for all new entries (boot, post-submit reset,
   cancel-edit).
 - **Blank project by default**: the form boots with no project selected

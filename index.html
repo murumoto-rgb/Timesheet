@@ -617,7 +617,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.19</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.20</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -664,7 +664,7 @@ const PRESETS = [0.25, 0.5, 1, 1.5, 2, 4, 8];  // decimal hours
 const hoursToMins = (h) => Math.round((parseFloat(h) || 0) * 60);
 const minsToHours = (m) => parseFloat((m / 60).toFixed(2));
 const REMEMBER = ["item"];   // "who" and "project" are remembered separately
-const ROUND_MINUTES = 15;    // durations round UP to this at save (0 = off)
+const ROUND_MINUTES = 30;    // durations round to the NEAREST this at save (0 = off)
 let editingId = null;        // id of the entry being edited, or null
 
 const TEMPLATES = [
@@ -753,12 +753,16 @@ function fill(sel, items) {
 }
 
 const fmtDur = (h, m) => (h || 0) + ":" + String(m || 0).padStart(2, "0");
-const fmtMins = (mins) => fmtDur(Math.floor(mins / 60), mins % 60);
+// round to whole minutes so a fractional value (e.g. a trailing average) never
+// renders as "40:28.0961…"
+const fmtMins = (mins) => { const m = Math.round(mins) || 0; return fmtDur(Math.floor(m / 60), m % 60); };
 const ymd = (d) => d.getFullYear() + "-" +
   String(d.getMonth() + 1).padStart(2, "0") + "-" +
   String(d.getDate()).padStart(2, "0");
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
-const mins = (e) => (e.hours || 0) * 60 + (e.minutes || 0);
+// Number()-coerce so a stray non-numeric Hours/Minutes from QBO yields 0, not
+// NaN — a single NaN would otherwise poison every sum/average it feeds.
+const mins = (e) => (Number(e.hours) || 0) * 60 + (Number(e.minutes) || 0);
 
 // ── Report/Totals options: Hours ⇄ $ and hide mileage/expense lines ──
 // $ figures come straight from each entry's own QBO HourlyRate (never an
@@ -2049,8 +2053,9 @@ async function renderDash() {
   entries = applyOpts(entries);
 
   // per-entry value + invoiced value (HasBeenBilled only), indexed by time
+  const fin = (x) => Number.isFinite(x) ? x : 0;   // never let a bad value poison a sum
   const invOf = (e) => e.billableStatus === "HasBeenBilled" ? val(e) : 0;
-  const dated = entries.filter((e) => e.date).map((e) => ({ t: new Date(e.date + "T00:00").getTime(), total: val(e), inv: invOf(e) }));
+  const dated = entries.filter((e) => e.date).map((e) => ({ t: new Date(e.date + "T00:00").getTime(), total: fin(val(e)), inv: fin(invOf(e)) }));
   const sumIn = (a, b, key) => dated.reduce((s, e) => (e.t >= a && e.t <= b ? s + e[key] : s), 0);
 
   const bTotal = win.buckets.map((b) => sumIn(b.start.getTime(), b.end.getTime(), "total"));
@@ -2348,11 +2353,11 @@ async function submit() {
     msg.className = "msg bad";
     return;
   }
-  // billing rounds up to the next quarter hour
+  // round to the nearest half hour (never down to zero for a logged entry)
   let rounded = false;
   if (ROUND_MINUTES > 0) {
-    const up = Math.ceil(total / ROUND_MINUTES) * ROUND_MINUTES;
-    if (up !== total) { rounded = true; total = up; }
+    const r = Math.max(Math.round(total / ROUND_MINUTES) * ROUND_MINUTES, ROUND_MINUTES);
+    if (r !== total) { rounded = true; total = r; }
   }
   const hours = Math.floor(total / 60);
   const minutes = total % 60;
@@ -2402,7 +2407,7 @@ async function submit() {
     $("billable").checked = true;  // every new entry defaults to billable
     msg.textContent =
       (editing ? "Updated ✓  entry #" : "Logged ✓  entry #") + (data.Id || "") +
-      (rounded ? `  · ${minsToHours(total)}h (rounded up)` : "");
+      (rounded ? `  · ${minsToHours(total)}h (rounded to ½ h)` : "");
     msg.className = "msg good";
     refreshData();
   } catch (e) {
