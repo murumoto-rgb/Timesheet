@@ -268,6 +268,22 @@ Field rules that trip people up:
   hours (keeps the "green hours ≠ dollars" rule); the Log/Week/entry-list
   surfaces stay in hours always.
 
+- **Dashboard tab** (5th bottom tab, `#dashView`, `data-view="dash"`): a
+  business overview, NOT by project. Granularity **Day/Week/Month** (default
+  Month) = bucket size over a trailing window (last 30 days / 26 weeks / 12
+  months); no period nav — always trailing to today. Reuses the shared
+  Hours/$ + hide-expenses `opts`. **Chart** (`drawDashChart`): blue bars =
+  **invoiced** value per bucket (`billableStatus === "HasBeenBilled"` only,
+  in the active unit) with a green **12-month trailing-average line**
+  overlaid (SVG `.trendline` polyline, `viewBox 0 0 100 100`
+  preserveAspectRatio=none, `vector-effect:non-scaling-stroke`, aligned to
+  the `.cols` inset). The trailing avg at each bucket = invoiced over the
+  prior 365 days ÷ `per12` (12/52/365) = per-bucket rate. **Table**
+  (`.dtbl`): Period · Total · Invoiced, newest first, with an "Avg /
+  <unit>" footer. Headline = the latest trailing-avg value. Needs ~2 years
+  of history per view, so it relies on the `list_time` pagination. Invoiced
+  depends on time being marked billed in QBO (HasBeenBilled).
+
 ## Backlog (not yet built)
 
 - Timer mode (start/stop instead of typing a duration).

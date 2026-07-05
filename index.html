@@ -283,7 +283,26 @@
   }
   .tabbar button.on { color: var(--accent); }
   .tabbar svg { width: 22px; height: 22px; }
-  #app, #connect, #setup, #reportView, #weekView, #peopleView { display: none; }
+  #app, #connect, #setup, #reportView, #weekView, #peopleView, #dashView { display: none; }
+
+  /* ── Dashboard tab (invoiced trend + trailing average + table) ────── */
+  .dash-hero { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  .dash-hero .big { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+  .dash-hero .cap { color: var(--muted); font-size: 12.5px; text-align: right; }
+  .trendline { position: absolute; inset: 0 34px 0 0; width: auto; height: 100%; pointer-events: none; overflow: visible; }
+  .trendline polyline { fill: none; stroke: var(--good); stroke-width: 2px; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+  .dash-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .dash-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .lg-bar { width: 12px; height: 10px; border-radius: 2px; background: var(--series-1); }
+  .lg-line { width: 14px; height: 0; border-top: 2px solid var(--good); border-radius: 2px; }
+  .dtbl { border-collapse: separate; border-spacing: 0; width: 100%; font-variant-numeric: tabular-nums; }
+  .dtbl th, .dtbl td { padding: 9px 8px; font-size: 13px; text-align: right; font-family: var(--mono); white-space: nowrap; }
+  .dtbl thead th { color: var(--muted); font-weight: 600; font-size: 11px; box-shadow: inset 0 -1px 0 var(--line); }
+  .dtbl th.per, .dtbl td.per { text-align: left; font-family: var(--sans); }
+  .dtbl tbody td { box-shadow: inset 0 -1px 0 var(--grid); }
+  .dtbl td.inv { color: var(--good); }
+  .dtbl tfoot td { color: var(--ink); font-weight: 700; box-shadow: inset 0 1px 0 var(--line); }
+  .dtbl tfoot td.avg { color: var(--accent); }
 
   /* ── People tab (leaderboard + expandable pivot grid) ─────────────── */
   .peo-tot { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
@@ -574,13 +593,31 @@
     <div id="peoBody"><div class="card"><div class="empty">Loading…</div></div></div>
   </div>
 
+  <div id="dashView">
+    <div class="card">
+      <div class="seg" id="dashSeg">
+        <button data-unit="day">Day</button>
+        <button data-unit="week">Week</button>
+        <button data-unit="month" class="on">Month</button>
+      </div>
+      <div class="opts">
+        <div class="modeseg">
+          <button data-mode="hours" class="on">Hours</button>
+          <button data-mode="dollars">$</button>
+        </div>
+        <label class="optck"><input type="checkbox" class="hideExp"> Hide mileage &amp; expenses</label>
+      </div>
+    </div>
+    <div id="dashBody"><div class="card"><div class="empty">Loading…</div></div></div>
+  </div>
+
   <div class="foot">
     <a href="/mfa-setup">Set up two-factor</a> ·
     <a href="#" id="remindLink">Daily reminders</a> ·
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.18</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.19</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -613,6 +650,10 @@
   <button data-view="report" aria-label="Reports">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>
     Report
+  </button>
+  <button data-view="dash" aria-label="Dashboard">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/><rect x="3" y="14" width="8" height="7" rx="1.5"/></svg>
+    Dash
   </button>
 </nav>
 
@@ -1958,6 +1999,145 @@ function goToTotals(projectId, projectName) {
   showView("people", { keepPeo: true });
 }
 
+// ── Dashboard: invoiced (HasBeenBilled) trend + 12-mo trailing average ──
+const dash = { unit: "month" };
+
+// Trailing display window + the fetch range needed for a 12-month trailing avg.
+function dashWindow() {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const buckets = [];
+  if (dash.unit === "month") {
+    for (let k = 11; k >= 0; k--) {
+      const s = new Date(today.getFullYear(), today.getMonth() - k, 1);
+      buckets.push({ start: s, end: new Date(today.getFullYear(), today.getMonth() - k + 1, 0), label: MONTHS[s.getMonth()] });
+    }
+    const fs = new Date(buckets[0].start.getFullYear(), buckets[0].start.getMonth() - 12, 1);
+    return { buckets, fetchStart: fs, per12: 12, unitNoun: "month" };
+  }
+  if (dash.unit === "week") {
+    const monday = mondayOf(today);
+    for (let k = 25; k >= 0; k--) { const s = addDays(monday, -7 * k); buckets.push({ start: s, end: addDays(s, 6), label: `${s.getMonth() + 1}/${s.getDate()}` }); }
+    return { buckets, fetchStart: addDays(buckets[0].start, -371), per12: 52, unitNoun: "week" };
+  }
+  for (let k = 29; k >= 0; k--) { const s = addDays(today, -k); buckets.push({ start: s, end: s, label: String(s.getDate()) }); }
+  return { buckets, fetchStart: addDays(buckets[0].start, -365), per12: 365, unitNoun: "day" };
+}
+
+function dashRowLabel(i) {
+  const s = dashBuckets[i].start;
+  if (dash.unit === "month") return MONTHS[s.getMonth()] + " " + s.getFullYear();
+  if (dash.unit === "week") return "Wk of " + MONTHS[s.getMonth()] + " " + s.getDate();
+  return s.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+let dashBuckets = [];
+
+let dashSeq = 0;
+async function renderDash() {
+  document.querySelectorAll("#dashSeg button").forEach((b) => b.classList.toggle("on", b.dataset.unit === dash.unit));
+  const win = dashWindow();
+  dashBuckets = win.buckets;
+  $("dashBody").innerHTML = '<div class="card"><div class="empty">Loading…</div></div>';
+  const seq = ++dashSeq;
+  let entries;
+  try {
+    entries = await fetchRange(win.fetchStart, new Date());
+  } catch (e) {
+    if (seq === dashSeq) $("dashBody").innerHTML = '<div class="card"><div class="empty">Could not load: ' + escapeHtml(e.message) + '</div></div>';
+    return;
+  }
+  if (seq !== dashSeq) return;
+  entries = applyOpts(entries);
+
+  // per-entry value + invoiced value (HasBeenBilled only), indexed by time
+  const invOf = (e) => e.billableStatus === "HasBeenBilled" ? val(e) : 0;
+  const dated = entries.filter((e) => e.date).map((e) => ({ t: new Date(e.date + "T00:00").getTime(), total: val(e), inv: invOf(e) }));
+  const sumIn = (a, b, key) => dated.reduce((s, e) => (e.t >= a && e.t <= b ? s + e[key] : s), 0);
+
+  const bTotal = win.buckets.map((b) => sumIn(b.start.getTime(), b.end.getTime(), "total"));
+  const bInv = win.buckets.map((b) => sumIn(b.start.getTime(), b.end.getTime(), "inv"));
+  const DAY = 86400000;   // 12-mo trailing average (invoiced), per bucket-unit
+  const trail = win.buckets.map((b) => sumIn(b.end.getTime() - 365 * DAY, b.end.getTime(), "inv") / win.per12);
+
+  const grandInv = bInv.reduce((a, b) => a + b, 0);
+  const grandTotal = bTotal.reduce((a, b) => a + b, 0);
+  const n = win.buckets.length;
+
+  let html = '<div class="card"><div class="dash-hero">'
+    + `<span class="big">${fmtVal(trail[n - 1])}</span>`
+    + `<span class="cap">invoiced / ${win.unitNoun}<br>12-mo trailing avg</span></div>`
+    + '<div class="chart" id="dashChart"></div>'
+    + `<div class="dash-legend"><span><span class="lg-bar"></span>Invoiced / ${win.unitNoun}</span>`
+    + '<span><span class="lg-line"></span>12-mo trailing avg</span></div></div>';
+
+  html += '<div class="card"><h2>Invoiced by ' + win.unitNoun + '</h2><div class="grid-scroll"><table class="dtbl"><thead><tr>'
+    + '<th class="per">Period</th><th>Total</th><th>Invoiced</th></tr></thead><tbody>';
+  win.buckets.map((_, i) => i).reverse().forEach((i) => {
+    html += `<tr><td class="per">${escapeHtml(dashRowLabel(i))}</td><td>${bTotal[i] ? fmtVal(bTotal[i]) : "·"}</td>`
+      + `<td class="inv">${bInv[i] ? fmtVal(bInv[i]) : "·"}</td></tr>`;
+  });
+  html += `</tbody><tfoot><tr><td class="per">Avg / ${win.unitNoun}</td><td>${fmtVal(grandTotal / n)}</td>`
+    + `<td class="avg">${fmtVal(grandInv / n)}</td></tr></tfoot></table></div></div>`;
+
+  $("dashBody").innerHTML = html;
+  drawDashChart($("dashChart"), win, bInv, trail);
+}
+
+function drawDashChart(box, win, bInv, trail) {
+  box.innerHTML = "";
+  const n = win.buckets.length;
+  const maxV = Math.max(...bInv, ...trail, 0);
+  if (maxV <= 0) {
+    box.innerHTML = '<div class="empty">No invoiced ' + (opts.dollars ? "value" : "time") + ' in this window yet.</div>';
+    return;
+  }
+  const toDisp = (v) => opts.dollars ? v : v / 60;
+  const dispMax = toDisp(maxV);
+  const steps = opts.dollars
+    ? [50, 100, 250, 500, 1000, 2000, 5000, 10000, 25000, 50000, 100000, 250000]
+    : [1, 2, 4, 8, 12, 24, 40, 80, 160, 320];
+  const step = steps.find((s) => dispMax / s <= 4) || steps[steps.length - 1];
+  const top = Math.ceil(dispMax / step) * step || step;
+  const tickTxt = (x) => opts.dollars ? (x >= 1000 ? "$" + (x / 1000) + "k" : "$" + x) : x + "h";
+
+  const plot = document.createElement("div");
+  plot.className = "plot";
+  for (let x = step; x <= top; x += step) {
+    const g = document.createElement("div"); g.className = "gridline"; g.style.bottom = (x / top) * 100 + "%";
+    const t = document.createElement("span"); t.className = "tick"; t.textContent = tickTxt(x); g.appendChild(t); plot.appendChild(g);
+  }
+  const base = document.createElement("div"); base.className = "gridline"; base.style.bottom = "0"; base.style.background = "var(--line)"; plot.appendChild(base);
+
+  const cols = document.createElement("div"); cols.className = "cols";
+  bInv.forEach((v) => {
+    const slot = document.createElement("div"); slot.className = "slot"; slot.style.cursor = "default";
+    const col = document.createElement("div"); col.className = "col";
+    col.style.height = (v ? Math.max((toDisp(v) / top) * 100, 1) : 0) + "%";
+    slot.appendChild(col); cols.appendChild(slot);
+  });
+  plot.appendChild(cols);
+
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "trendline");
+  svg.setAttribute("viewBox", "0 0 100 100");
+  svg.setAttribute("preserveAspectRatio", "none");
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+  line.setAttribute("points", trail.map((v, i) => `${((i + 0.5) / n * 100).toFixed(2)},${(100 - (toDisp(v) / top) * 100).toFixed(2)}`).join(" "));
+  svg.appendChild(line);
+  plot.appendChild(svg);
+  box.appendChild(plot);
+
+  const xl = document.createElement("div"); xl.className = "xlabels";
+  const everyN = n <= 12 ? 1 : Math.ceil(n / 6);
+  win.buckets.forEach((b, i) => {
+    if (i % everyN !== 0 && i !== n - 1) return;
+    const s = document.createElement("span");
+    s.textContent = b.label;
+    s.style.left = ((i + 0.5) / n * 100) + "%";
+    xl.appendChild(s);
+  });
+  box.appendChild(xl);
+}
+
 function syncSeg() {
   document.querySelectorAll("#seg button").forEach((b) =>
     b.classList.toggle("on", b.dataset.unit === rep.unit));
@@ -1972,6 +2152,7 @@ function syncOptsUI() {
 function rerenderActive() {
   if ($("reportView").style.display === "block") renderReport();
   if ($("peopleView").style.display === "block") renderPeople();
+  if ($("dashView").style.display === "block") renderDash();
 }
 
 // ── Tabs ────────────────────────────────────────────────────────────
@@ -1980,9 +2161,10 @@ function showView(view, o = {}) {
   $("weekView").style.display = view === "week" ? "block" : "none";
   $("reportView").style.display = view === "report" ? "block" : "none";
   $("peopleView").style.display = view === "people" ? "block" : "none";
+  $("dashView").style.display = view === "dash" ? "block" : "none";
   $("title").textContent =
     view === "report" ? "Report" : view === "week" ? "Week"
-    : view === "people" ? "Totals" : "Timesheet";
+    : view === "people" ? "Totals" : view === "dash" ? "Dashboard" : "Timesheet";
   document.querySelectorAll("#tabbar button").forEach((b) =>
     b.classList.toggle("on", b.dataset.view === view));
   window.scrollTo({ top: 0 });
@@ -1990,6 +2172,7 @@ function showView(view, o = {}) {
   if (view === "week") renderWeekGrid();
   // tab clicks land on the project list; keepPeo preserves a drill-in target
   if (view === "people") { if (!o.keepPeo) { peo.projectId = null; peo.expanded = false; } renderPeople(); }
+  if (view === "dash") renderDash();
 }
 
 function refreshData() {
@@ -1998,6 +2181,7 @@ function refreshData() {
   if ($("reportView").style.display === "block") renderReport();
   if ($("weekView").style.display === "block") renderWeekGrid();
   if ($("peopleView").style.display === "block") renderPeople();
+  if ($("dashView").style.display === "block") renderDash();
 }
 
 // ── Boot + submit ───────────────────────────────────────────────────
@@ -2017,6 +2201,9 @@ async function boot() {
   });
   $("peoPrev").onclick = () => peoShift(-1);
   $("peoNext").onclick = () => peoShift(1);
+  document.querySelectorAll("#dashSeg button").forEach((b) => {
+    b.onclick = () => { dash.unit = b.dataset.unit; renderDash(); };
+  });
   document.querySelectorAll(".modeseg button").forEach((b) => {
     b.onclick = () => { opts.dollars = b.dataset.mode === "dollars"; localStorage.setItem("opt-dollars", opts.dollars ? "1" : "0"); syncOptsUI(); rerenderActive(); };
   });
