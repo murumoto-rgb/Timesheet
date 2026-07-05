@@ -226,20 +226,22 @@
     position: absolute; left: 50%; transform: translateX(-50%);
     font-size: 10px; font-family: var(--mono); color: var(--ink); white-space: nowrap;
   }
-  .xlabels { position: relative; height: 28px; margin: 6px 34px 0 0; }
-  .xlabels span {
+  .xlabels { position: relative; height: 30px; margin: 6px 34px 0 0; }
+  /* direct-child only — otherwise this also absolutely-positions the nested
+     .xl-dom/.xl-dow spans at top:0 and the number/letter overlap */
+  .xlabels > span {
     position: absolute; transform: translateX(-50%); top: 0;
     font-size: 10px; color: var(--muted); font-family: var(--mono);
     white-space: nowrap;
   }
-  .xlabels span.wk {
+  .xlabels > span.wk {
     display: flex; flex-direction: column; align-items: center;
-    gap: 1px; line-height: 1.1;
+    gap: 2px; line-height: 1.1;
   }
-  .xlabels span.wk .xl-dom { font-size: 11px; color: var(--ink); font-weight: 600; }
-  .xlabels span.wk .xl-dow { font-size: 9px; opacity: 0.75; }
-  .xlabels span.today.wk .xl-dom { color: var(--accent); }
-  .xlabels span.today { color: var(--ink); font-weight: 700; }
+  .xlabels .xl-dom { font-size: 11px; color: var(--ink); font-weight: 600; }
+  .xlabels .xl-dow { font-size: 9px; opacity: 0.75; }
+  .xlabels > span.today.wk .xl-dom { color: var(--accent); }
+  .xlabels > span.today { color: var(--ink); font-weight: 700; }
   .proj { margin-top: 4px; }
   .proj-row { padding: 8px 0; }
   .proj-top { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
@@ -571,7 +573,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.15</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.16</div>
 </div>
 
 <div class="picker" id="picker" hidden>
