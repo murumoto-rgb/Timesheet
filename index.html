@@ -276,7 +276,10 @@
   button.wg-cell { cursor: pointer; }
   button.wg-cell:active { background: var(--field); }
   .wg-cell.has { color: var(--accent); font-weight: 700; }
-  .wg-head .wg-cell { min-height: 22px; font-size: 10px; }
+  .wg-head .wg-cell { min-height: 30px; flex-direction: column; gap: 1px; font-size: 10px; }
+  .wg-head .wg-dom { font-size: 12px; font-weight: 600; color: var(--ink); }
+  .wg-head .wg-dow { font-size: 9px; opacity: 0.75; }
+  .wg-head .wg-cell.today .wg-dom { color: var(--accent); }
   .wg-head .wg-cell.today { color: var(--ink); font-weight: 700; }
   .wg-tot {
     flex: 0 0 40px; text-align: right; font-family: var(--mono);
@@ -447,7 +450,7 @@
     <a href="#" id="remindLink">Daily reminders</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.2</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.3</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1131,8 +1134,12 @@ async function renderWeekGrid() {
   const todayI = Math.round((new Date(ymd(new Date()) + "T00:00") - start) / 86400000);
   const head = wgEl("div", "wg-row wg-head");
   head.appendChild(wgEl("span", "wg-name", ""));
-  "MTWTFSS".split("").forEach((ch, i) =>
-    head.appendChild(wgEl("span", "wg-cell" + (i === todayI ? " today" : ""), ch)));
+  "MTWTFSS".split("").forEach((ch, i) => {
+    const cell = wgEl("span", "wg-cell" + (i === todayI ? " today" : ""), "");
+    cell.appendChild(wgEl("span", "wg-dom", String(addDays(start, i).getDate())));
+    cell.appendChild(wgEl("span", "wg-dow", ch));
+    head.appendChild(cell);
+  });
   head.appendChild(wgEl("span", "wg-tot", ""));
   grid.appendChild(head);
 
