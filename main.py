@@ -820,6 +820,112 @@ font-weight:700;padding:2px 8px;border-radius:6px}}
 
 
 # ---------------------------------------------------------------------------
+# Rate check (read-only diagnostic): reports how many recent TimeActivity
+# entries carry an HourlyRate, and what rates appear per person × service —
+# so we can tell whether real QuickBooks dollar figures are available before
+# building any $ feature. Reads only; writes nothing.
+# ---------------------------------------------------------------------------
+def _ratecheck(days=365):
+    start = (date.today() - timedelta(days=days)).isoformat()
+    rows = qbo_query_all("TimeActivity", f"WHERE TxnDate >= '{start}' ORDERBY TxnDate DESC")
+    total = with_rate = 0
+    combos = {}  # (person, service) -> {"n":int, "withrate":int, "rates":set}
+    for t in rows:
+        who = (t.get("EmployeeRef") or t.get("VendorRef") or {}).get("name") or "(none)"
+        svc = (t.get("ItemRef") or {}).get("name") or "(none)"
+        rate = t.get("HourlyRate")
+        try:
+            rate = float(rate) if rate not in (None, "") else 0.0
+        except (TypeError, ValueError):
+            rate = 0.0
+        has = rate > 0
+        total += 1
+        with_rate += 1 if has else 0
+        c = combos.setdefault((who, svc), {"n": 0, "withrate": 0, "rates": set()})
+        c["n"] += 1
+        if has:
+            c["withrate"] += 1
+            c["rates"].add(round(rate, 2))
+    table = []
+    for (who, svc), c in sorted(combos.items()):
+        table.append({
+            "person": who, "service": svc, "entries": c["n"],
+            "withRate": c["withrate"],
+            "rates": sorted(c["rates"]),
+        })
+    return {
+        "days": days,
+        "examined": total,
+        "withRate": with_rate,
+        "withoutRate": total - with_rate,
+        "coveragePct": round(100 * with_rate / total, 1) if total else 0,
+        "distinctRates": sorted({r for row in table for r in row["rates"]}),
+        "byPersonService": table,
+    }
+
+
+@app.get("/api/ratecheck")
+def api_ratecheck(days: int = 365):
+    return _ratecheck(max(1, min(days, 1830)))
+
+
+@app.get("/ratecheck")
+def ratecheck_page(days: int = 365):
+    """Password-gated, human-readable rate coverage report."""
+    import html as _html
+    d = _ratecheck(max(1, min(days, 1830)))
+    if not d["examined"]:
+        body = '<p class="note">No time entries found in this window.</p>'
+    else:
+        verdict = ("Every entry carries a rate — real $ figures are fully available."
+                   if d["withoutRate"] == 0 else
+                   f'{d["coveragePct"]}% of entries carry a rate. '
+                   + ("Most do — $ is workable; the rest would be flagged as “no rate.”"
+                      if d["coveragePct"] >= 50 else
+                      "Only some do — most time has no rate stored on it, so $ is not reliably available yet."))
+        rrows = ""
+        for r in d["byPersonService"]:
+            rates = ", ".join(f"${x:,.2f}" for x in r["rates"]) or "—"
+            miss = r["entries"] - r["withRate"]
+            flag = "" if miss == 0 else f' <span class="miss">({miss} no rate)</span>'
+            rrows += (f'<tr><td>{_html.escape(r["person"])}</td>'
+                      f'<td>{_html.escape(r["service"])}</td>'
+                      f'<td class="num">{r["entries"]}</td>'
+                      f'<td class="rate">{rates}{flag}</td></tr>')
+        body = (
+            f'<p class="big">{d["withRate"]} of {d["examined"]} entries carry an hourly rate '
+            f'<span class="pct">({d["coveragePct"]}%)</span></p>'
+            f'<p class="verdict">{_html.escape(verdict)}</p>'
+            f'<p class="note">{len(d["distinctRates"])} distinct rate'
+            f'{"" if len(d["distinctRates"]) == 1 else "s"} seen'
+            f'{": " + ", ".join(f"${x:,.2f}" for x in d["distinctRates"]) if d["distinctRates"] else ""}.</p>'
+            f'<table><thead><tr><th>Person</th><th>Service</th><th class="num">Entries</th>'
+            f'<th class="rate">Rate(s) on file</th></tr></thead><tbody>{rrows}</tbody></table>'
+        )
+    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rate check</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:680px;margin:0 auto;
+padding:24px 16px 60px;background:#12161c;color:#e6ebf1;line-height:1.5}}
+h1{{font-size:22px}} a{{color:#4c9be8;text-decoration:none}} .note{{color:#8a97a6;font-size:14px}}
+.big{{font-size:20px;font-weight:650;margin:14px 0 4px}} .pct{{color:#4c9be8}}
+.verdict{{background:#0e1217;border:1px solid #2b333e;border-radius:10px;padding:12px 14px}}
+table{{border-collapse:collapse;width:100%;margin-top:16px;font-size:14px}}
+th,td{{text-align:left;padding:8px 10px;border-bottom:1px solid #242c36;vertical-align:top}}
+th{{color:#8a97a6;font-size:12px;text-transform:uppercase;letter-spacing:.05em}}
+.num{{text-align:right;font-family:ui-monospace,Menlo,monospace}}
+.rate{{font-family:ui-monospace,Menlo,monospace}}
+.miss{{color:#e0a458}}</style></head><body>
+<p><a href="/">&larr; Back to Timesheet</a></p>
+<h1>Rate check</h1>
+<p class="note">Read-only. Looks at the last {d["days"]} days of QuickBooks time
+entries and reports which carry an hourly rate. Nothing is changed.</p>
+{body}
+</body></html>"""
+    return HTMLResponse(html)
+
+
+# ---------------------------------------------------------------------------
 # Daily reminder — Web Push (payloadless VAPID; message lives in the SW).
 # Self-contained: VAPID keys are generated once and persisted with the push
 # blob, so no manual key setup is needed. Reminders only fire when at least
