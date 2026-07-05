@@ -221,20 +221,25 @@ Field rules that trip people up:
   via the "Daily reminders" footer link; message lives in `static/sw.js`.
   Only `cryptography` was added (payloadless avoids the http-ece dep).
 
-- **People tab** (4th bottom tab): total hours **per person on one project**,
-  over time. Requires a project first (picker reused via a routed
-  `openPicker(onPick, selId)` + `pickerPick` callback; empty state prompts
-  to pick one). Granularity seg **Day/Week/Month/Qtr**, each with a natural
-  window of buckets (`peoWindow`): Day→this week (7 days), Week→this month
-  (its weeks), Month→this quarter (3 months), Qtr→this year (4 quarters);
-  prev/next pages by that window. Layout is **leaderboard + expandable
-  pivot grid** (chosen from 3 mockups): ranked people with avatar initials,
-  total, % share bar, billable split, and a per-bucket trend sparkline;
-  "Show the full grid" expands a people×bucket pivot table (sticky first
-  column, horizontal scroll, row/column/grand totals). Entries are matched
-  to the project by `(e.projectId || e.customerId) === peo.projectId`. All
-  client-side from one range fetch (`fetchRange`). Person colors from
-  `PEO_COLORS`.
+- **Totals tab** (4th bottom tab; internal ids still `people`/`peo*`):
+  hours by project, then per person, over time. Granularity seg
+  **Day/Week/Month/Qtr** (default **Month**), each a natural window of
+  buckets (`peoWindow`): Day→this week (7 days), Week→this month (its
+  weeks), Month→this quarter (3 months), Qtr→this year (4 quarters);
+  prev/next pages by that window. **Landing** (`renderProjectTotals`,
+  shown when `peo.projectId` is null; the tab always resets to it on open):
+  every project with hours in the period, **alphabetical**, each a tappable
+  row with total, billable split, and a two-tone bar. Tapping a row sets
+  `peo.projectId`/`projectName` from the row's own data and opens the
+  **drill-down** (`renderPersonDrill`): a "‹ All projects" back button plus
+  the chosen **leaderboard + expandable pivot grid** (ranked people, avatar
+  initials, % share, billable, per-bucket sparkline; "Show the full grid" →
+  people×bucket pivot, sticky first column, row/col/grand totals). Both the
+  list and the drill-down derive project identity from the entries
+  themselves (`e.projectId || e.customerId` + `e.customer`), so the picked
+  id always matches the tagged time — this replaced an earlier dropdown that
+  could hand the drill-down a non-matching id (time showed in Report but not
+  here). All client-side from one `fetchRange`. Person colors `PEO_COLORS`.
 
 ## Backlog (not yet built)
 

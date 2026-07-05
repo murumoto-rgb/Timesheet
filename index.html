@@ -288,6 +288,21 @@
   .rank .spark { flex-shrink: 0; }
   .peo-toggle { width: 100%; margin-top: 4px; background: none; border: 1px solid var(--line);
     color: var(--muted); border-radius: 10px; padding: 10px; font-size: 13px; font-family: var(--sans); cursor: pointer; }
+  .peo-back { background: none; border: none; color: var(--accent); font-family: var(--sans);
+    font-size: 14px; padding: 6px 2px 12px; cursor: pointer; }
+  /* project totals list (Totals landing) */
+  .tot-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; cursor: pointer; }
+  .tot-row:not(:last-child) { border-bottom: 1px solid var(--grid); }
+  .tot-row .info { flex: 1; min-width: 0; }
+  .tot-row .nm { font-weight: 600; font-size: 14.5px; display: flex; justify-content: space-between; gap: 8px; }
+  .tot-row .nm span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tot-row .nm .h { font-family: var(--mono); color: var(--ink); flex-shrink: 0; }
+  .tot-row .sub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+  .tot-row .sub .g { color: var(--good); }
+  .tot-row .bar { height: 5px; border-radius: 3px; background: var(--field); margin-top: 8px; overflow: hidden; }
+  .tot-row .bar > i { display: block; height: 100%; border-radius: 3px; background: var(--series-1); min-width: 2px; }
+  .tot-row .bar > i > b { display: block; height: 100%; border-radius: 3px; background: var(--good); }
+  .tot-row .chev { color: var(--muted); flex-shrink: 0; font-size: 20px; }
   .grid-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -2px; }
   .ptbl { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
   .ptbl th, .ptbl td { padding: 9px 8px; font-size: 13px; text-align: right; font-family: var(--mono); white-space: nowrap; }
@@ -488,25 +503,19 @@
 
   <div id="peopleView">
     <div class="card">
-      <button type="button" class="pickbtn" id="peoProjBtn">
-        <span id="peoProjName">Select a project…</span>
-      </button>
       <div class="seg" id="peoSeg">
         <button data-unit="day">Day</button>
         <button data-unit="week">Week</button>
         <button data-unit="month" class="on">Month</button>
         <button data-unit="quarter">Qtr</button>
       </div>
-      <div class="nav" id="peoNav" style="margin-top:12px;display:none">
+      <div class="nav" id="peoNav" style="margin-top:12px">
         <button id="peoPrev" aria-label="Previous period">‹</button>
         <span class="label" id="peoLabel"></span>
         <button id="peoNext" aria-label="Next period">›</button>
       </div>
     </div>
-    <div id="peoBody">
-      <div class="card"><div class="empty">Pick a project above to see who
-      worked on it, and how their hours break down over time.</div></div>
-    </div>
+    <div id="peoBody"><div class="card"><div class="empty">Loading…</div></div></div>
   </div>
 
   <div class="foot">
@@ -515,7 +524,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.7</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.8</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -541,9 +550,9 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 4v17M14 4v17"/></svg>
     Week
   </button>
-  <button data-view="people" aria-label="People">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0" stroke-linecap="round"/><path d="M16 6.2a3 3 0 0 1 0 5.6M17.5 20a5.3 5.3 0 0 0-2.7-4.6" stroke-linecap="round"/></svg>
-    People
+  <button data-view="people" aria-label="Totals">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h11M4 17h7" stroke-linecap="round"/></svg>
+    Totals
   </button>
   <button data-view="report" aria-label="Reports">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>
@@ -1394,16 +1403,8 @@ function peoSparkline(vals, color) {
 
 let peoSeq = 0;
 async function renderPeople() {
-  $("peoProjName").textContent = peo.projectName || "Select a project…";
   syncPeoSeg();
-  if (!peo.projectId) {
-    $("peoNav").style.display = "none";
-    $("peoBody").innerHTML = '<div class="card"><div class="empty">Pick a project '
-      + 'above to see who worked on it, and how their hours break down over time.</div></div>';
-    return;
-  }
   const win = peoWindow();
-  $("peoNav").style.display = "flex";
   $("peoLabel").textContent = win.title;
   $("peoBody").innerHTML = '<div class="card"><div class="empty">Loading…</div></div>';
   const seq = ++peoSeq;
@@ -1411,13 +1412,61 @@ async function renderPeople() {
   try {
     entries = await fetchRange(win.start, win.end);
   } catch (e) {
-    if (seq === peoSeq) $("peoBody").innerHTML = '<div class="card"><div class="empty">Could not load: ' + e.message + '</div></div>';
+    if (seq === peoSeq) $("peoBody").innerHTML = '<div class="card"><div class="empty">Could not load: ' + escapeHtml(e.message) + '</div></div>';
     return;
   }
   if (seq !== peoSeq) return;
-  entries = entries.filter((e) => (e.projectId || e.customerId) === peo.projectId);
+  if (peo.projectId) renderPersonDrill(entries, win);
+  else renderProjectTotals(entries, win);
+}
 
-  // Aggregate per person: total, billable, and per-bucket minutes.
+function peoToList() { peo.projectId = null; peo.projectName = ""; peo.expanded = false; renderPeople(); }
+
+// Landing: every project with hours this period, alphabetical, tap to drill in.
+function renderProjectTotals(entries, win) {
+  const projs = new Map();
+  entries.forEach((e) => {
+    const id = e.projectId || e.customerId;
+    if (!id) return;
+    const p = projs.get(id) || { id, name: e.customer || "(no client)", total: 0, billable: 0 };
+    p.total += mins(e);
+    if (e.billable) p.billable += mins(e);
+    if (e.customer) p.name = e.customer;
+    projs.set(id, p);
+  });
+  const rows = [...projs.values()].filter((p) => p.total > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!rows.length) {
+    $("peoBody").innerHTML = '<div class="card"><div class="empty">No time logged in '
+      + escapeHtml(win.title) + '.</div></div>';
+    return;
+  }
+  const grand = rows.reduce((s, p) => s + p.total, 0);
+  const max = Math.max(...rows.map((p) => p.total));
+  let html = '<div class="card"><div class="peo-tot">'
+    + `<span class="big">${fmtMins(grand)}<span class="u"> h</span></span>`
+    + `<span class="cap">${escapeHtml(win.title)} · ${rows.length} ${rows.length === 1 ? "project" : "projects"}</span></div>`
+    + '<p class="sub" style="margin:0 0 4px">Tap a project for the per-person breakdown.</p>';
+  rows.forEach((p) => {
+    const billTxt = p.billable === p.total ? "all billable"
+      : p.billable ? `${fmtMins(p.billable)} billable` : "none billable";
+    const bpart = p.billable ? `<b style="width:${(p.billable / p.total) * 100}%"></b>` : "";
+    html += `<div class="tot-row" data-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}"><div class="info">`
+      + `<div class="nm"><span>${escapeHtml(p.name)}</span><span class="h">${fmtMins(p.total)}</span></div>`
+      + `<div class="sub">${p.billable ? `<span class="g">${billTxt}</span>` : billTxt}</div>`
+      + `<div class="bar"><i style="width:${(p.total / max) * 100}%">${bpart}</i></div>`
+      + `</div><span class="chev">›</span></div>`;
+  });
+  html += '</div>';
+  $("peoBody").innerHTML = html;
+  $("peoBody").querySelectorAll(".tot-row").forEach((r) => {
+    r.onclick = () => { peo.projectId = r.dataset.id; peo.projectName = r.dataset.name; peo.expanded = false; renderPeople(); };
+  });
+}
+
+// Drill-down: per-person breakdown for one project (leaderboard + pivot grid).
+function renderPersonDrill(entries, win) {
+  const scoped = entries.filter((e) => (e.projectId || e.customerId) === peo.projectId);
   const nb = win.buckets.length;
   const bucketOf = (dateStr) => {
     const d = new Date(dateStr + "T00:00");
@@ -1425,7 +1474,7 @@ async function renderPeople() {
     return -1;
   };
   const people = new Map();
-  entries.forEach((e) => {
+  scoped.forEach((e) => {
     if (!e.employee || !e.date) return;
     const i = bucketOf(e.date);
     if (i < 0) return;
@@ -1439,14 +1488,17 @@ async function renderPeople() {
   rows.forEach((p, i) => { p.color = PEO_COLORS[i % PEO_COLORS.length]; });
   const grand = rows.reduce((s, p) => s + p.total, 0);
 
+  const back = '<button class="peo-back" id="peoBack">‹ All projects</button>';
   if (!rows.length) {
-    $("peoBody").innerHTML = '<div class="card"><div class="empty">No time logged on '
-      + escapeHtml(peo.projectName) + ' in ' + escapeHtml(win.title) + '.</div></div>';
+    $("peoBody").innerHTML = back + '<div class="card"><h2>' + escapeHtml(peo.projectName)
+      + '</h2><div class="empty">No time on this project in ' + escapeHtml(win.title) + '.</div></div>';
+    $("peoBack").onclick = peoToList;
     return;
   }
 
   // Leaderboard (summary) — ranked people with share + trend.
-  let html = '<div class="card"><div class="peo-tot">'
+  let html = back + '<div class="card"><h2 style="margin-bottom:12px">' + escapeHtml(peo.projectName) + '</h2>'
+    + '<div class="peo-tot">'
     + `<span class="big">${fmtMins(grand)}<span class="u"> h</span></span>`
     + `<span class="cap">${escapeHtml(win.title)} · ${rows.length} ${rows.length === 1 ? "person" : "people"}</span></div>`;
   rows.forEach((p, i) => {
@@ -1483,6 +1535,7 @@ async function renderPeople() {
   }
 
   $("peoBody").innerHTML = html;
+  $("peoBack").onclick = peoToList;
   $("peoToggle").onclick = () => { peo.expanded = !peo.expanded; renderPeople(); };
 }
 
@@ -1713,12 +1766,12 @@ function showView(view) {
   $("peopleView").style.display = view === "people" ? "block" : "none";
   $("title").textContent =
     view === "report" ? "Report" : view === "week" ? "Week"
-    : view === "people" ? "People" : "Timesheet";
+    : view === "people" ? "Totals" : "Timesheet";
   document.querySelectorAll("#tabbar button").forEach((b) =>
     b.classList.toggle("on", b.dataset.view === view));
   if (view === "report") renderReport();
   if (view === "week") renderWeekGrid();
-  if (view === "people") renderPeople();
+  if (view === "people") { peo.projectId = null; peo.expanded = false; renderPeople(); }
 }
 
 function refreshData() {
@@ -1746,11 +1799,6 @@ async function boot() {
   });
   $("peoPrev").onclick = () => peoShift(-1);
   $("peoNext").onclick = () => peoShift(1);
-  $("peoProjBtn").onclick = () => openPicker((item) => {
-    peo.projectId = item.id;
-    peo.projectName = item.name;
-    renderPeople();
-  }, peo.projectId);
   document.querySelectorAll("#tabbar button").forEach((b) => {
     b.onclick = () => showView(b.dataset.view);
   });
