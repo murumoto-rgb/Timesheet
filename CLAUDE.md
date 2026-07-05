@@ -295,7 +295,12 @@ Field rules that trip people up:
   `touch-action:none`) → a crosshair + highlighted bar, and the hero swaps
   to that bucket's exact value + "period · avg <trailing>"; reverts on
   release (`dashDefaultBig`/`dashDefaultCap`). Headline is rounded
-  (`~159hrs` / `~$39K`); scrub readout is exact (`fmtVal`).
+  (`~159hrs` / `~$39K`); scrub readout is exact (`fmtVal`). **MB effective
+  rate** (`.dash-rate`, green): total (billed or received) $ over the shown
+  window ÷ hours worked by Murat Baykal (`MB_RE = /murat\s*baykal/i`) in that
+  window — revenue includes vendor/leverage work, denominator is MB's hours
+  only. Numerator follows the Billed/Received toggle. Dashboard graphs sum
+  **all** employees + vendors (no person filter).
 
 ## Backlog (not yet built)
 

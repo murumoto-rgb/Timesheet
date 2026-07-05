@@ -289,6 +289,8 @@
   .dash-hero { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-bottom: 6px; }
   .dash-hero .big { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
   .dash-hero .cap { color: var(--muted); font-size: 12.5px; text-align: left; }
+  .dash-rate { font-family: var(--mono); font-size: 15px; color: var(--good); margin: 0 0 10px; }
+  .dash-rate span { color: var(--muted); font-family: var(--sans); font-size: 12.5px; }
   /* explicit width (not auto) — an SVG is a replaced element and won't stretch
      to left/right insets with width:auto, which squished the line into the
      left of the chart. calc matches the .cols box (plot width minus the 34px
@@ -628,7 +630,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.24</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.25</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2016,6 +2018,7 @@ function goToTotals(projectId, projectName) {
 
 // ── Dashboard: billed (invoiced) or received (payments) trend + 12-mo avg ──
 const dash = { unit: "month", metric: "billed" };   // metric only applies in $ mode
+const MB_RE = /murat\s*baykal/i;   // Murat Baykal, for the effective-rate stat
 
 async function fetchPayments(start, end) {
   const res = await fetch(`/api/payments?start=${ymd(start)}&end=${ymd(end)}`);
@@ -2069,23 +2072,24 @@ async function renderDash() {
   const seq = ++dashSeq;
   const fin = (x) => Number.isFinite(x) ? x : 0;   // never let a bad value poison a sum
 
-  // dated = [{ t, metric, total }]. metric = the charted value (invoiced value
-  // or payment amount); total = all logged value (billed mode only).
-  let dated;
+  // Always fetch time entries (for the billed series + MB's hours); fetch
+  // payments too when the metric is Received.
+  let entries, pmts = null;
   try {
-    if (received) {
-      const pmts = await fetchPayments(win.fetchStart, new Date());
-      dated = pmts.filter((p) => p.date).map((p) => ({ t: new Date(p.date + "T00:00").getTime(), metric: fin(Number(p.amount)), total: 0 }));
-    } else {
-      let entries = applyOpts(await fetchRange(win.fetchStart, new Date()));
-      const invOf = (e) => e.billableStatus === "HasBeenBilled" ? val(e) : 0;
-      dated = entries.filter((e) => e.date).map((e) => ({ t: new Date(e.date + "T00:00").getTime(), metric: fin(invOf(e)), total: fin(val(e)) }));
-    }
+    entries = applyOpts(await fetchRange(win.fetchStart, new Date()));
+    if (received) pmts = await fetchPayments(win.fetchStart, new Date());
   } catch (e) {
     if (seq === dashSeq) $("dashBody").innerHTML = '<div class="card"><div class="empty">Could not load: ' + escapeHtml(e.message) + '</div></div>';
     return;
   }
   if (seq !== dashSeq) return;
+
+  // dated = [{ t, metric, total }]. metric = charted value (invoiced value or
+  // payment amount); total = all logged value (billed mode only).
+  const invOf = (e) => e.billableStatus === "HasBeenBilled" ? val(e) : 0;
+  const dated = received
+    ? pmts.filter((p) => p.date).map((p) => ({ t: new Date(p.date + "T00:00").getTime(), metric: fin(Number(p.amount)), total: 0 }))
+    : entries.filter((e) => e.date).map((e) => ({ t: new Date(e.date + "T00:00").getTime(), metric: fin(invOf(e)), total: fin(val(e)) }));
 
   const sumIn = (a, b, key) => dated.reduce((s, e) => (e.t >= a && e.t <= b ? s + e[key] : s), 0);
   const bMetric = win.buckets.map((b) => sumIn(b.start.getTime(), b.end.getTime(), "metric"));
@@ -2097,6 +2101,23 @@ async function renderDash() {
   const grandTotal = bTotal.reduce((a, b) => a + b, 0);
   const n = win.buckets.length;
 
+  // ── MB effective rate: total (billed or received) $ over the shown window ÷
+  //    hours worked by Murat Baykal in that window. ──
+  const winStart = win.buckets[0].start.getTime(), winEnd = win.buckets[n - 1].end.getTime();
+  const inWin = (ds) => { const t = new Date(ds + "T00:00").getTime(); return t >= winStart && t <= winEnd; };
+  let mbMin = 0, billedD = 0;
+  entries.forEach((e) => {
+    if (!e.date || !inWin(e.date)) return;
+    if (MB_RE.test(e.employee || "")) mbMin += mins(e);
+    if (e.billableStatus === "HasBeenBilled") billedD += fin(dollarsOf(e));
+  });
+  let dollars = billedD;
+  if (received) { dollars = 0; pmts.forEach((p) => { if (p.date && inWin(p.date)) dollars += fin(Number(p.amount)); }); }
+  const mbRate = mbMin > 0 ? dollars / (mbMin / 60) : null;
+  const rateHtml = mbRate != null
+    ? `<div class="dash-rate">$${Math.round(mbRate).toLocaleString()}<span> / hr worked by MB · ${received ? "received" : "billed"}</span></div>`
+    : "";
+
   // headline is a rounded approximation: hours → "~159hrs", dollars → "~$39K"
   const headline = opts.dollars
     ? "~$" + Math.round(trail[n - 1] / 1000) + "K"
@@ -2106,6 +2127,7 @@ async function renderDash() {
   let html = '<div class="card"><div class="dash-hero">'
     + `<span class="big" id="dashBig">${headline}</span>`
     + `<span class="cap" id="dashCap">${dashDefaultCap}</span></div>`
+    + rateHtml
     + '<div class="chart" id="dashChart"></div>'
     + `<div class="dash-legend"><span><span class="lg-bar"></span>${Noun} / ${win.unitNoun}</span>`
     + '<span><span class="lg-line"></span>12-mo trailing avg</span></div></div>';
