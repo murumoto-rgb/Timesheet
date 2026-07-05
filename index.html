@@ -653,7 +653,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.31</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.32</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2077,6 +2077,12 @@ async function fetchReceivables() {
   return res.json();
 }
 
+async function fetchBills(start, end) {
+  const res = await fetch(`/api/bills?start=${ymd(start)}&end=${ymd(end)}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // compact money for the stat blocks: $8.2K / $42K / $950
 const fmtK = (d) => {
   d = Math.round(d);
@@ -2219,10 +2225,12 @@ async function renderDash() {
   //   billedD/billValue → realization (share of billable work invoiced).
   let mbMin = 0, billedD = 0, totalMin = 0, billMin = 0, billValue = 0;
   const byClientVal = new Map();   // client → billable value ($), for concentration
+  const subNames = new Set();      // vendors who log time = the subcontractors
   entries.forEach((e) => {
     if (!e.date || !inWin(e.date)) return;
     const m = mins(e);
     totalMin += m;
+    if ((e.vendorId || e.nameOf === "Vendor") && e.employee) subNames.add(e.employee.toLowerCase());
     if (MB_RE.test(e.employee || "")) mbMin += m;
     if (e.billable) {
       billMin += m;
@@ -2296,6 +2304,10 @@ async function renderDash() {
     html += "</div>";
   }
 
+  // Subcontractor cost & margin — filled async from /api/bills below; the
+  // placeholder keeps its slot in the analytics stack (above the table).
+  html += '<div id="dashMargin"></div>';
+
   // billed mode shows a Total column too; received (cash) has no "total logged"
   const showTotal = !received;
   html += '<div class="card"><h2>' + Noun + ' by ' + win.unitNoun + '</h2><div class="grid-scroll"><table class="dtbl"><thead><tr>'
@@ -2325,6 +2337,36 @@ async function renderDash() {
     $("dashMoney").innerHTML = renderMoney(rec, wip);
   } catch (e) {
     if (seq === dashSeq) $("dashMoney").innerHTML = '<div class="card money"><div class="empty">Could not load receivables: ' + escapeHtml(e.message) + '</div></div>';
+  }
+
+  // Subcontractor cost & margin over the shown window. "Subcontractors" = the
+  // vendors who log time (subNames); cost = Bills/Purchases to them. Revenue =
+  // billable value generated in the window. Non-fatal; hidden entirely when the
+  // practice uses no subs (nothing to show).
+  const marginBox = $("dashMargin");
+  if (subNames.size === 0) {
+    marginBox.innerHTML = "";
+  } else {
+    try {
+      const bills = await fetchBills(win.buckets[0].start, win.buckets[n - 1].end);
+      if (seq !== dashSeq) return;
+      const subCost = bills.reduce((s, b) => subNames.has((b.vendor || "").toLowerCase()) ? s + fin(Number(b.amount)) : s, 0);
+      const revenue = billValue;
+      const margin = revenue - subCost;
+      const marginPct = revenue > 0 ? (margin / revenue) * 100 : null;
+      marginBox.innerHTML = '<div class="card money"><h2>Subcontractor cost &amp; margin '
+        + `<span class="asof">last ${win.buckets.length} ${win.unitNoun}s</span></h2>`
+        + '<div class="money-stats">'
+        + `<div class="mstat"><span class="mnum">${fmtK(revenue)}</span><span class="mlbl">Revenue (billable)</span></div>`
+        + `<div class="mstat"><span class="mnum bad">${fmtK(subCost)}</span><span class="mlbl">Sub cost</span></div>`
+        + `<div class="mstat"><span class="mnum good">${fmtK(margin)}</span><span class="mlbl">Gross margin</span></div>`
+        + `<div class="mstat"><span class="mnum">${marginPct != null ? Math.round(marginPct) + "%" : "—"}</span><span class="mlbl">Margin %</span></div>`
+        + "</div>"
+        + `<p class="sub" style="margin:10px 0 0">Cost = bills to the ${subNames.size} vendor${subNames.size > 1 ? "s" : ""} who logged time this window; enter subcontractor bills in QuickBooks for this to be complete.</p>`
+        + "</div>";
+    } catch (e) {
+      if (seq === dashSeq) marginBox.innerHTML = '<div class="card money"><div class="empty">Could not load bills: ' + escapeHtml(e.message) + "</div></div>";
+    }
   }
 }
 

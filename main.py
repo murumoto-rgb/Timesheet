@@ -773,6 +773,41 @@ def list_payments(days: int = 14, start: str | None = None, end: str | None = No
     return out
 
 
+@app.get("/api/bills")
+def list_bills(days: int = 14, start: str | None = None, end: str | None = None):
+    """Vendor costs in a date range: Bills + Purchases (checks / expenses / CC),
+    excluding credit-card credits & refunds (those are money in, not a cost).
+    Each item is {id, date, amount, vendor, kind}. Used by the dashboard's
+    subcontractor-cost / margin section, which scopes cost to the vendors who
+    actually log time (the subcontractors)."""
+    start, end = _resolve_range(days, start, end)
+    where = f"WHERE TxnDate >= '{start}'"
+    if end:
+        where += f" AND TxnDate <= '{end}'"
+    where += " ORDERBY TxnDate DESC"
+    out = []
+    for r in qbo_query_all("Bill", where):
+        out.append({
+            "id": r["Id"],
+            "date": r.get("TxnDate"),
+            "amount": _num(r.get("TotalAmt")),
+            "vendor": (r.get("VendorRef") or {}).get("name"),
+            "kind": "bill",
+        })
+    for r in qbo_query_all("Purchase", where):
+        if r.get("Credit"):  # credit-card credit / refund → money in, skip
+            continue
+        # Purchase payee is EntityRef (may be a Vendor/Customer/Employee).
+        out.append({
+            "id": r["Id"],
+            "date": r.get("TxnDate"),
+            "amount": _num(r.get("TotalAmt")),
+            "vendor": (r.get("EntityRef") or {}).get("name"),
+            "kind": "purchase",
+        })
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Routes: accounts receivable (open invoices, aging, DSO)
 # ---------------------------------------------------------------------------

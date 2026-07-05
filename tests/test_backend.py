@@ -156,6 +156,26 @@ def test_receivables_dso_none_without_billing():
     assert s["dso"] is None and s["outstanding"] == 0
 
 
+# ── bills: Bill + Purchase merge, credits excluded ──────────────────────────
+def test_list_bills_merges_and_drops_credits(monkeypatch):
+    def q(entity, where="", key=None):
+        if entity == "Bill":
+            return [{"Id": "b1", "TxnDate": "2026-06-01", "TotalAmt": 3000, "VendorRef": {"name": "Sub A"}}]
+        if entity == "Purchase":
+            return [
+                {"Id": "p1", "TxnDate": "2026-06-02", "TotalAmt": 500, "EntityRef": {"name": "Sub B"}},
+                {"Id": "p2", "TxnDate": "2026-06-03", "TotalAmt": 200, "EntityRef": {"name": "Sub B"}, "Credit": True},
+            ]
+        return []
+
+    monkeypatch.setattr(main, "qbo_query_all", q)
+    out = main.list_bills(start="2026-01-01", end="2026-12-31")
+    assert len(out) == 2                          # the credit/refund is dropped
+    assert sum(x["amount"] for x in out) == 3500
+    assert {x["kind"] for x in out} == {"bill", "purchase"}
+    assert {x["vendor"] for x in out} == {"Sub A", "Sub B"}
+
+
 # ── date-range validation ───────────────────────────────────────────────────
 def test_list_time_rejects_bad_dates(monkeypatch):
     monkeypatch.setattr(main, "qbo_query_all", lambda *a, **k: [])
