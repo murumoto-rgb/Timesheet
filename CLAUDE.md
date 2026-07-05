@@ -283,7 +283,15 @@ Field rules that trip people up:
   (`.dtbl`): Period · Total · Invoiced, newest first, with an "Avg /
   <unit>" footer. Headline = the latest trailing-avg value. Needs ~2 years
   of history per view, so it relies on the `list_time` pagination. Invoiced
-  depends on time being marked billed in QBO (HasBeenBilled).
+  depends on time being marked billed in QBO (HasBeenBilled). **Billed ⇄
+  Received** toggle (`dash.metric`, shown only in $ mode): "Received" swaps
+  the invoiced series for **actual cash in** — `GET /api/payments`
+  (`list_payments`, paginated) sums QBO **Payment + SalesReceipt** `TotalAmt`
+  per bucket. Received mode drops the Total column (no "logged value" for
+  cash) → Period · Received. The trailing SVG line stretches via an explicit
+  `width: calc(100% - 34px)` — an SVG is a replaced element and won't fill
+  left/right insets with `width:auto` (that bug squished the line into the
+  left third).
 
 ## Backlog (not yet built)
 

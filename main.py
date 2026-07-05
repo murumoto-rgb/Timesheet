@@ -706,6 +706,34 @@ def list_time(days: int = 14, start: str | None = None, end: str | None = None):
     return entries
 
 
+@app.get("/api/payments")
+def list_payments(days: int = 14, start: str | None = None, end: str | None = None):
+    """Actual money received in a date range: customer Payments + SalesReceipts.
+    Each item is {date, amount, customer, kind}. Used by the dashboard's
+    'Received' metric (real cash in, vs. billed/invoiced)."""
+    for d in (start, end):
+        if d and not _DATE_RE.match(d):
+            raise HTTPException(400, "Dates must be YYYY-MM-DD.")
+    if not start:
+        start = (date.today() - timedelta(days=days)).isoformat()
+    where = f"WHERE TxnDate >= '{start}'"
+    if end:
+        where += f" AND TxnDate <= '{end}'"
+    where += " ORDERBY TxnDate DESC"
+    out = []
+    # Both entities carry TotalAmt (cash received) + TxnDate + CustomerRef.
+    for kind, entity in (("payment", "Payment"), ("salesreceipt", "SalesReceipt")):
+        for r in qbo_query_all(entity, where):
+            out.append({
+                "id": r["Id"],
+                "date": r.get("TxnDate"),
+                "amount": r.get("TotalAmt", 0),
+                "customer": (r.get("CustomerRef") or {}).get("name"),
+                "kind": kind,
+            })
+    return out
+
+
 @app.delete("/api/timeactivity/{entry_id}")
 def delete_time(entry_id: str, request: Request):
     access_token, realm_id = get_access_token()

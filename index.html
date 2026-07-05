@@ -611,6 +611,10 @@
         </div>
         <label class="optck"><input type="checkbox" class="hideExp"> Hide mileage &amp; expenses</label>
       </div>
+      <div class="seg" id="dashMetric" style="display:none;margin-top:10px">
+        <button data-metric="billed" class="on">Billed</button>
+        <button data-metric="received">Received</button>
+      </div>
     </div>
     <div id="dashBody"><div class="card"><div class="empty">Loading…</div></div></div>
   </div>
@@ -621,7 +625,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.21</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.22</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2007,8 +2011,14 @@ function goToTotals(projectId, projectName) {
   showView("people", { keepPeo: true });
 }
 
-// ── Dashboard: invoiced (HasBeenBilled) trend + 12-mo trailing average ──
-const dash = { unit: "month" };
+// ── Dashboard: billed (invoiced) or received (payments) trend + 12-mo avg ──
+const dash = { unit: "month", metric: "billed" };   // metric only applies in $ mode
+
+async function fetchPayments(start, end) {
+  const res = await fetch(`/api/payments?start=${ymd(start)}&end=${ymd(end)}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
 
 // Trailing display window + the fetch range needed for a 12-month trailing avg.
 function dashWindow() {
@@ -2042,64 +2052,82 @@ let dashBuckets = [];
 let dashSeq = 0;
 async function renderDash() {
   document.querySelectorAll("#dashSeg button").forEach((b) => b.classList.toggle("on", b.dataset.unit === dash.unit));
+  // Billed/Received toggle only makes sense for money — show it in $ mode.
+  const received = opts.dollars && dash.metric === "received";
+  const noun = received ? "received" : "invoiced";
+  const Noun = received ? "Received" : "Invoiced";
+  $("dashMetric").style.display = opts.dollars ? "flex" : "none";
+  document.querySelectorAll("#dashMetric button").forEach((b) => b.classList.toggle("on", b.dataset.metric === (received ? "received" : "billed")));
+
   const win = dashWindow();
   dashBuckets = win.buckets;
   $("dashBody").innerHTML = '<div class="card"><div class="empty">Loading…</div></div>';
   const seq = ++dashSeq;
-  let entries;
+  const fin = (x) => Number.isFinite(x) ? x : 0;   // never let a bad value poison a sum
+
+  // dated = [{ t, metric, total }]. metric = the charted value (invoiced value
+  // or payment amount); total = all logged value (billed mode only).
+  let dated;
   try {
-    entries = await fetchRange(win.fetchStart, new Date());
+    if (received) {
+      const pmts = await fetchPayments(win.fetchStart, new Date());
+      dated = pmts.filter((p) => p.date).map((p) => ({ t: new Date(p.date + "T00:00").getTime(), metric: fin(Number(p.amount)), total: 0 }));
+    } else {
+      let entries = applyOpts(await fetchRange(win.fetchStart, new Date()));
+      const invOf = (e) => e.billableStatus === "HasBeenBilled" ? val(e) : 0;
+      dated = entries.filter((e) => e.date).map((e) => ({ t: new Date(e.date + "T00:00").getTime(), metric: fin(invOf(e)), total: fin(val(e)) }));
+    }
   } catch (e) {
     if (seq === dashSeq) $("dashBody").innerHTML = '<div class="card"><div class="empty">Could not load: ' + escapeHtml(e.message) + '</div></div>';
     return;
   }
   if (seq !== dashSeq) return;
-  entries = applyOpts(entries);
 
-  // per-entry value + invoiced value (HasBeenBilled only), indexed by time
-  const fin = (x) => Number.isFinite(x) ? x : 0;   // never let a bad value poison a sum
-  const invOf = (e) => e.billableStatus === "HasBeenBilled" ? val(e) : 0;
-  const dated = entries.filter((e) => e.date).map((e) => ({ t: new Date(e.date + "T00:00").getTime(), total: fin(val(e)), inv: fin(invOf(e)) }));
   const sumIn = (a, b, key) => dated.reduce((s, e) => (e.t >= a && e.t <= b ? s + e[key] : s), 0);
-
+  const bMetric = win.buckets.map((b) => sumIn(b.start.getTime(), b.end.getTime(), "metric"));
   const bTotal = win.buckets.map((b) => sumIn(b.start.getTime(), b.end.getTime(), "total"));
-  const bInv = win.buckets.map((b) => sumIn(b.start.getTime(), b.end.getTime(), "inv"));
-  const DAY = 86400000;   // 12-mo trailing average (invoiced), per bucket-unit
-  const trail = win.buckets.map((b) => sumIn(b.end.getTime() - 365 * DAY, b.end.getTime(), "inv") / win.per12);
+  const DAY = 86400000;   // 12-mo trailing average, per bucket-unit
+  const trail = win.buckets.map((b) => sumIn(b.end.getTime() - 365 * DAY, b.end.getTime(), "metric") / win.per12);
 
-  const grandInv = bInv.reduce((a, b) => a + b, 0);
+  const grandMetric = bMetric.reduce((a, b) => a + b, 0);
   const grandTotal = bTotal.reduce((a, b) => a + b, 0);
   const n = win.buckets.length;
 
   let html = '<div class="card"><div class="dash-hero">'
     + `<span class="big">${fmtVal(trail[n - 1])}</span>`
-    + `<span class="cap">invoiced / ${win.unitNoun}<br>12-mo trailing avg</span></div>`
+    + `<span class="cap">${noun} / ${win.unitNoun}<br>12-mo trailing avg</span></div>`
     + '<div class="chart" id="dashChart"></div>'
-    + `<div class="dash-legend"><span><span class="lg-bar"></span>Invoiced / ${win.unitNoun}</span>`
+    + `<div class="dash-legend"><span><span class="lg-bar"></span>${Noun} / ${win.unitNoun}</span>`
     + '<span><span class="lg-line"></span>12-mo trailing avg</span></div></div>';
 
-  html += '<div class="card"><h2>Invoiced by ' + win.unitNoun + '</h2><div class="grid-scroll"><table class="dtbl"><thead><tr>'
-    + '<th class="per">Period</th><th>Total</th><th>Invoiced</th></tr></thead><tbody>';
+  // billed mode shows a Total column too; received (cash) has no "total logged"
+  const showTotal = !received;
+  html += '<div class="card"><h2>' + Noun + ' by ' + win.unitNoun + '</h2><div class="grid-scroll"><table class="dtbl"><thead><tr>'
+    + '<th class="per">Period</th>' + (showTotal ? '<th>Total</th>' : '') + `<th>${Noun}</th></tr></thead><tbody>`;
   win.buckets.map((_, i) => i).reverse().forEach((i) => {
-    html += `<tr><td class="per">${escapeHtml(dashRowLabel(i))}</td><td>${bTotal[i] ? fmtVal(bTotal[i]) : "·"}</td>`
-      + `<td class="inv">${bInv[i] ? fmtVal(bInv[i]) : "·"}</td></tr>`;
+    html += `<tr><td class="per">${escapeHtml(dashRowLabel(i))}</td>`
+      + (showTotal ? `<td>${bTotal[i] ? fmtVal(bTotal[i]) : "·"}</td>` : "")
+      + `<td class="inv">${bMetric[i] ? fmtVal(bMetric[i]) : "·"}</td></tr>`;
   });
-  html += `</tbody><tfoot><tr><td class="per">Avg / ${win.unitNoun}</td><td>${fmtVal(grandTotal / n)}</td>`
-    + `<td class="avg">${fmtVal(grandInv / n)}</td></tr></tfoot></table></div></div>`;
+  html += `</tbody><tfoot><tr><td class="per">Avg / ${win.unitNoun}</td>`
+    + (showTotal ? `<td>${fmtVal(grandTotal / n)}</td>` : "")
+    + `<td class="avg">${fmtVal(grandMetric / n)}</td></tr></tfoot></table></div></div>`;
 
   $("dashBody").innerHTML = html;
-  drawDashChart($("dashChart"), win, bInv, trail);
+  drawDashChart($("dashChart"), win, bMetric, trail);
 }
 
-function drawDashChart(box, win, bInv, trail) {
+function drawDashChart(box, win, bMetric, trail) {
   box.innerHTML = "";
   const n = win.buckets.length;
-  const maxV = Math.max(...bInv, ...trail, 0);
+  const received = opts.dollars && dash.metric === "received";
+  const maxV = Math.max(...bMetric, ...trail, 0);
   if (maxV <= 0) {
-    box.innerHTML = '<div class="empty">No invoiced ' + (opts.dollars ? "value" : "time") + ' in this window yet.</div>';
+    box.innerHTML = '<div class="empty">No ' + (received ? "payments" : opts.dollars ? "invoiced value" : "invoiced time") + ' in this window yet.</div>';
     return;
   }
-  const toDisp = (v) => opts.dollars ? v : v / 60;
+  // payment amounts are already dollars; only time-based values convert min→h
+  const toDisp = (v) => (opts.dollars ? v : v / 60);
   const dispMax = toDisp(maxV);
   const steps = opts.dollars
     ? [50, 100, 250, 500, 1000, 2000, 5000, 10000, 25000, 50000, 100000, 250000]
@@ -2117,7 +2145,7 @@ function drawDashChart(box, win, bInv, trail) {
   const base = document.createElement("div"); base.className = "gridline"; base.style.bottom = "0"; base.style.background = "var(--line)"; plot.appendChild(base);
 
   const cols = document.createElement("div"); cols.className = "cols";
-  bInv.forEach((v) => {
+  bMetric.forEach((v) => {
     const slot = document.createElement("div"); slot.className = "slot"; slot.style.cursor = "default";
     const col = document.createElement("div"); col.className = "col";
     col.style.height = (v ? Math.max((toDisp(v) / top) * 100, 1) : 0) + "%";
@@ -2212,6 +2240,9 @@ async function boot() {
   $("peoNext").onclick = () => peoShift(1);
   document.querySelectorAll("#dashSeg button").forEach((b) => {
     b.onclick = () => { dash.unit = b.dataset.unit; renderDash(); };
+  });
+  document.querySelectorAll("#dashMetric button").forEach((b) => {
+    b.onclick = () => { dash.metric = b.dataset.metric; renderDash(); };
   });
   document.querySelectorAll(".modeseg button").forEach((b) => {
     b.onclick = () => { opts.dollars = b.dataset.mode === "dollars"; localStorage.setItem("opt-dollars", opts.dollars ? "1" : "0"); syncOptsUI(); rerenderActive(); };
