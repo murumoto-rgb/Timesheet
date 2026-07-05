@@ -312,6 +312,33 @@
   .dtbl tfoot td { color: var(--ink); font-weight: 700; box-shadow: inset 0 1px 0 var(--line); }
   .dtbl tfoot td.avg { color: var(--accent); }
 
+  /* ── Money / accounts-receivable section (dashboard) ──────────────── */
+  .money h2 .asof { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .money-stats { display: flex; gap: 8px; margin: 4px 0 14px; }
+  .mstat { flex: 1; min-width: 0; background: var(--field); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .mstat .mnum { font-family: var(--mono); font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+  .mstat .mnum.bad { color: var(--bad); }
+  .mstat .mnum.good { color: var(--good); }
+  .mstat .mlbl { font-size: 10.5px; color: var(--muted); line-height: 1.2; }
+  .agebar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--field); }
+  .ageseg { height: 100%; min-width: 2px; }
+  .agelegend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 11.5px; color: var(--muted); }
+  .agelegend span { display: inline-flex; align-items: center; gap: 6px; }
+  .agelegend i { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+  .agelegend b { font-family: var(--mono); color: var(--ink); font-weight: 600; }
+  .money h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 18px 0 2px; }
+  .owe-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; }
+  .owe-row:not(:last-child) { border-bottom: 1px solid var(--grid); }
+  .owe-row .info { flex: 1; min-width: 0; }
+  .owe-row .nm { font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; gap: 8px; }
+  .owe-row .nm span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .owe-row .nm .h { font-family: var(--mono); flex-shrink: 0; }
+  .owe-row .sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .owe-row .sub .od { color: var(--bad); }
+  .owe-row .bar { height: 5px; border-radius: 3px; background: var(--field); margin-top: 7px; overflow: hidden; }
+  .owe-row .bar > i { display: block; height: 100%; border-radius: 3px; min-width: 2px; background: var(--series-1); }
+
   /* ── People tab (leaderboard + expandable pivot grid) ─────────────── */
   .peo-tot { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
   .peo-tot .big { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
@@ -622,7 +649,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.27</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.28</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2009,6 +2036,70 @@ async function fetchPayments(start, end) {
   return res.json();
 }
 
+async function fetchReceivables() {
+  const res = await fetch("/api/receivables");
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// compact money for the stat blocks: $8.2K / $42K / $950
+const fmtK = (d) => {
+  d = Math.round(d);
+  const a = Math.abs(d);
+  if (a >= 10000) return "$" + Math.round(d / 1000) + "K";
+  if (a >= 1000) return "$" + (d / 1000).toFixed(1) + "K";
+  return "$" + d.toLocaleString();
+};
+
+const AGE_LABELS = ["0–30", "31–60", "61–90", "90+"];
+const AGE_KEYS = ["0-30", "31-60", "61-90", "90+"];
+const AGE_COLORS = ["var(--good)", "var(--accent)", "#d9a441", "var(--bad)"];
+
+// The dashboard "Money" card: outstanding A/R, aging, DSO, unbilled WIP, and
+// a who-owes-you list. `rec` is /api/receivables; `wip` is unbilled billable
+// value ($) computed from the window's time entries.
+function renderMoney(rec, wip) {
+  const asOf = rec.asOf ? new Date(rec.asOf + "T00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+  const outstanding = rec.outstanding || 0;
+  const segs = AGE_KEYS.map((k, i) => {
+    const v = rec.aging[k] || 0;
+    return v > 0 ? `<div class="ageseg" style="width:${(v / outstanding) * 100}%;background:${AGE_COLORS[i]}" title="${AGE_LABELS[i]} days: ${fmtUSD(v)}"></div>` : "";
+  }).join("");
+  const legend = AGE_KEYS.map((k, i) => {
+    const v = rec.aging[k] || 0;
+    return v > 0 ? `<span><i style="background:${AGE_COLORS[i]}"></i>${AGE_LABELS[i]}d <b>${fmtK(v)}</b></span>` : "";
+  }).join("");
+
+  let html = '<div class="card money"><h2>Accounts receivable'
+    + (asOf ? ` <span class="asof">as of ${asOf}</span>` : "") + "</h2>"
+    + '<div class="money-stats">'
+    + `<div class="mstat"><span class="mnum">${fmtK(outstanding)}</span><span class="mlbl">Outstanding</span></div>`
+    + `<div class="mstat"><span class="mnum${rec.pastDue > 0 ? " bad" : ""}">${fmtK(rec.pastDue || 0)}</span><span class="mlbl">Past due</span></div>`
+    + `<div class="mstat"><span class="mnum">${rec.dso != null ? rec.dso : "—"}</span><span class="mlbl">Days to pay (DSO)</span></div>`
+    + `<div class="mstat"><span class="mnum${wip > 0 ? " good" : ""}">${fmtK(wip || 0)}</span><span class="mlbl">Unbilled WIP</span></div>`
+    + "</div>";
+
+  if (outstanding > 0) {
+    html += `<div class="agebar">${segs}</div><div class="agelegend">${legend}</div>`;
+    html += "<h3>Who owes you</h3>";
+    const max = Math.max(...rec.byClient.map((c) => c.balance), 0) || 1;
+    rec.byClient.forEach((c) => {
+      const od = rec.invoices.filter((iv) => iv.customer === c.customer && iv.overdue).reduce((s, iv) => s + iv.balance, 0);
+      const sub = od > 0 ? `<div class="sub"><span class="od">${fmtUSD(od)} past due</span> · ${c.count} invoice${c.count > 1 ? "s" : ""}</div>`
+        : `<div class="sub">${c.count} invoice${c.count > 1 ? "s" : ""}</div>`;
+      html += '<div class="owe-row"><div class="info">'
+        + `<div class="nm"><span>${escapeHtml(c.customer)}</span><span class="h">${fmtUSD(c.balance)}</span></div>`
+        + sub
+        + `<div class="bar"><i style="width:${(c.balance / max) * 100}%"></i></div>`
+        + "</div></div>";
+    });
+  } else {
+    html += '<div class="empty" style="padding:12px 0">No open invoices — you\'re all paid up.</div>';
+  }
+  html += "</div>";
+  return html;
+}
+
 // Trailing display window + the fetch range needed for a 12-month trailing avg.
 function dashWindow() {
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -2128,8 +2219,23 @@ async function renderDash() {
     + (showTotal ? `<td>${fmtVal(grandTotal / n)}</td>` : "")
     + `<td class="avg">${fmtVal(grandMetric / n)}</td></tr></tfoot></table></div></div>`;
 
+  html += '<div id="dashMoney"><div class="card money"><div class="empty">Loading receivables…</div></div></div>';
+
   $("dashBody").innerHTML = html;
   drawDashChart($("dashChart"), win, bMetric, trail);
+
+  // Money / A-R section — as-of-today (independent of the unit/metric toggles).
+  // Non-fatal: a receivables error must not blank the rest of the dashboard.
+  // Unbilled WIP = billable work not yet invoiced ("Billable", not billed) in
+  // the fetched window, valued at each entry's own rate.
+  const wip = entries.reduce((s, e) => e.billableStatus === "Billable" ? s + fin(dollarsOf(e)) : s, 0);
+  try {
+    const rec = await fetchReceivables();
+    if (seq !== dashSeq) return;
+    $("dashMoney").innerHTML = renderMoney(rec, wip);
+  } catch (e) {
+    if (seq === dashSeq) $("dashMoney").innerHTML = '<div class="card money"><div class="empty">Could not load receivables: ' + escapeHtml(e.message) + '</div></div>';
+  }
 }
 
 function drawDashChart(box, win, bMetric, trail) {

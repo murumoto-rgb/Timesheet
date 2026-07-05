@@ -119,6 +119,43 @@ def test_list_payments_merges_payment_and_salesreceipt(monkeypatch):
     assert {x["kind"] for x in out} == {"payment", "salesreceipt"}
 
 
+# ── receivables: aging buckets, past-due, per-client, DSO ───────────────────
+def test_receivables_summary_ages_and_totals():
+    from datetime import date
+    as_of = date(2026, 7, 5)
+    invoices = [
+        # 10 days old, not due yet
+        {"Id": "1", "DocNumber": "1001", "TxnDate": "2026-06-25", "DueDate": "2026-07-25",
+         "TotalAmt": 1000, "Balance": 1000, "CustomerRef": {"name": "Alpha"}},
+        # 45 days old, past due
+        {"Id": "2", "DocNumber": "1002", "TxnDate": "2026-05-21", "DueDate": "2026-06-20",
+         "TotalAmt": 2000, "Balance": 2000, "CustomerRef": {"name": "Beta"}},
+        # 120 days old, past due, same client as #1
+        {"Id": "3", "DocNumber": "1003", "TxnDate": "2026-03-07", "DueDate": "2026-04-06",
+         "TotalAmt": 500, "Balance": 500, "CustomerRef": {"name": "Alpha"}},
+        # fully paid — must be ignored even if the query returns it
+        {"Id": "4", "TxnDate": "2026-07-01", "Balance": 0, "TotalAmt": 900,
+         "CustomerRef": {"name": "Gamma"}},
+    ]
+    s = main._receivables_summary(invoices, billed_365=35000, as_of=as_of)
+    assert s["outstanding"] == 3500
+    assert s["aging"] == {"0-30": 1000, "31-60": 2000, "61-90": 0, "90+": 500}
+    assert s["pastDue"] == 2500                     # Beta + Alpha's 120-day one
+    assert s["asOf"] == "2026-07-05"
+    # who owes you, largest balance first; Alpha aggregates its two invoices
+    assert [c["customer"] for c in s["byClient"]] == ["Beta", "Alpha"]
+    alpha = next(c for c in s["byClient"] if c["customer"] == "Alpha")
+    assert alpha["balance"] == 1500 and alpha["count"] == 2
+    assert len(s["invoices"]) == 3                  # paid invoice dropped
+    assert s["dso"] == round(3500 / 35000 * 365)    # ≈ 36
+
+
+def test_receivables_dso_none_without_billing():
+    from datetime import date
+    s = main._receivables_summary([], billed_365=0, as_of=date(2026, 7, 5))
+    assert s["dso"] is None and s["outstanding"] == 0
+
+
 # ── date-range validation ───────────────────────────────────────────────────
 def test_list_time_rejects_bad_dates(monkeypatch):
     monkeypatch.setattr(main, "qbo_query_all", lambda *a, **k: [])

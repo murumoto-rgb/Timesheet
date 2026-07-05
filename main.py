@@ -773,6 +773,104 @@ def list_payments(days: int = 14, start: str | None = None, end: str | None = No
     return out
 
 
+# ---------------------------------------------------------------------------
+# Routes: accounts receivable (open invoices, aging, DSO)
+# ---------------------------------------------------------------------------
+_AGING_BUCKETS = ("0-30", "31-60", "61-90", "90+")
+
+
+def _num(x):
+    try:
+        return float(x or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _bucket_for_age(days):
+    if days <= 30:
+        return "0-30"
+    if days <= 60:
+        return "31-60"
+    if days <= 90:
+        return "61-90"
+    return "90+"
+
+
+def _receivables_summary(open_invoices, billed_365, as_of):
+    """Pure aggregation of open invoices into outstanding total, aging buckets
+    (by days since invoice date), past-due total (by DueDate), a who-owes-you
+    per-client list, and an approximate DSO. Kept separate from the QBO read so
+    it's unit-testable with a fixed as_of date."""
+    buckets = {b: 0.0 for b in _AGING_BUCKETS}
+    by_client, rows = {}, []
+    outstanding = past_due = 0.0
+    for inv in open_invoices:
+        bal = _num(inv.get("Balance"))
+        if bal <= 0:  # backstop in case the query returns fully-paid invoices
+            continue
+        txn = inv.get("TxnDate")
+        try:
+            age = (as_of - date.fromisoformat(txn)).days if txn else 0
+        except ValueError:
+            age = 0
+        bucket = _bucket_for_age(age)
+        buckets[bucket] += bal
+        outstanding += bal
+        due = inv.get("DueDate")
+        overdue = False
+        if due:
+            try:
+                overdue = date.fromisoformat(due) < as_of
+            except ValueError:
+                overdue = False
+        if overdue:
+            past_due += bal
+        cust = (inv.get("CustomerRef") or {}).get("name") or "—"
+        c = by_client.setdefault(cust, {"customer": cust, "balance": 0.0, "count": 0})
+        c["balance"] += bal
+        c["count"] += 1
+        rows.append({
+            "id": inv.get("Id"),
+            "docNumber": inv.get("DocNumber"),
+            "customer": cust,
+            "date": txn,
+            "dueDate": due,
+            "amount": _num(inv.get("TotalAmt")),
+            "balance": bal,
+            "daysOld": age,
+            "bucket": bucket,
+            "overdue": overdue,
+        })
+    rows.sort(key=lambda r: (r["date"] or ""), reverse=True)
+    clients = sorted(by_client.values(), key=lambda c: c["balance"], reverse=True)
+    # Standard DSO ≈ outstanding A/R ÷ trailing-year billed × 365.
+    dso = round(outstanding / billed_365 * 365) if billed_365 > 0 else None
+    return {
+        "asOf": as_of.isoformat(),
+        "outstanding": round(outstanding, 2),
+        "pastDue": round(past_due, 2),
+        "aging": {k: round(v, 2) for k, v in buckets.items()},
+        "byClient": [{**c, "balance": round(c["balance"], 2)} for c in clients],
+        "invoices": rows,
+        "dso": dso,
+        "billed365": round(billed_365, 2),
+    }
+
+
+@app.get("/api/receivables")
+def list_receivables():
+    """Open accounts receivable as of today: total outstanding, aging buckets,
+    past-due, per-client balances, and an approximate DSO. Reads QBO Invoice
+    (Balance / TxnDate / DueDate / CustomerRef)."""
+    open_invoices = qbo_query_all("Invoice", "WHERE Balance > '0'")
+    year_ago = (date.today() - timedelta(days=365)).isoformat()
+    billed_365 = sum(
+        _num(i.get("TotalAmt"))
+        for i in qbo_query_all("Invoice", f"WHERE TxnDate >= '{year_ago}'")
+    )
+    return _receivables_summary(open_invoices, billed_365, date.today())
+
+
 @app.delete("/api/timeactivity/{entry_id}")
 def delete_time(entry_id: str, request: Request):
     # Delete requires the current SyncToken, so read the entity first.
