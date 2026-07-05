@@ -174,6 +174,14 @@ Field rules that trip people up:
   (`ROUND_MINUTES` in `index.html`; the success message notes the rounding).
 - **Billable by default** for all new entries (boot, post-submit reset,
   cancel-edit).
+- **Blank project by default**: the form boots with no project selected
+  (`Select…`) so every project choice is deliberate — no sticky
+  last-project restore. Cancel-edit resets project → blank and date →
+  today (plus clears duration/notes, billable back on).
+- **Editing recolors the form**: entering edit mode adds `.editing` to
+  `#logForm`, giving the whole card an accent border, glow ring, and tint
+  (on top of the "Editing an existing entry" banner). Cleared on cancel,
+  successful save, and repeat/copy.
 - **Week tab**: projects × Mon–Sun grid (rows = this week's entries plus
   frequent projects, sorted by hours; day/row/grand totals) with a people
   filter (All + each employee/vendor with time that week; shown only when

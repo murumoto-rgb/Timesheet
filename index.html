@@ -46,6 +46,13 @@
   .card {
     background: var(--panel); border: 1px solid var(--line);
     border-radius: 14px; padding: 18px; margin-bottom: 16px;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  }
+  /* Editing an existing entry recolors the whole form so it's unmistakable. */
+  #logForm.editing {
+    border-color: var(--accent);
+    background: rgba(76,155,232,0.08);
+    box-shadow: 0 0 0 1px var(--accent);
   }
   label {
     display: block; font-family: var(--mono); font-size: 11px;
@@ -941,6 +948,7 @@ function startEdit(e) {
   $("submit").textContent = "Update entry";
   $("cancelEdit").style.display = "block";
   $("editBanner").style.display = "block";
+  $("logForm").classList.add("editing");  // recolor the whole form while editing
   $("msg").className = "msg";
 }
 
@@ -949,6 +957,7 @@ function copyEntry(e) {
   $("submit").textContent = "Log time";
   $("cancelEdit").style.display = "none";
   $("editBanner").style.display = "none";
+  $("logForm").classList.remove("editing");
   fillFormFromEntry(e, ymd(new Date()));  // same entry, dated today
   const msg = $("msg");
   msg.textContent = "Copied to a new entry for today — review and tap Log time.";
@@ -960,6 +969,9 @@ function cancelEdit() {
   $("submit").textContent = "Log time";
   $("cancelEdit").style.display = "none";
   $("editBanner").style.display = "none";
+  $("logForm").classList.remove("editing");
+  setProject(null, false);        // back to a deliberate, blank choice
+  $("date").value = ymd(new Date());  // default to today
   $("durh").value = "";
   $("desc").value = "";
   $("billable").checked = true;  // billable is the default for new entries
@@ -1504,12 +1516,8 @@ async function boot() {
 
   pickerItems = { projects: proj.projects || [], clients: proj.clients || [] };
   initPicker();
-  const all = [
-    ...pickerItems.projects.map((r) => ({ ...r, type: "project" })),
-    ...pickerItems.clients.map((r) => ({ ...r, type: "client" })),
-  ];
-  const lastId = localStorage.getItem("last-project");
-  setProject(all.find((r) => r.id === lastId) || all[0] || null, false);
+  // Start blank so choosing a project is always a deliberate act.
+  setProject(null, false);
 
   // Who: employees and vendors in one dropdown, each option tagged by type.
   const who = $("employee");
