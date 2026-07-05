@@ -10,7 +10,6 @@ Run:
     # then open http://localhost:8000  and click "Connect QuickBooks"
 """
 import os
-import re
 import hmac
 import json
 import time
@@ -654,6 +653,21 @@ def _post_timeactivity(payload, params=None):
     return resp.json().get("TimeActivity", resp.json())
 
 
+def _read_timeactivity(entry_id):
+    """Read a single TimeActivity — needed for its current SyncToken before an
+    update or delete (both operations require it)."""
+    access_token, realm_id = get_access_token()
+    read = requests.get(
+        f"{API_BASE}/v3/company/{realm_id}/timeactivity/{entry_id}",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        params={"minorversion": MINOR_VERSION},
+        timeout=30,
+    )
+    if read.status_code >= 400:
+        raise _qbo_error(read)
+    return read.json()["TimeActivity"]
+
+
 @app.post("/api/timeactivity")
 def create_time(entry: TimeEntry, request: Request):
     if not (entry.employee_id or entry.vendor_id):
@@ -667,17 +681,8 @@ def create_time(entry: TimeEntry, request: Request):
 def update_time(entry_id: str, entry: TimeEntry, request: Request):
     if not (entry.employee_id or entry.vendor_id):
         raise HTTPException(400, "Pick an employee or vendor.")
-    access_token, realm_id = get_access_token()
     # Update needs the current SyncToken — read the entity first.
-    read = requests.get(
-        f"{API_BASE}/v3/company/{realm_id}/timeactivity/{entry_id}",
-        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
-        params={"minorversion": MINOR_VERSION},
-        timeout=30,
-    )
-    if read.status_code >= 400:
-        raise _qbo_error(read)
-    before = read.json()["TimeActivity"]
+    before = _read_timeactivity(entry_id)
     payload = _timeactivity_payload(entry)
     payload["Id"] = entry_id
     payload["SyncToken"] = before["SyncToken"]
@@ -689,17 +694,26 @@ def update_time(entry_id: str, entry: TimeEntry, request: Request):
 # ---------------------------------------------------------------------------
 # Routes: recent entries + delete
 # ---------------------------------------------------------------------------
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+def _resolve_range(days, start, end):
+    """Validate optional ?start/?end (must be real YYYY-MM-DD dates) and, when
+    no start is given, default to `days` back from today. Returns (start, end).
+    Shared by list_time and list_payments so range handling can't drift apart."""
+    for d in (start, end):
+        if d is None:
+            continue
+        try:
+            date.fromisoformat(d)  # rejects both bad format and impossible dates (2026-13-99)
+        except ValueError:
+            raise HTTPException(400, "Dates must be valid YYYY-MM-DD.")
+    if not start:
+        start = (date.today() - timedelta(days=days)).isoformat()
+    return start, end
 
 
 @app.get("/api/timeactivities")
 def list_time(days: int = 14, start: str | None = None, end: str | None = None):
     """Entries in a date range. Either ?days=N back from today, or ?start=&end=."""
-    for d in (start, end):
-        if d and not _DATE_RE.match(d):
-            raise HTTPException(400, "Dates must be YYYY-MM-DD.")
-    if not start:
-        start = (date.today() - timedelta(days=days)).isoformat()
+    start, end = _resolve_range(days, start, end)
     where = f"TxnDate >= '{start}'"
     if end:
         where += f" AND TxnDate <= '{end}'"
@@ -740,11 +754,7 @@ def list_payments(days: int = 14, start: str | None = None, end: str | None = No
     """Actual money received in a date range: customer Payments + SalesReceipts.
     Each item is {date, amount, customer, kind}. Used by the dashboard's
     'Received' metric (real cash in, vs. billed/invoiced)."""
-    for d in (start, end):
-        if d and not _DATE_RE.match(d):
-            raise HTTPException(400, "Dates must be YYYY-MM-DD.")
-    if not start:
-        start = (date.today() - timedelta(days=days)).isoformat()
+    start, end = _resolve_range(days, start, end)
     where = f"WHERE TxnDate >= '{start}'"
     if end:
         where += f" AND TxnDate <= '{end}'"
@@ -765,29 +775,12 @@ def list_payments(days: int = 14, start: str | None = None, end: str | None = No
 
 @app.delete("/api/timeactivity/{entry_id}")
 def delete_time(entry_id: str, request: Request):
-    access_token, realm_id = get_access_token()
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
-
     # Delete requires the current SyncToken, so read the entity first.
-    read = requests.get(
-        f"{API_BASE}/v3/company/{realm_id}/timeactivity/{entry_id}",
-        headers=headers,
-        params={"minorversion": MINOR_VERSION},
-        timeout=30,
+    deleted = _read_timeactivity(entry_id)
+    _post_timeactivity(
+        {"Id": entry_id, "SyncToken": deleted["SyncToken"]},
+        params={"operation": "delete"},
     )
-    if read.status_code >= 400:
-        raise _qbo_error(read)
-    deleted = read.json()["TimeActivity"]
-
-    resp = requests.post(
-        f"{API_BASE}/v3/company/{realm_id}/timeactivity",
-        headers={**headers, "Content-Type": "application/json"},
-        params={"operation": "delete", "minorversion": MINOR_VERSION},
-        json={"Id": entry_id, "SyncToken": deleted["SyncToken"]},
-        timeout=30,
-    )
-    if resp.status_code >= 400:
-        raise _qbo_error(resp)
     _audit("delete", entry_id, deleted, request)
     return {"deleted": entry_id}
 
