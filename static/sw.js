@@ -1,7 +1,28 @@
-// Service worker: shows the daily reminder and focuses the app on tap.
-// The reminder message is fixed here (server sends a payloadless push).
+// Service worker: keeps the installed (home-screen) app on the latest build,
+// shows the daily reminder, and focuses the app on tap.
+// Bump SW_VERSION on each deploy so this worker re-activates and purges any
+// stale app-shell cache left by an earlier build.
+const SW_VERSION = "2026.07.05.7";
+
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    // Delete every cache from earlier builds — a previous version may have
+    // cached index.html and left the home-screen app stuck on an old build.
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+    await self.clients.claim();
+  })());
+});
+
+// Always pull the page itself from the network so the installed app can never
+// get stuck on a stale build. (Other requests pass straight through.)
+self.addEventListener("fetch", (event) => {
+  if (event.request.mode === "navigate") {
+    event.respondWith(fetch(event.request));
+  }
+});
 
 self.addEventListener("push", (event) => {
   event.waitUntil(

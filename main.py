@@ -385,10 +385,11 @@ def qbo_query(statement):
 # ---------------------------------------------------------------------------
 @app.get("/")
 def index():
-    # no-cache so a restarted server always serves the freshly pulled page
+    # no-store so neither the browser nor an installed PWA holds onto a stale
+    # build — the home-screen app always fetches the freshly pulled page.
     return FileResponse(
         os.path.join(BASE_DIR, "index.html"),
-        headers={"Cache-Control": "no-cache"},
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
     )
 
 

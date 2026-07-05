@@ -515,7 +515,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.6</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.7</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1756,6 +1756,14 @@ async function boot() {
   });
   $("remindLink").onclick = (ev) => { ev.preventDefault(); enableReminders(); };
   if ("serviceWorker" in navigator) {
+    // When a new service worker takes control (a new build shipped), reload
+    // once so the installed home-screen app shows the latest version instead
+    // of staying stuck on the build it launched with.
+    const hadController = !!navigator.serviceWorker.controller;
+    let swReloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (hadController && !swReloaded) { swReloaded = true; location.reload(); }
+    });
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
 
