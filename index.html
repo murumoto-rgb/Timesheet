@@ -266,7 +266,40 @@
   }
   .tabbar button.on { color: var(--accent); }
   .tabbar svg { width: 22px; height: 22px; }
-  #app, #connect, #setup, #reportView, #weekView { display: none; }
+  #app, #connect, #setup, #reportView, #weekView, #peopleView { display: none; }
+
+  /* ── People tab (leaderboard + expandable pivot grid) ─────────────── */
+  .peo-tot { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  .peo-tot .big { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+  .peo-tot .big .u { font-size: 15px; color: var(--muted); font-weight: 500; }
+  .peo-tot .cap { color: var(--muted); font-size: 13px; }
+  .rank { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
+  .rank:not(:last-child) { border-bottom: 1px solid var(--grid); }
+  .rank .pos { font-family: var(--mono); font-size: 13px; color: var(--muted); width: 14px; text-align: center; flex-shrink: 0; }
+  .rank .av { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center;
+    justify-content: center; font-size: 12px; font-weight: 700; color: #06121f; flex-shrink: 0; }
+  .rank .body { flex: 1; min-width: 0; }
+  .rank .nm { font-weight: 600; font-size: 14.5px; display: flex; justify-content: space-between; gap: 8px; }
+  .rank .nm .h { font-family: var(--mono); color: var(--ink); flex-shrink: 0; }
+  .rank .sub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+  .rank .sub .g { color: var(--good); }
+  .share { height: 5px; border-radius: 3px; background: var(--field); margin-top: 8px; overflow: hidden; }
+  .share > i { display: block; height: 100%; border-radius: 3px; }
+  .rank .spark { flex-shrink: 0; }
+  .peo-toggle { width: 100%; margin-top: 4px; background: none; border: 1px solid var(--line);
+    color: var(--muted); border-radius: 10px; padding: 10px; font-size: 13px; font-family: var(--sans); cursor: pointer; }
+  .grid-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -2px; }
+  .ptbl { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .ptbl th, .ptbl td { padding: 9px 8px; font-size: 13px; text-align: right; font-family: var(--mono); white-space: nowrap; }
+  .ptbl thead th { color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); font-size: 11px; }
+  .ptbl th.who, .ptbl td.who { text-align: left; font-family: var(--sans); position: sticky; left: 0; background: var(--panel); }
+  .ptbl td.who { display: flex; align-items: center; gap: 7px; }
+  .ptbl td.who .dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+  .ptbl tbody tr:not(:last-child) td { border-bottom: 1px solid var(--grid); }
+  .ptbl td.rtot, .ptbl th.rtot { color: var(--ink); font-weight: 650; }
+  .ptbl tfoot td { border-top: 1px solid var(--line); color: var(--ink); font-weight: 700; padding-top: 11px; }
+  .ptbl tfoot td.gt { color: var(--accent); }
+  .ptbl td.zero { color: var(--muted); opacity: 0.5; }
 
   /* ── Week grid ────────────────────────────────── */
   .wg-row { display: flex; align-items: center; gap: 2px; border-top: 1px solid var(--line); }
@@ -453,13 +486,36 @@
     </div>
   </div>
 
+  <div id="peopleView">
+    <div class="card">
+      <button type="button" class="pickbtn" id="peoProjBtn">
+        <span id="peoProjName">Select a project…</span>
+      </button>
+      <div class="seg" id="peoSeg">
+        <button data-unit="day">Day</button>
+        <button data-unit="week">Week</button>
+        <button data-unit="month" class="on">Month</button>
+        <button data-unit="quarter">Qtr</button>
+      </div>
+      <div class="nav" id="peoNav" style="margin-top:12px;display:none">
+        <button id="peoPrev" aria-label="Previous period">‹</button>
+        <span class="label" id="peoLabel"></span>
+        <button id="peoNext" aria-label="Next period">›</button>
+      </div>
+    </div>
+    <div id="peoBody">
+      <div class="card"><div class="empty">Pick a project above to see who
+      worked on it, and how their hours break down over time.</div></div>
+    </div>
+  </div>
+
   <div class="foot">
     <a href="/mfa-setup">Set up two-factor</a> ·
     <a href="#" id="remindLink">Daily reminders</a> ·
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.5</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.6</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -484,6 +540,10 @@
   <button data-view="week" aria-label="Week grid">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 4v17M14 4v17"/></svg>
     Week
+  </button>
+  <button data-view="people" aria-label="People">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0" stroke-linecap="round"/><path d="M16 6.2a3 3 0 0 1 0 5.6M17.5 20a5.3 5.3 0 0 0-2.7-4.6" stroke-linecap="round"/></svg>
+    People
   </button>
   <button data-view="report" aria-label="Reports">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>
@@ -813,24 +873,33 @@ function renderPickerList(q) {
       b.type = "button";
       b.className = "pick-item";
       b.textContent = r.name;
-      if (selProject && selProject.id === r.id) b.classList.add("sel");
-      b.onclick = () => { setProject({ ...r, type: type || r.type }); closePicker(); };
+      if (pickerSelId === r.id) b.classList.add("sel");
+      b.onclick = () => {
+        const item = { ...r, type: type || r.type };
+        if (pickerPick) pickerPick(item);
+        else setProject(item);
+        closePicker();
+      };
       list.appendChild(b);
     });
   });
   if (!any) list.innerHTML = '<div class="empty">No matches.</div>';
 }
 
-function openPicker() {
+let pickerPick = null;   // when set, picker selection routes here (People tab)
+let pickerSelId = null;  // id to highlight as currently selected in the list
+function openPicker(onPick, selId) {
+  pickerPick = onPick || null;
+  pickerSelId = selId !== undefined ? selId : (selProject && selProject.id);
   $("picker").hidden = false;
   $("pickerSearch").value = "";
   renderPickerList("");
   setTimeout(() => $("pickerSearch").focus(), 50);
 }
-function closePicker() { $("picker").hidden = true; }
+function closePicker() { $("picker").hidden = true; pickerPick = null; }
 
 function initPicker() {
-  $("projectBtn").onclick = openPicker;
+  $("projectBtn").onclick = () => openPicker();
   $("pickerBack").onclick = closePicker;
   $("pickerSearch").addEventListener("input", (e) => renderPickerList(e.target.value));
   $("pickerSearch").addEventListener("keydown", (e) => {
@@ -1262,6 +1331,172 @@ async function fetchRange(start, end) {
   return res.json();
 }
 
+// ── People tab: hours per person on one project, over time ──────────
+// Requires a project. Each granularity has a natural window of buckets:
+//   Day → this week (7 days) · Week → this month (its weeks)
+//   Month → this quarter (3 months) · Quarter → this year (4 quarters)
+const peo = { unit: "month", anchor: new Date(), projectId: null, projectName: "", expanded: false };
+const PEO_COLORS = ["#4c9be8", "#57b894", "#e0a458", "#c98bdb", "#e0736b", "#5bc0c8", "#b7c25a", "#e089b0"];
+const quarterOf = (m) => Math.floor(m / 3);
+
+function peoInitials(name) {
+  const parts = (name || "?").trim().split(/\s+/);
+  return ((parts[0] || "?")[0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+// The window + its buckets for the current granularity/anchor.
+function peoWindow() {
+  const a = peo.anchor, y = a.getFullYear();
+  if (peo.unit === "day") {
+    const s = mondayOf(a), buckets = [];
+    for (let i = 0; i < 7; i++) { const d = addDays(s, i); buckets.push({ start: d, end: d, label: String(d.getDate()) }); }
+    const e = addDays(s, 6);
+    const title = ymd(mondayOf(new Date())) === ymd(s) ? "This week"
+      : `${MONTHS[s.getMonth()]} ${s.getDate()} – ${s.getMonth() === e.getMonth() ? "" : MONTHS[e.getMonth()] + " "}${e.getDate()}`;
+    return { start: s, end: e, buckets, title };
+  }
+  if (peo.unit === "week") {
+    const ms = new Date(y, a.getMonth(), 1), me = new Date(y, a.getMonth() + 1, 0);
+    const buckets = []; let ws = mondayOf(ms);
+    while (ws <= me) { const we = addDays(ws, 6); buckets.push({ start: ws, end: we, label: `${ws.getMonth() + 1}/${ws.getDate()}` }); ws = addDays(ws, 7); }
+    const now = new Date();
+    const title = (y === now.getFullYear() && a.getMonth() === now.getMonth()) ? "This month" : `${MONTHS[a.getMonth()]} ${y}`;
+    return { start: buckets[0].start, end: buckets[buckets.length - 1].end, buckets, title };
+  }
+  if (peo.unit === "month") {
+    const q = quarterOf(a.getMonth()), m0 = q * 3, buckets = [];
+    for (let i = 0; i < 3; i++) buckets.push({ start: new Date(y, m0 + i, 1), end: new Date(y, m0 + i + 1, 0), label: MONTHS[m0 + i] });
+    return { start: new Date(y, m0, 1), end: new Date(y, m0 + 3, 0), buckets, title: `Q${q + 1} ${y}` };
+  }
+  const buckets = [];  // quarter granularity → the year in 4 quarters
+  for (let q = 0; q < 4; q++) buckets.push({ start: new Date(y, q * 3, 1), end: new Date(y, q * 3 + 3, 0), label: `Q${q + 1}` });
+  return { start: new Date(y, 0, 1), end: new Date(y, 11, 31), buckets, title: String(y) };
+}
+
+function peoShift(dir) {
+  const a = peo.anchor;
+  if (peo.unit === "day") peo.anchor = addDays(a, 7 * dir);
+  else if (peo.unit === "week") peo.anchor = new Date(a.getFullYear(), a.getMonth() + dir, 1);
+  else if (peo.unit === "month") peo.anchor = new Date(a.getFullYear(), a.getMonth() + 3 * dir, 1);
+  else peo.anchor = new Date(a.getFullYear() + dir, 0, 1);
+  renderPeople();
+}
+
+function peoSparkline(vals, color) {
+  const max = Math.max(1, ...vals), n = vals.length, W = 52, H = 28, pad = 3;
+  const step = n > 1 ? (W - pad * 2) / (n - 1) : 0;
+  const pts = vals.map((v, i) => `${(pad + i * step).toFixed(1)},${(H - pad - (v / max) * (H - pad * 2)).toFixed(1)}`);
+  const last = pts[pts.length - 1].split(",");
+  return `<svg class="spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" fill="none" aria-hidden="true">`
+    + `<polyline points="${pts.join(" ")}" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
+    + `<circle cx="${last[0]}" cy="${last[1]}" r="2.6" fill="${color}"/></svg>`;
+}
+
+let peoSeq = 0;
+async function renderPeople() {
+  $("peoProjName").textContent = peo.projectName || "Select a project…";
+  syncPeoSeg();
+  if (!peo.projectId) {
+    $("peoNav").style.display = "none";
+    $("peoBody").innerHTML = '<div class="card"><div class="empty">Pick a project '
+      + 'above to see who worked on it, and how their hours break down over time.</div></div>';
+    return;
+  }
+  const win = peoWindow();
+  $("peoNav").style.display = "flex";
+  $("peoLabel").textContent = win.title;
+  $("peoBody").innerHTML = '<div class="card"><div class="empty">Loading…</div></div>';
+  const seq = ++peoSeq;
+  let entries;
+  try {
+    entries = await fetchRange(win.start, win.end);
+  } catch (e) {
+    if (seq === peoSeq) $("peoBody").innerHTML = '<div class="card"><div class="empty">Could not load: ' + e.message + '</div></div>';
+    return;
+  }
+  if (seq !== peoSeq) return;
+  entries = entries.filter((e) => (e.projectId || e.customerId) === peo.projectId);
+
+  // Aggregate per person: total, billable, and per-bucket minutes.
+  const nb = win.buckets.length;
+  const bucketOf = (dateStr) => {
+    const d = new Date(dateStr + "T00:00");
+    for (let i = 0; i < nb; i++) if (d >= win.buckets[i].start && d <= win.buckets[i].end) return i;
+    return -1;
+  };
+  const people = new Map();
+  entries.forEach((e) => {
+    if (!e.employee || !e.date) return;
+    const i = bucketOf(e.date);
+    if (i < 0) return;
+    const p = people.get(e.employee) || { name: e.employee, total: 0, billable: 0, buckets: new Array(nb).fill(0) };
+    const m = mins(e);
+    p.total += m; p.buckets[i] += m;
+    if (e.billable) p.billable += m;
+    people.set(e.employee, p);
+  });
+  const rows = [...people.values()].sort((a, b) => b.total - a.total);
+  rows.forEach((p, i) => { p.color = PEO_COLORS[i % PEO_COLORS.length]; });
+  const grand = rows.reduce((s, p) => s + p.total, 0);
+
+  if (!rows.length) {
+    $("peoBody").innerHTML = '<div class="card"><div class="empty">No time logged on '
+      + escapeHtml(peo.projectName) + ' in ' + escapeHtml(win.title) + '.</div></div>';
+    return;
+  }
+
+  // Leaderboard (summary) — ranked people with share + trend.
+  let html = '<div class="card"><div class="peo-tot">'
+    + `<span class="big">${fmtMins(grand)}<span class="u"> h</span></span>`
+    + `<span class="cap">${escapeHtml(win.title)} · ${rows.length} ${rows.length === 1 ? "person" : "people"}</span></div>`;
+  rows.forEach((p, i) => {
+    const share = grand ? Math.round((p.total / grand) * 100) : 0;
+    const billTxt = p.billable === p.total ? "all billable"
+      : p.billable ? `${fmtMins(p.billable)} billable` : "none billable";
+    html += '<div class="rank">'
+      + `<span class="pos">${i + 1}</span>`
+      + `<span class="av" style="background:${p.color}">${escapeHtml(peoInitials(p.name))}</span>`
+      + '<div class="body">'
+      + `<div class="nm"><span>${escapeHtml(p.name)}</span><span class="h">${fmtMins(p.total)}</span></div>`
+      + `<div class="sub">${share}% of project · <span class="g">${billTxt}</span></div>`
+      + `<div class="share"><i style="width:${share}%;background:${p.color}"></i></div></div>`
+      + peoSparkline(p.buckets, p.color)
+      + '</div>';
+  });
+  html += `<button class="peo-toggle" id="peoToggle">${peo.expanded ? "Hide the grid ▴" : "Show the full grid ▾"}</button></div>`;
+
+  // Pivot grid (detail) — people × buckets, shown when expanded.
+  if (peo.expanded) {
+    const colTot = win.buckets.map((_, i) => rows.reduce((s, p) => s + p.buckets[i], 0));
+    html += '<div class="card"><h2>Hours by ' + peoUnitNoun() + '</h2><div class="grid-scroll"><table class="ptbl"><thead><tr>'
+      + '<th class="who">Person</th>'
+      + win.buckets.map((b) => `<th>${escapeHtml(b.label)}</th>`).join("")
+      + '<th class="rtot">Total</th></tr></thead><tbody>';
+    rows.forEach((p) => {
+      html += '<tr><td class="who"><span class="dot" style="background:' + p.color + '"></span>' + escapeHtml(p.name) + '</td>'
+        + p.buckets.map((m) => `<td class="${m ? "" : "zero"}">${m ? fmtMins(m) : "·"}</td>`).join("")
+        + `<td class="rtot">${fmtMins(p.total)}</td></tr>`;
+    });
+    html += '</tbody><tfoot><tr><td class="who">Total</td>'
+      + colTot.map((m) => `<td>${fmtMins(m)}</td>`).join("")
+      + `<td class="gt">${fmtMins(grand)}</td></tr></tfoot></table></div></div>`;
+  }
+
+  $("peoBody").innerHTML = html;
+  $("peoToggle").onclick = () => { peo.expanded = !peo.expanded; renderPeople(); };
+}
+
+function peoUnitNoun() {
+  return peo.unit === "day" ? "day" : peo.unit === "week" ? "week"
+    : peo.unit === "month" ? "month" : "quarter";
+}
+function syncPeoSeg() {
+  document.querySelectorAll("#peoSeg button").forEach((b) => b.classList.toggle("on", b.dataset.unit === peo.unit));
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 // ── Column chart (single series — hours per day) ────────────────────
 function renderChart(entries) {
   const box = $("chart");
@@ -1475,12 +1710,15 @@ function showView(view) {
   $("logView").style.display = view === "log" ? "block" : "none";
   $("weekView").style.display = view === "week" ? "block" : "none";
   $("reportView").style.display = view === "report" ? "block" : "none";
+  $("peopleView").style.display = view === "people" ? "block" : "none";
   $("title").textContent =
-    view === "report" ? "Report" : view === "week" ? "Week" : "Timesheet";
+    view === "report" ? "Report" : view === "week" ? "Week"
+    : view === "people" ? "People" : "Timesheet";
   document.querySelectorAll("#tabbar button").forEach((b) =>
     b.classList.toggle("on", b.dataset.view === view));
   if (view === "report") renderReport();
   if (view === "week") renderWeekGrid();
+  if (view === "people") renderPeople();
 }
 
 function refreshData() {
@@ -1488,6 +1726,7 @@ function refreshData() {
   loadFrequents();
   if ($("reportView").style.display === "block") renderReport();
   if ($("weekView").style.display === "block") renderWeekGrid();
+  if ($("peopleView").style.display === "block") renderPeople();
 }
 
 // ── Boot + submit ───────────────────────────────────────────────────
@@ -1502,6 +1741,16 @@ async function boot() {
   $("next").onclick = () => shiftPeriod(1);
   $("wgPrev").onclick = () => { wg.anchor = addDays(wg.anchor, -7); renderWeekGrid(); };
   $("wgNext").onclick = () => { wg.anchor = addDays(wg.anchor, 7); renderWeekGrid(); };
+  document.querySelectorAll("#peoSeg button").forEach((b) => {
+    b.onclick = () => { peo.unit = b.dataset.unit; peo.anchor = new Date(); renderPeople(); };
+  });
+  $("peoPrev").onclick = () => peoShift(-1);
+  $("peoNext").onclick = () => peoShift(1);
+  $("peoProjBtn").onclick = () => openPicker((item) => {
+    peo.projectId = item.id;
+    peo.projectName = item.name;
+    renderPeople();
+  }, peo.projectId);
   document.querySelectorAll("#tabbar button").forEach((b) => {
     b.onclick = () => showView(b.dataset.view);
   });

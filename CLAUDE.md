@@ -221,6 +221,21 @@ Field rules that trip people up:
   via the "Daily reminders" footer link; message lives in `static/sw.js`.
   Only `cryptography` was added (payloadless avoids the http-ece dep).
 
+- **People tab** (4th bottom tab): total hours **per person on one project**,
+  over time. Requires a project first (picker reused via a routed
+  `openPicker(onPick, selId)` + `pickerPick` callback; empty state prompts
+  to pick one). Granularity seg **Day/Week/Month/Qtr**, each with a natural
+  window of buckets (`peoWindow`): Day→this week (7 days), Week→this month
+  (its weeks), Month→this quarter (3 months), Qtr→this year (4 quarters);
+  prev/next pages by that window. Layout is **leaderboard + expandable
+  pivot grid** (chosen from 3 mockups): ranked people with avatar initials,
+  total, % share bar, billable split, and a per-bucket trend sparkline;
+  "Show the full grid" expands a people×bucket pivot table (sticky first
+  column, horizontal scroll, row/column/grand totals). Entries are matched
+  to the project by `(e.projectId || e.customerId) === peo.projectId`. All
+  client-side from one range fetch (`fetchRange`). Person colors from
+  `PEO_COLORS`.
+
 ## Backlog (not yet built)
 
 - Timer mode (start/stop instead of typing a duration).
