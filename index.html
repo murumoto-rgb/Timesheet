@@ -394,6 +394,7 @@
 
       <button class="primary" id="submit">Log time</button>
       <button class="secondary" id="cancelEdit" style="display:none">Cancel edit</button>
+      <button class="secondary" id="cancelNew">Cancel</button>
       <div class="msg" id="msg"></div>
     </div>
 
@@ -455,9 +456,10 @@
   <div class="foot">
     <a href="/mfa-setup">Set up two-factor</a> ·
     <a href="#" id="remindLink">Daily reminders</a> ·
+    <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.4</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.5</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -955,41 +957,48 @@ function fillFormFromEntry(e, dateOverride) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+// Put the form back to a fresh, blank new-entry state (shared by cancel + save).
+function clearFormFields() {
+  setProject(null, false);            // back to a deliberate, blank choice
+  $("date").value = ymd(new Date());  // default to today
+  $("durh").value = "";
+  $("desc").value = "";
+  if ($("template")) $("template").selectedIndex = 0;
+  $("billable").checked = true;       // billable is the default for new entries
+  document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+}
+
+// Show the right buttons for new-entry vs editing mode.
+function setEditMode(on) {
+  $("submit").textContent = on ? "Update entry" : "Log time";
+  $("cancelEdit").style.display = on ? "block" : "none";
+  $("cancelNew").style.display = on ? "none" : "block";
+  $("editBanner").style.display = on ? "block" : "none";
+  $("logForm").classList.toggle("editing", on);  // recolor the whole form while editing
+}
+
 function startEdit(e) {
   editingId = e.id;
   fillFormFromEntry(e);
-  $("submit").textContent = "Update entry";
-  $("cancelEdit").style.display = "block";
-  $("editBanner").style.display = "block";
-  $("logForm").classList.add("editing");  // recolor the whole form while editing
+  setEditMode(true);
   $("msg").className = "msg";
 }
 
 function copyEntry(e) {
   editingId = null;
-  $("submit").textContent = "Log time";
-  $("cancelEdit").style.display = "none";
-  $("editBanner").style.display = "none";
-  $("logForm").classList.remove("editing");
+  setEditMode(false);
   fillFormFromEntry(e, ymd(new Date()));  // same entry, dated today
   const msg = $("msg");
   msg.textContent = "Copied to a new entry for today — review and tap Log time.";
   msg.className = "msg good";
 }
 
+// Leave edit mode (or discard a new entry) and reset to a blank form.
 function cancelEdit() {
   editingId = null;
-  $("submit").textContent = "Log time";
-  $("cancelEdit").style.display = "none";
-  $("editBanner").style.display = "none";
-  $("logForm").classList.remove("editing");
-  setProject(null, false);        // back to a deliberate, blank choice
-  $("date").value = ymd(new Date());  // default to today
-  $("durh").value = "";
-  $("desc").value = "";
-  $("billable").checked = true;  // billable is the default for new entries
+  setEditMode(false);
+  clearFormFields();
   $("msg").className = "msg";
-  document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
 }
 
 // ── Week grid (projects × Mon–Sun) ──────────────────────────────────
@@ -1689,6 +1698,12 @@ async function submit() {
 
 $("submit").addEventListener("click", submit);
 $("cancelEdit").addEventListener("click", cancelEdit);
+$("cancelNew").addEventListener("click", () => {
+  clearFormFields();               // discard the in-progress new entry
+  const msg = $("msg");
+  msg.textContent = "Cleared.";
+  msg.className = "msg good";
+});
 boot();
 </script>
 </body>

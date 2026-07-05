@@ -136,6 +136,20 @@ Field rules that trip people up:
 - Recent-entries list (`GET /api/timeactivities?days=N` or `?start=&end=`)
   with delete (`DELETE /api/timeactivity/{id}` — reads the entity for its
   `SyncToken`, then posts `?operation=delete`).
+- **Audit trail**: every create/update/delete appends an event to an
+  append-only store (`_load_audit`/`_save_audit`, blob id=3 — local
+  `qbo_audit.json` or Supabase, capped to `AUDIT_MAX`=2000). Each record has
+  a UTC `ts`, `action`, `entryId`, a readable `summary` (date/hours/who/
+  service/customer/billableStatus/description) built from the QBO response,
+  the source `ip`, and — for updates — the prior `before` snapshot so the
+  viewer can show what changed. `_audit()` never raises (auditing must not
+  break a write). `GET /api/audit?limit=N` returns events newest-first;
+  `/audit` is a password-gated server-rendered viewer (footer "Activity
+  log" link) with color-coded action badges.
+- **New-entry Cancel**: the Log form shows a "Cancel" button (`#cancelNew`)
+  in new-entry mode that discards the in-progress entry and resets the form
+  (`clearFormFields`); in edit mode it's swapped for "Cancel edit"
+  (`setEditMode` toggles the two + the submit label + the editing recolor).
 - Report tab (bottom tab bar): Day / Week / Month periods with prev/next
   navigation, hero total + billable split, hours-per-day column chart
   (tap a column to drill into that day), per-client/project proportional

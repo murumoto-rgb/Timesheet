@@ -21,7 +21,7 @@ import logging
 import secrets
 import threading
 import urllib.parse
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -261,6 +261,66 @@ def _load_push():
 
 def _save_push(data):
     _save_blob(PUSH_FILE, 2, data)
+
+
+# ---------------------------------------------------------------------------
+# Audit trail — an append-only record of every timesheet change (create,
+# update, delete). Persists alongside tokens/push: a local JSON file by
+# default, or the Supabase `qbo_tokens` table as id=3 on a diskless host.
+# Capped to the most recent AUDIT_MAX events so the blob stays small.
+# ---------------------------------------------------------------------------
+AUDIT_FILE = os.path.join(os.path.dirname(TOKENS_FILE) or BASE_DIR, "qbo_audit.json")
+AUDIT_MAX = 2000
+_audit_lock = threading.Lock()
+
+
+def _load_audit():
+    return _load_blob(AUDIT_FILE, 3) or {}
+
+
+def _save_audit(data):
+    _save_blob(AUDIT_FILE, 3, data)
+
+
+def _ta_summary(ta):
+    """A readable snapshot of a QBO TimeActivity for the audit log."""
+    ta = ta or {}
+    who = ta.get("EmployeeRef") or ta.get("VendorRef") or {}
+    item = ta.get("ItemRef") or {}
+    cust = ta.get("CustomerRef") or {}
+    return {
+        "date": ta.get("TxnDate"),
+        "hours": ta.get("Hours", 0),
+        "minutes": ta.get("Minutes", 0),
+        "who": who.get("name") or who.get("value"),
+        "service": item.get("name") or item.get("value"),
+        "customer": cust.get("name") or cust.get("value"),
+        "billableStatus": ta.get("BillableStatus"),
+        "description": ta.get("Description", ""),
+    }
+
+
+def _audit(action, entry_id, ta, request=None, before=None):
+    """Append one audit event. Never raises — auditing must not break a write."""
+    try:
+        rec = {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "action": action,
+            "entryId": str(entry_id) if entry_id is not None else None,
+            "summary": _ta_summary(ta),
+        }
+        if before is not None:
+            rec["before"] = _ta_summary(before)
+        if request is not None and request.client:
+            rec["ip"] = request.client.host
+        with _audit_lock:
+            data = _load_audit()
+            events = data.get("events", [])
+            events.append(rec)
+            data["events"] = events[-AUDIT_MAX:]
+            _save_audit(data)
+    except Exception:
+        logging.exception("audit write failed")
 
 
 def _basic_auth_header():
@@ -565,14 +625,16 @@ def _post_timeactivity(payload, params=None):
 
 
 @app.post("/api/timeactivity")
-def create_time(entry: TimeEntry):
+def create_time(entry: TimeEntry, request: Request):
     if not (entry.employee_id or entry.vendor_id):
         raise HTTPException(400, "Pick an employee or vendor.")
-    return _post_timeactivity(_timeactivity_payload(entry))
+    ta = _post_timeactivity(_timeactivity_payload(entry))
+    _audit("create", ta.get("Id"), ta, request)
+    return ta
 
 
 @app.put("/api/timeactivity/{entry_id}")
-def update_time(entry_id: str, entry: TimeEntry):
+def update_time(entry_id: str, entry: TimeEntry, request: Request):
     if not (entry.employee_id or entry.vendor_id):
         raise HTTPException(400, "Pick an employee or vendor.")
     access_token, realm_id = get_access_token()
@@ -585,10 +647,13 @@ def update_time(entry_id: str, entry: TimeEntry):
     )
     if read.status_code >= 400:
         raise _qbo_error(read)
+    before = read.json()["TimeActivity"]
     payload = _timeactivity_payload(entry)
     payload["Id"] = entry_id
-    payload["SyncToken"] = read.json()["TimeActivity"]["SyncToken"]
-    return _post_timeactivity(payload)
+    payload["SyncToken"] = before["SyncToken"]
+    result = _post_timeactivity(payload)
+    _audit("update", entry_id, result, request, before=before)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -640,7 +705,7 @@ def list_time(days: int = 14, start: str | None = None, end: str | None = None):
 
 
 @app.delete("/api/timeactivity/{entry_id}")
-def delete_time(entry_id: str):
+def delete_time(entry_id: str, request: Request):
     access_token, realm_id = get_access_token()
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
 
@@ -653,18 +718,103 @@ def delete_time(entry_id: str):
     )
     if read.status_code >= 400:
         raise _qbo_error(read)
-    sync_token = read.json()["TimeActivity"]["SyncToken"]
+    deleted = read.json()["TimeActivity"]
 
     resp = requests.post(
         f"{API_BASE}/v3/company/{realm_id}/timeactivity",
         headers={**headers, "Content-Type": "application/json"},
         params={"operation": "delete", "minorversion": MINOR_VERSION},
-        json={"Id": entry_id, "SyncToken": sync_token},
+        json={"Id": entry_id, "SyncToken": deleted["SyncToken"]},
         timeout=30,
     )
     if resp.status_code >= 400:
         raise _qbo_error(resp)
+    _audit("delete", entry_id, deleted, request)
     return {"deleted": entry_id}
+
+
+@app.get("/api/audit")
+def get_audit(limit: int = 500):
+    """Audit events, newest first. Each records the action, entry, a snapshot
+    of the entry's fields (and the prior values on updates), time, and source."""
+    limit = max(1, min(limit, AUDIT_MAX))
+    events = _load_audit().get("events", [])
+    return list(reversed(events))[:limit]
+
+
+def _audit_line(e):
+    """Render one audit event as an HTML row for the /audit viewer."""
+    import html as _html
+
+    s = e.get("summary") or {}
+    dur = f"{s.get('hours', 0)}:{str(s.get('minutes', 0)).zfill(2)}"
+    action = e.get("action", "")
+    who = _html.escape(str(s.get("who") or "—"))
+    cust = _html.escape(str(s.get("customer") or "—"))
+    svc = _html.escape(str(s.get("service") or "—"))
+    desc = _html.escape(str(s.get("description") or ""))
+    ts = _html.escape(str(e.get("ts", "")))
+    bill = _html.escape(str(s.get("billableStatus") or ""))
+    entry_id = _html.escape(str(e.get("entryId") or ""))
+    # Show what changed on an update, if we captured the prior values.
+    delta = ""
+    before = e.get("before")
+    if action == "update" and before:
+        changes = []
+        for k, lbl in (("date", "date"), ("hours", "h"), ("minutes", "m"),
+                       ("who", "who"), ("service", "service"),
+                       ("customer", "client"), ("billableStatus", "billable"),
+                       ("description", "notes")):
+            if before.get(k) != s.get(k):
+                changes.append(lbl)
+        if changes:
+            delta = " · changed: " + _html.escape(", ".join(changes))
+    return (
+        f'<div class="ev {action}"><div class="row1">'
+        f'<span class="act {action}">{action}</span>'
+        f'<span class="cust">{cust}</span>'
+        f'<span class="dur">{dur}</span></div>'
+        f'<div class="row2">{s.get("date") or "—"} · {who} · {svc}'
+        f'{" · " + bill if bill else ""}{delta}</div>'
+        f'{f"<div class=notes>{desc}</div>" if desc else ""}'
+        f'<div class="ts">{ts} · entry #{entry_id}</div></div>'
+    )
+
+
+@app.get("/audit")
+def audit_page():
+    """Password-gated, human-readable view of the timesheet audit trail."""
+    events = _load_audit().get("events", [])
+    rows = "".join(_audit_line(e) for e in reversed(events))
+    if not rows:
+        rows = '<p class="note">No changes recorded yet.</p>'
+    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Activity log</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;
+padding:24px 16px 60px;background:#12161c;color:#e6ebf1;line-height:1.5}}
+h1{{font-size:22px}} a{{color:#4c9be8;text-decoration:none}}
+.note{{color:#8a97a6}} .ev{{border:1px solid #2b333e;border-radius:10px;
+padding:12px 14px;margin:10px 0;background:#0e1217}}
+.row1{{display:flex;align-items:center;gap:10px}}
+.act{{font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+font-weight:700;padding:2px 8px;border-radius:6px}}
+.act.create{{background:rgba(74,200,140,.16);color:#4ac88c}}
+.act.update{{background:rgba(76,155,232,.16);color:#4c9be8}}
+.act.delete{{background:rgba(232,90,90,.16);color:#e85a5a}}
+.cust{{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.dur{{font-family:ui-monospace,Menlo,monospace}}
+.row2{{color:#8a97a6;font-size:13px;margin-top:4px}}
+.notes{{font-size:13px;margin-top:4px}}
+.ts{{color:#5f6b7a;font-size:11px;font-family:ui-monospace,Menlo,monospace;margin-top:6px}}
+.ev.delete{{opacity:.85}}</style></head><body>
+<p><a href="/">&larr; Back to Timesheet</a></p>
+<h1>Activity log</h1>
+<p class="note">Every entry added, edited, or deleted — newest first
+({len(events)} recorded).</p>
+{rows}
+</body></html>"""
+    return HTMLResponse(html)
 
 
 # ---------------------------------------------------------------------------
