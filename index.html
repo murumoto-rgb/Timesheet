@@ -289,7 +289,11 @@
   .dash-hero { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
   .dash-hero .big { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
   .dash-hero .cap { color: var(--muted); font-size: 12.5px; text-align: right; }
-  .trendline { position: absolute; inset: 0 34px 0 0; width: auto; height: 100%; pointer-events: none; overflow: visible; }
+  /* explicit width (not auto) — an SVG is a replaced element and won't stretch
+     to left/right insets with width:auto, which squished the line into the
+     left of the chart. calc matches the .cols box (plot width minus the 34px
+     axis gutter) so the line spans the full plot and aligns with the bars. */
+  .trendline { position: absolute; left: 0; top: 0; width: calc(100% - 34px); height: 100%; pointer-events: none; overflow: visible; }
   .trendline polyline { fill: none; stroke: var(--good); stroke-width: 2px; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
   .dash-legend { display: flex; gap: 16px; margin-top: 12px; font-size: 12px; color: var(--muted); }
   .dash-legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -617,7 +621,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.20</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.21</div>
 </div>
 
 <div class="picker" id="picker" hidden>
