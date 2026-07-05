@@ -156,6 +156,24 @@ def test_receivables_dso_none_without_billing():
     assert s["dso"] is None and s["outstanding"] == 0
 
 
+# ── projects/customers: parentId exposed for hierarchy roll-up ──────────────
+def test_list_projects_exposes_parent_for_rollup(monkeypatch):
+    customers = [
+        {"Id": "1", "DisplayName": "Acme Corp", "FullyQualifiedName": "Acme Corp"},          # top-level client
+        {"Id": "2", "FullyQualifiedName": "Acme Corp:East Wing", "Job": True,
+         "ParentRef": {"value": "1"}},                                                        # sub-customer/job
+        {"Id": "3", "FullyQualifiedName": "Acme Corp:East Wing:Roof", "IsProject": True,
+         "ParentRef": {"value": "2"}},                                                        # project under the job
+    ]
+    monkeypatch.setattr(main, "qbo_query_all", lambda *a, **k: customers)
+    out = main.list_projects()
+    clients = {c["id"]: c for c in out["clients"]}
+    projects = {p["id"]: p for p in out["projects"]}
+    assert clients["1"]["parentId"] is None          # top-level → no parent
+    assert clients["2"]["parentId"] == "1"           # job rolls up to Acme
+    assert projects["3"]["parentId"] == "2"          # project rolls up to the job → Acme
+
+
 # ── bills: Bill + Purchase merge, credits excluded ──────────────────────────
 def test_list_bills_merges_and_drops_credits(monkeypatch):
     def q(entity, where="", key=None):

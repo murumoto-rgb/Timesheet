@@ -317,6 +317,8 @@
 
   /* ── Money / accounts-receivable section (dashboard) ──────────────── */
   .money h2 .asof { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .conc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .conc-head h2 { margin: 0; }
   .money-stats { display: flex; gap: 8px; margin: 4px 0 14px; }
   .mstat { flex: 1; min-width: 0; background: var(--field); border: 1px solid var(--line);
     border-radius: 10px; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
@@ -653,7 +655,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.32</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.33</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -841,6 +843,23 @@ function buildChips() {
   });
   const clear = () => [...box.children].forEach((c) => c.classList.remove("on"));
   $("durh").addEventListener("input", clear);
+}
+
+// ── Customer hierarchy (for rolling projects/sub-clients up to a main client) ──
+const custParent = new Map();   // customerId → parentId (null at top level)
+const custName = new Map();     // customerId → display/qualified name
+function buildCustMaps(proj) {
+  custParent.clear(); custName.clear();
+  [...(proj.projects || []), ...(proj.clients || [])].forEach((c) => {
+    custParent.set(c.id, c.parentId || null);
+    custName.set(c.id, c.name);
+  });
+}
+// Walk ParentRef up to the top-level client; guard against cycles.
+function rootClientOf(id) {
+  const seen = new Set();
+  while (id && custParent.get(id) && !seen.has(id)) { seen.add(id); id = custParent.get(id); }
+  return id;
 }
 
 // ── Searchable project/client picker ────────────────────────────────
@@ -2062,7 +2081,7 @@ function goToTotals(projectId, projectName) {
 }
 
 // ── Dashboard: billed (invoiced) or received (payments) trend + 12-mo avg ──
-const dash = { unit: "month", metric: "billed" };   // metric only applies in $ mode
+const dash = { unit: "month", metric: "billed", concBy: "client" };   // metric only applies in $ mode; concBy: client-rollup vs project
 const MB_RE = /murat\s*baykal/i;   // Murat Baykal, for the effective-rate stat
 
 async function fetchPayments(start, end) {
@@ -2224,8 +2243,10 @@ async function renderDash() {
   //   totalMin/billMin → utilization; billValue → effective rate;
   //   billedD/billValue → realization (share of billable work invoiced).
   let mbMin = 0, billedD = 0, totalMin = 0, billMin = 0, billValue = 0;
-  const byClientVal = new Map();   // client → billable value ($), for concentration
-  const subNames = new Set();      // vendors who log time = the subcontractors
+  // billable value per tagged customer, keyed by id so it can be regrouped by
+  // main client (rolling up sub-clients/projects) or shown per project.
+  const byCust = new Map();         // key → { id, name, v }
+  const subNames = new Set();       // vendors who log time = the subcontractors
   entries.forEach((e) => {
     if (!e.date || !inWin(e.date)) return;
     const m = mins(e);
@@ -2236,8 +2257,10 @@ async function renderDash() {
       billMin += m;
       const d = fin(dollarsOf(e));
       billValue += d;
-      const c = e.customer || "—";
-      byClientVal.set(c, (byClientVal.get(c) || 0) + d);
+      const key = e.customerId || ("n:" + (e.customer || "—"));
+      const rec = byCust.get(key) || { id: e.customerId || null, name: e.customer || "—", v: 0 };
+      rec.v += d;
+      byCust.set(key, rec);
     }
     if (e.billableStatus === "HasBeenBilled") billedD += fin(dollarsOf(e));
   });
@@ -2278,8 +2301,22 @@ async function renderDash() {
     + "</div></div>";
 
   // ── Client concentration: each client's share of billable value over the
-  //    window — a revenue-dependency / risk view (top client flagged if ≥50%). ──
-  const concList = [...byClientVal.entries()].map(([name, v]) => ({ name, v })).filter((c) => c.v > 0).sort((a, b) => b.v - a.v);
+  //    window — a revenue-dependency / risk view (top flagged if ≥50%). The
+  //    Client/Project toggle rolls sub-clients & projects up to their main
+  //    client (dash.concBy), or shows each tagged project/client on its own. ──
+  const byMain = dash.concBy === "client";
+  const grouped = new Map();   // label → { name, v }
+  byCust.forEach((rec) => {
+    let name = rec.name;
+    if (byMain && rec.id) {                       // roll up to the top-level client
+      const root = rootClientOf(rec.id);
+      if (root != null) name = custName.get(root) || rec.name;
+    }
+    const g = grouped.get(name) || { name, v: 0 };
+    g.v += rec.v;
+    grouped.set(name, g);
+  });
+  const concList = [...grouped.values()].filter((c) => c.v > 0).sort((a, b) => b.v - a.v);
   const concTotal = concList.reduce((s, c) => s + c.v, 0);
   if (concTotal > 0) {
     const topN = concList.slice(0, 8);
@@ -2288,11 +2325,14 @@ async function renderDash() {
     const top3 = (concList.slice(0, 3).reduce((s, c) => s + c.v, 0) / concTotal) * 100;
     const rows = otherV > 0.5 ? [...topN, { name: `Other (${concList.length - topN.length})`, v: otherV, other: true }] : topN;
     const cmax = rows[0].v || 1;
-    html += '<div class="card money"><h2>Client concentration '
+    const unitLbl = byMain ? "client" : "project";
+    html += '<div class="card money"><div class="conc-head"><h2>Client concentration '
       + '<span class="asof">share of billable value</span></h2>'
-      + `<div class="money-stats"><div class="mstat"><span class="mnum${top1 >= 50 ? " bad" : ""}">${Math.round(top1)}%</span><span class="mlbl">Top client</span></div>`
-      + `<div class="mstat"><span class="mnum">${Math.round(top3)}%</span><span class="mlbl">Top 3 clients</span></div>`
-      + `<div class="mstat"><span class="mnum">${concList.length}</span><span class="mlbl">Clients billed</span></div></div>`;
+      + `<span class="sortseg" id="concSeg"><button class="sortbtn${byMain ? " on" : ""}" data-concby="client">Client</button>`
+      + `<button class="sortbtn${byMain ? "" : " on"}" data-concby="project">Project</button></span></div>`
+      + `<div class="money-stats"><div class="mstat"><span class="mnum${top1 >= 50 ? " bad" : ""}">${Math.round(top1)}%</span><span class="mlbl">Top ${unitLbl}</span></div>`
+      + `<div class="mstat"><span class="mnum">${Math.round(top3)}%</span><span class="mlbl">Top 3 ${unitLbl}s</span></div>`
+      + `<div class="mstat"><span class="mnum">${concList.length}</span><span class="mlbl">${byMain ? "Clients" : "Projects"} billed</span></div></div>`;
     rows.forEach((c) => {
       const pct = (c.v / concTotal) * 100;
       html += '<div class="owe-row"><div class="info">'
@@ -2325,6 +2365,12 @@ async function renderDash() {
 
   $("dashBody").innerHTML = html;
   drawDashChart($("dashChart"), win, bMetric, trail);
+
+  // Concentration Client/Project toggle — regroups (no new data needed).
+  const concSeg = $("concSeg");
+  if (concSeg) concSeg.querySelectorAll(".sortbtn").forEach((btn) => {
+    btn.onclick = () => { dash.concBy = btn.dataset.concby; renderDash(); };
+  });
 
   // Money / A-R section — as-of-today (independent of the unit/metric toggles).
   // Non-fatal: a receivables error must not blank the rest of the dashboard.
@@ -2592,6 +2638,7 @@ async function boot() {
   }
 
   pickerItems = { projects: proj.projects || [], clients: proj.clients || [] };
+  buildCustMaps(proj);
   initPicker();
   // Start blank so choosing a project is always a deliberate act.
   setProject(null, false);

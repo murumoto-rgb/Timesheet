@@ -558,11 +558,14 @@ def list_projects():
     projects, clients = [], []
     for c in customers:
         name = c.get("FullyQualifiedName") or c.get("DisplayName")
+        # parentId lets the client roll sub-customers/jobs/projects up to their
+        # top-level client (e.g. for concentration by main client). Sub-customers
+        # and projects carry a ParentRef; a top-level client has none.
+        parent_id = (c.get("ParentRef") or {}).get("value")
         if c.get("IsProject"):
-            parent = c.get("ParentRef", {})
-            projects.append({"id": c["Id"], "name": name, "parentId": parent.get("value")})
+            projects.append({"id": c["Id"], "name": name, "parentId": parent_id})
         else:
-            clients.append({"id": c["Id"], "name": name})
+            clients.append({"id": c["Id"], "name": name, "parentId": parent_id})
     return {"projects": projects, "clients": clients}
 
 
