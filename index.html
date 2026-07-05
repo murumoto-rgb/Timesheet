@@ -247,13 +247,17 @@
   .proj-top .h { font-family: var(--mono); font-variant-numeric: tabular-nums; flex-shrink: 0; }
   .proj-top .h .b { color: var(--good); font-size: 11px; margin-right: 6px; }
   h2 .ti-sum { color: var(--accent); font-family: var(--mono); font-size: 13px; font-weight: 600; margin-left: 6px; }
-  /* Hours ⇄ $ + hide-expenses controls (Report + Totals) */
-  .opts { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 12px 0 2px; }
-  .modeseg { display: inline-flex; background: var(--field); border: 1px solid var(--line); border-radius: 9px; padding: 3px; }
+  /* Hours ⇄ $ + hide-expenses controls (Report + Totals), one row */
+  .opts { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: nowrap; margin: 12px 0 2px; }
+  .modeseg { display: inline-flex; flex-shrink: 0; background: var(--field); border: 1px solid var(--line); border-radius: 9px; padding: 3px; }
   .modeseg button { border: none; background: none; color: var(--muted); font-family: var(--sans); font-size: 13px; padding: 6px 16px; border-radius: 6px; font-weight: 500; cursor: pointer; }
   .modeseg button.on { background: var(--accent); color: #06121f; font-weight: 650; }
-  .optck { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); cursor: pointer; }
-  .optck input { width: 18px; height: 18px; accent-color: var(--accent); flex-shrink: 0; }
+  /* undo the global uppercase <label> styling; restore a real checkbox */
+  .optck { display: inline-flex; align-items: center; gap: 8px; margin: 0; cursor: pointer;
+    font-family: var(--sans); font-size: 13px; font-weight: 400; text-transform: none;
+    letter-spacing: 0; color: var(--muted); white-space: nowrap; }
+  .optck input { width: 20px; height: 20px; min-height: 0; padding: 0; flex-shrink: 0;
+    appearance: auto; -webkit-appearance: checkbox; accent-color: var(--accent); }
   .track { height: 6px; border-radius: 3px; background: var(--field); margin-top: 6px; }
   .fill { height: 100%; border-radius: 3px; background: var(--series-1); min-width: 2px; }
   .fill .bpart { height: 100%; border-radius: 3px; background: var(--good); }
@@ -567,7 +571,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.14</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.15</div>
 </div>
 
 <div class="picker" id="picker" hidden>
