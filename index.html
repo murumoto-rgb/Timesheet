@@ -197,6 +197,9 @@
   .hero { font-size: 32px; font-weight: 650; letter-spacing: -0.02em; margin: 2px 0 0; }
   .hero-sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
   .hero-sub .b { color: var(--good); }
+  .yoy { font-variant-numeric: tabular-nums; }
+  .yoy.up { color: var(--good); }
+  .yoy.down { color: var(--bad); }
   .chart { position: relative; margin: 8px 0 0; }
   .plot { position: relative; height: 132px; margin-top: 18px; }
   .gridline {
@@ -571,6 +574,7 @@
       <div class="hero" id="heroTotal">0:00</div>
       <div class="hero-sub" id="heroSub"></div>
       <div class="sub" id="heroNote" style="display:none;margin-top:4px"></div>
+      <div class="sub yoy" id="repYoY" style="display:none;margin-top:4px"></div>
       <div class="chart" id="chart"></div>
     </div>
 
@@ -649,7 +653,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.30</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.31</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2008,6 +2012,37 @@ async function renderReport() {
     note.style.display = "none";
   }
   renderChart(entries);
+
+  // ── Year-over-year: compare this period's total to the same period one year
+  //    ago (month/quarter only — YoY is meaningless day-to-day). Loaded async
+  //    and non-fatally so it never blocks or breaks the report. ──
+  const yoyEl = $("repYoY");
+  if (rep.unit === "month" || rep.unit === "quarter") {
+    const pyStart = new Date(start.getFullYear() - 1, start.getMonth(), start.getDate());
+    const pyEnd = new Date(end.getFullYear() - 1, end.getMonth(), end.getDate());
+    const unitWord = rep.unit === "quarter" ? "quarter" : "month";
+    fetchRange(pyStart, pyEnd).then((prev) => {
+      if (seq !== repSeq) return;
+      prev = applyOpts(prev);
+      if (rep.person) prev = prev.filter((e) => e.employee === rep.person);
+      let ptot = 0;
+      prev.forEach((e) => { ptot += val(e); });
+      if (ptot <= 0 && total <= 0) { yoyEl.style.display = "none"; return; }
+      if (ptot <= 0) {
+        yoyEl.className = "sub yoy";
+        yoyEl.textContent = `No time in the same ${unitWord} last year`;
+      } else {
+        const pct = Math.round(((total - ptot) / ptot) * 100);
+        const arrow = pct > 0 ? "▲" : pct < 0 ? "▼" : "▬";
+        yoyEl.className = "sub yoy " + (pct > 0 ? "up" : pct < 0 ? "down" : "");
+        yoyEl.textContent = `${arrow} ${Math.abs(pct)}% vs last year · ${fmtVal(ptot)} → ${fmtVal(total)}`;
+      }
+      yoyEl.style.display = "block";
+    }).catch(() => { yoyEl.style.display = "none"; });
+  } else {
+    yoyEl.style.display = "none";
+  }
+
   renderToInvoice(entries);
   renderBreakdown($("projRows"), entries, (e) => e.customer || "(no client)",
     { idOf: (e) => e.projectId || e.customerId, go: goToTotals });
