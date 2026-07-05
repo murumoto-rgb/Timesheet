@@ -246,6 +246,7 @@
   .proj-top .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .proj-top .h { font-family: var(--mono); font-variant-numeric: tabular-nums; flex-shrink: 0; }
   .proj-top .h .b { color: var(--good); font-size: 11px; margin-right: 6px; }
+  h2 .ti-sum { color: var(--accent); font-family: var(--mono); font-size: 13px; font-weight: 600; margin-left: 6px; }
   .track { height: 6px; border-radius: 3px; background: var(--field); margin-top: 6px; }
   .fill { height: 100%; border-radius: 3px; background: var(--series-1); min-width: 2px; }
   .fill .bpart { height: 100%; border-radius: 3px; background: var(--good); }
@@ -483,6 +484,7 @@
       <button data-unit="day">Day</button>
       <button data-unit="week" class="on">Week</button>
       <button data-unit="month">Month</button>
+      <button data-unit="quarter">Qtr</button>
     </div>
     <div class="chips" id="repPeople" style="margin-bottom:14px"></div>
 
@@ -495,6 +497,13 @@
       <div class="hero" id="heroTotal">0:00</div>
       <div class="hero-sub" id="heroSub"></div>
       <div class="chart" id="chart"></div>
+    </div>
+
+    <div class="card" id="toInvoiceCard" style="display:none">
+      <h2>To invoice <span id="toInvoiceTotal" class="ti-sum"></span></h2>
+      <div class="proj" id="toInvoiceRows"></div>
+      <p class="sub" style="margin:8px 0 0">Not-yet-invoiced billable time in this
+      period. Widen the period (Month / Qtr) to see everything outstanding.</p>
     </div>
 
     <div class="card">
@@ -536,7 +545,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.11</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.12</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1309,15 +1318,19 @@ function mondayOf(d) {
 }
 
 function periodRange() {
-  const a = rep.anchor;
+  const a = rep.anchor, y = a.getFullYear();
   if (rep.unit === "day") return { start: a, end: a };
   if (rep.unit === "week") {
     const s = mondayOf(a);
     return { start: s, end: addDays(s, 6) };
   }
+  if (rep.unit === "quarter") {
+    const m0 = quarterOf(a.getMonth()) * 3;
+    return { start: new Date(y, m0, 1), end: new Date(y, m0 + 3, 0) };
+  }
   return {
-    start: new Date(a.getFullYear(), a.getMonth(), 1),
-    end: new Date(a.getFullYear(), a.getMonth() + 1, 0),
+    start: new Date(y, a.getMonth(), 1),
+    end: new Date(y, a.getMonth() + 1, 0),
   };
 }
 
@@ -1335,6 +1348,11 @@ function periodLabel() {
     return `${MONTHS[start.getMonth()]} ${start.getDate()} – ${sameMonth ? "" : MONTHS[end.getMonth()] + " "}${end.getDate()}`;
   }
   const now = new Date();
+  if (rep.unit === "quarter") {
+    const q = quarterOf(start.getMonth());
+    if (start.getFullYear() === now.getFullYear() && q === quarterOf(now.getMonth())) return "This quarter";
+    return `Q${q + 1} ${start.getFullYear()}`;
+  }
   if (start.getFullYear() === now.getFullYear() && start.getMonth() === now.getMonth()) return "This month";
   return `${MONTHS[start.getMonth()]} ${start.getFullYear()}`;
 }
@@ -1342,6 +1360,7 @@ function periodLabel() {
 function shiftPeriod(dir) {
   if (rep.unit === "day") rep.anchor = addDays(rep.anchor, dir);
   else if (rep.unit === "week") rep.anchor = addDays(rep.anchor, 7 * dir);
+  else if (rep.unit === "quarter") rep.anchor = new Date(rep.anchor.getFullYear(), rep.anchor.getMonth() + 3 * dir, 1);
   else rep.anchor = new Date(rep.anchor.getFullYear(), rep.anchor.getMonth() + dir, 1);
   renderReport();
 }
@@ -1565,30 +1584,49 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// ── Column chart (single series — hours per day) ────────────────────
+// ── Column chart: hours per day (per month when the period is a quarter) ─
 function renderChart(entries) {
   const box = $("chart");
   box.innerHTML = "";
   if (rep.unit === "day") return;  // a chart of one bar is not a chart
 
   const { start, end } = periodRange();
-  const nDays = Math.round((end - start) / 86400000) + 1;
-  const perDay = new Array(nDays).fill(0);
-  entries.forEach((e) => {
-    if (!e.date) return;
-    const i = Math.round((new Date(e.date + "T00:00") - start) / 86400000);
-    if (i >= 0 && i < nDays) perDay[i] += mins(e);
-  });
 
-  const maxM = Math.max(...perDay);
-  if (maxM === 0) {
-    box.innerHTML = '<div class="empty">No time in this period.</div>';
-    return;
+  // Build the bars. Quarter → 3 month columns (tap → that month); otherwise
+  // one column per day (tap → that day).
+  let bars, xmode;
+  if (rep.unit === "quarter") {
+    const y = start.getFullYear(), m0 = start.getMonth(), now = new Date();
+    bars = [0, 1, 2].map((k) => {
+      const ms = new Date(y, m0 + k, 1), me = new Date(y, m0 + k + 1, 0);
+      let v = 0;
+      entries.forEach((e) => { if (!e.date) return; const d = new Date(e.date + "T00:00"); if (d >= ms && d <= me) v += mins(e); });
+      return {
+        value: v, label: MONTHS[m0 + k],
+        today: now.getFullYear() === y && now.getMonth() === m0 + k,
+        onTap: () => { rep.unit = "month"; rep.anchor = ms; syncSeg(); renderReport(); },
+      };
+    });
+    xmode = "months";
+  } else {
+    const nDays = Math.round((end - start) / 86400000) + 1;
+    const perDay = new Array(nDays).fill(0);
+    entries.forEach((e) => { if (!e.date) return; const i = Math.round((new Date(e.date + "T00:00") - start) / 86400000); if (i >= 0 && i < nDays) perDay[i] += mins(e); });
+    const todayIdx = Math.round((new Date(ymd(new Date()) + "T00:00") - start) / 86400000);
+    bars = perDay.map((v, i) => ({
+      value: v, dayIndex: i, today: i === todayIdx,
+      onTap: () => { rep.unit = "day"; rep.anchor = addDays(start, i); syncSeg(); renderReport(); },
+    }));
+    xmode = "days";
   }
+
+  const vals = bars.map((b) => b.value);
+  const maxM = Math.max(...vals);
+  if (maxM === 0) { box.innerHTML = '<div class="empty">No time in this period.</div>'; return; }
   // clean axis: pick an hour step so there are 2–4 gridlines
-  const steps = [1, 2, 4, 8, 12, 24];
+  const steps = [1, 2, 4, 8, 12, 24, 40, 80, 160, 320];
   const maxH = maxM / 60;
-  const step = steps.find((s) => maxH / s <= 4) || 24;
+  const step = steps.find((s) => maxH / s <= 4) || 320;
   const topH = Math.ceil(maxH / step) * step;
 
   const plot = document.createElement("div");
@@ -1611,22 +1649,21 @@ function renderChart(entries) {
 
   const cols = document.createElement("div");
   cols.className = "cols";
-  const maxIdx = perDay.indexOf(maxM);
-  const todayIdx = Math.round((new Date(ymd(new Date()) + "T00:00") - start) / 86400000);
-  perDay.forEach((m, i) => {
+  const maxIdx = vals.indexOf(maxM);
+  const capOn = rep.unit === "week" || rep.unit === "quarter";  // label the tallest
+  bars.forEach((b, i) => {
     const slot = document.createElement("button");
     slot.className = "slot";
-    const d = addDays(start, i);
-    slot.setAttribute("aria-label", `${ymd(d)}: ${fmtMins(m)}`);
-    slot.onclick = () => { rep.unit = "day"; rep.anchor = d; syncSeg(); renderReport(); };
+    slot.setAttribute("aria-label", `${b.label || ymd(addDays(start, b.dayIndex))}: ${fmtMins(b.value)}`);
+    slot.onclick = b.onTap;
     const col = document.createElement("div");
     col.className = "col";
-    const pct = m ? Math.max((m / 60 / topH) * 100, 2) : 0;
+    const pct = b.value ? Math.max((b.value / 60 / topH) * 100, 2) : 0;
     col.style.height = pct + "%";
-    if (i === maxIdx && rep.unit === "week") {   // label the extreme only
+    if (i === maxIdx && capOn) {
       const cap = document.createElement("span");
       cap.className = "cap";
-      cap.textContent = fmtMins(m);
+      cap.textContent = fmtMins(b.value);
       cap.style.bottom = `calc(${pct}% + 4px)`;
       slot.appendChild(cap);
     }
@@ -1638,28 +1675,69 @@ function renderChart(entries) {
 
   const xl = document.createElement("div");
   xl.className = "xlabels";
-  const isWeek = rep.unit === "week";
-  for (let i = 0; i < nDays; i++) {
-    const text = isWeek ? "MTWTFSS"[i] : (i % 7 === 0 ? String(i + 1) : "");
-    if (!text && i !== todayIdx) continue;
-    const s = document.createElement("span");
-    s.style.left = ((i + 0.5) / nDays) * 100 + "%";
-    if (i === todayIdx) s.classList.add("today");
-    if (isWeek) {   // day-of-month on top of the weekday letter
-      s.classList.add("wk");
-      const dom = document.createElement("span");
-      dom.className = "xl-dom";
-      dom.textContent = String(addDays(start, i).getDate());
-      const dow = document.createElement("span");
-      dow.className = "xl-dow";
-      dow.textContent = text;
-      s.append(dom, dow);
-    } else {
-      s.textContent = text || String(i + 1);
+  if (xmode === "months") {
+    bars.forEach((b, i) => {
+      const s = document.createElement("span");
+      s.textContent = b.label;
+      s.style.left = ((i + 0.5) / bars.length) * 100 + "%";
+      if (b.today) s.classList.add("today");
+      xl.appendChild(s);
+    });
+  } else {
+    const nDays = bars.length, isWeek = rep.unit === "week", todayIdx = bars.findIndex((b) => b.today);
+    for (let i = 0; i < nDays; i++) {
+      const text = isWeek ? "MTWTFSS"[i] : (i % 7 === 0 ? String(i + 1) : "");
+      if (!text && i !== todayIdx) continue;
+      const s = document.createElement("span");
+      s.style.left = ((i + 0.5) / nDays) * 100 + "%";
+      if (i === todayIdx) s.classList.add("today");
+      if (isWeek) {   // day-of-month on top of the weekday letter
+        s.classList.add("wk");
+        const dom = document.createElement("span");
+        dom.className = "xl-dom";
+        dom.textContent = String(addDays(start, i).getDate());
+        const dow = document.createElement("span");
+        dow.className = "xl-dow";
+        dow.textContent = text;
+        s.append(dom, dow);
+      } else {
+        s.textContent = text || String(i + 1);
+      }
+      xl.appendChild(s);
     }
-    xl.appendChild(s);
   }
   box.appendChild(xl);
+}
+
+// ── "To invoice" worklist: not-yet-invoiced billable hours per client ───
+function renderToInvoice(entries) {
+  const card = $("toInvoiceCard"), box = $("toInvoiceRows");
+  const g = new Map();
+  let grand = 0;
+  entries.forEach((e) => {
+    if (e.billableStatus !== "Billable") return;  // Billable = not yet invoiced
+    const k = e.customer || "(no client)";
+    g.set(k, (g.get(k) || 0) + mins(e));
+    grand += mins(e);
+  });
+  if (!g.size) { card.style.display = "none"; return; }
+  card.style.display = "block";
+  $("toInvoiceTotal").textContent = fmtMins(grand);
+  const rows = [...g.entries()].sort((a, b) => b[1] - a[1]);
+  const max = rows[0][1];
+  box.innerHTML = "";
+  rows.forEach(([name, m]) => {
+    const row = document.createElement("div"); row.className = "proj-row";
+    const top = document.createElement("div"); top.className = "proj-top";
+    const n = document.createElement("span"); n.className = "n"; n.textContent = name;
+    const h = document.createElement("span"); h.className = "h"; h.style.color = "var(--accent)"; h.textContent = fmtMins(m);
+    top.append(n, h);
+    const track = document.createElement("div"); track.className = "track";
+    const fill = document.createElement("div"); fill.className = "fill"; fill.style.width = (m / max) * 100 + "%";
+    track.appendChild(fill);
+    row.append(top, track);
+    box.appendChild(row);
+  });
 }
 
 function renderBreakdown(box, entries, keyOf) {
@@ -1762,6 +1840,7 @@ async function renderReport() {
     $("heroSub").appendChild(u);
   }
   renderChart(entries);
+  renderToInvoice(entries);
   renderBreakdown($("projRows"), entries, (e) => e.customer || "(no client)");
   renderBreakdown($("serviceRows"), entries, (e) => e.service || "(no service)");
   $("repEntriesTitle").textContent = "Entries — " + periodLabel();

@@ -150,11 +150,14 @@ Field rules that trip people up:
   in new-entry mode that discards the in-progress entry and resets the form
   (`clearFormFields`); in edit mode it's swapped for "Cancel edit"
   (`setEditMode` toggles the two + the submit label + the editing recolor).
-- Report tab (bottom tab bar): Day / Week / Month periods with prev/next
-  navigation, hero total + billable split, hours-per-day column chart
-  (tap a column to drill into that day), per-client/project proportional
-  bars, and the period's entry list. All computed client-side from one
-  range fetch.
+- Report tab (bottom tab bar): Day / Week / Month / **Quarter** periods with
+  prev/next navigation, hero total + billable split, column chart (per-day
+  for week/month → tap drills into that day; **3 month bars for a quarter →
+  tap drills into that month**), a **"To invoice" card** (per-client
+  not-yet-invoiced `Billable` hours in the period, sorted desc, hidden when
+  none), per-client/project + per-service proportional bars, and the
+  period's entry list. All computed client-side from one range fetch.
+  `list_time` paginates (`qbo_query_all`) so long ranges never truncate.
 - Mobile-first UI: duration preset chips, remembered last-used
   project/employee/service (localStorage), 16px inputs (no iOS zoom).
 - PWA installability: `static/manifest.webmanifest`, icons, apple-touch meta —

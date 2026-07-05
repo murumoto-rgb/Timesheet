@@ -674,11 +674,12 @@ def list_time(days: int = 14, start: str | None = None, end: str | None = None):
     where = f"TxnDate >= '{start}'"
     if end:
         where += f" AND TxnDate <= '{end}'"
-    rows = qbo_query(
-        f"SELECT * FROM TimeActivity WHERE {where} ORDERBY TxnDate DESC MAXRESULTS 1000"
-    )
+    # Paginate past the 1000-row page cap: a long range (quarter/year) or a
+    # busy practice can easily exceed one page, and we must not silently drop
+    # the oldest entries from totals.
+    rows = qbo_query_all("TimeActivity", f"WHERE {where} ORDERBY TxnDate DESC")
     entries = []
-    for t in rows.get("TimeActivity", []):
+    for t in rows:
         entries.append(
             {
                 "id": t["Id"],
