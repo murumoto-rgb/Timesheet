@@ -304,15 +304,27 @@
   .tot-row .bar > i > b { display: block; height: 100%; border-radius: 3px; background: var(--good); }
   .tot-row .chev { color: var(--muted); flex-shrink: 0; font-size: 20px; }
   .grid-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -2px; }
-  .ptbl { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  /* border-collapse:separate (not collapse) so position:sticky works on the
+     first column + header row in Safari. */
+  .ptbl { border-collapse: separate; border-spacing: 0; width: 100%; font-variant-numeric: tabular-nums; }
   .ptbl th, .ptbl td { padding: 9px 8px; font-size: 13px; text-align: right; font-family: var(--mono); white-space: nowrap; }
-  .ptbl thead th { color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); font-size: 11px; }
-  .ptbl th.who, .ptbl td.who { text-align: left; font-family: var(--sans); position: sticky; left: 0; background: var(--panel); }
+  /* header row stays put when scrolling down */
+  .ptbl thead th { color: var(--muted); font-weight: 600; font-size: 11px;
+    position: sticky; top: 0; background: var(--panel); z-index: 2; box-shadow: inset 0 -1px 0 var(--line); }
+  /* Person column: fixed width, stays put when scrolling right */
+  .ptbl th.who, .ptbl td.who {
+    text-align: left; font-family: var(--sans);
+    position: sticky; left: 0; background: var(--panel); z-index: 1;
+    width: 136px; min-width: 136px; max-width: 136px;
+  }
+  .ptbl thead th.who { z-index: 3; }   /* top-left corner above both */
   .ptbl td.who { display: flex; align-items: center; gap: 7px; }
   .ptbl td.who .dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
-  .ptbl tbody tr:not(:last-child) td { border-bottom: 1px solid var(--grid); }
+  .ptbl td.who .pn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ptbl tbody td { box-shadow: inset 0 -1px 0 var(--grid); }
+  .ptbl tbody tr:last-child td { box-shadow: none; }
   .ptbl td.rtot, .ptbl th.rtot { color: var(--ink); font-weight: 650; }
-  .ptbl tfoot td { border-top: 1px solid var(--line); color: var(--ink); font-weight: 700; padding-top: 11px; }
+  .ptbl tfoot td { color: var(--ink); font-weight: 700; box-shadow: inset 0 1px 0 var(--line); }
   .ptbl tfoot td.gt { color: var(--accent); }
   .ptbl td.zero { color: var(--muted); opacity: 0.5; }
 
@@ -524,7 +536,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.10</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.11</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1529,7 +1541,7 @@ function renderPersonDrill(entries, win) {
       + win.buckets.map((b) => `<th>${escapeHtml(b.label)}</th>`).join("")
       + '<th class="rtot">Total</th></tr></thead><tbody>';
     rows.forEach((p) => {
-      html += '<tr><td class="who"><span class="dot" style="background:' + p.color + '"></span>' + escapeHtml(p.name) + '</td>'
+      html += '<tr><td class="who"><span class="dot" style="background:' + p.color + '"></span><span class="pn">' + escapeHtml(p.name) + '</span></td>'
         + p.buckets.map((m) => `<td class="${m ? "" : "zero"}">${m ? fmtMins(m) : "·"}</td>`).join("")
         + `<td class="rtot">${fmtMins(p.total)}</td></tr>`;
     });
