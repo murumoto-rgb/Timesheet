@@ -247,6 +247,13 @@
   .proj-top .h { font-family: var(--mono); font-variant-numeric: tabular-nums; flex-shrink: 0; }
   .proj-top .h .b { color: var(--good); font-size: 11px; margin-right: 6px; }
   h2 .ti-sum { color: var(--accent); font-family: var(--mono); font-size: 13px; font-weight: 600; margin-left: 6px; }
+  /* Hours ⇄ $ + hide-expenses controls (Report + Totals) */
+  .opts { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 12px 0 2px; }
+  .modeseg { display: inline-flex; background: var(--field); border: 1px solid var(--line); border-radius: 9px; padding: 3px; }
+  .modeseg button { border: none; background: none; color: var(--muted); font-family: var(--sans); font-size: 13px; padding: 6px 16px; border-radius: 6px; font-weight: 500; cursor: pointer; }
+  .modeseg button.on { background: var(--accent); color: #06121f; font-weight: 650; }
+  .optck { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .optck input { width: 18px; height: 18px; accent-color: var(--accent); flex-shrink: 0; }
   .track { height: 6px; border-radius: 3px; background: var(--field); margin-top: 6px; }
   .fill { height: 100%; border-radius: 3px; background: var(--series-1); min-width: 2px; }
   .fill .bpart { height: 100%; border-radius: 3px; background: var(--good); }
@@ -486,7 +493,14 @@
       <button data-unit="month">Month</button>
       <button data-unit="quarter">Qtr</button>
     </div>
-    <div class="chips" id="repPeople" style="margin-bottom:14px"></div>
+    <div class="opts">
+      <div class="modeseg">
+        <button data-mode="hours" class="on">Hours</button>
+        <button data-mode="dollars">$</button>
+      </div>
+      <label class="optck"><input type="checkbox" class="hideExp"> Hide mileage &amp; expenses</label>
+    </div>
+    <div class="chips" id="repPeople" style="margin:12px 0 14px"></div>
 
     <div class="card">
       <div class="nav">
@@ -496,6 +510,7 @@
       </div>
       <div class="hero" id="heroTotal">0:00</div>
       <div class="hero-sub" id="heroSub"></div>
+      <div class="sub" id="heroNote" style="display:none;margin-top:4px"></div>
       <div class="chart" id="chart"></div>
     </div>
 
@@ -535,6 +550,13 @@
         <span class="label" id="peoLabel"></span>
         <button id="peoNext" aria-label="Next period">›</button>
       </div>
+      <div class="opts">
+        <div class="modeseg">
+          <button data-mode="hours" class="on">Hours</button>
+          <button data-mode="dollars">$</button>
+        </div>
+        <label class="optck"><input type="checkbox" class="hideExp"> Hide mileage &amp; expenses</label>
+      </div>
     </div>
     <div id="peoBody"><div class="card"><div class="empty">Loading…</div></div></div>
   </div>
@@ -545,7 +567,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.13</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.14</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -683,6 +705,27 @@ const ymd = (d) => d.getFullYear() + "-" +
   String(d.getDate()).padStart(2, "0");
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const mins = (e) => (e.hours || 0) * 60 + (e.minutes || 0);
+
+// ── Report/Totals options: Hours ⇄ $ and hide mileage/expense lines ──
+// $ figures come straight from each entry's own QBO HourlyRate (never an
+// average). Expense/mileage lines are matched by service name; edit the
+// pattern if your items are named differently.
+const EXPENSE_RE = /mileage|expense|reimburs/i;
+const isExpense = (e) => EXPENSE_RE.test(e.service || "");
+const rateOf = (e) => Number(e.hourlyRate) || 0;
+const dollarsOf = (e) => (mins(e) / 60) * rateOf(e);   // = the entry's QBO line amount
+const opts = {
+  dollars: localStorage.getItem("opt-dollars") === "1",
+  hideExpenses: localStorage.getItem("opt-hideexp") === "1",
+};
+const applyOpts = (entries) => opts.hideExpenses ? entries.filter((e) => !isExpense(e)) : entries;
+// per-entry value in the active unit. In $ mode only billable work has value
+// (non-billable time earns nothing), so it contributes $0.
+const val = (e) => opts.dollars ? (e.billable ? dollarsOf(e) : 0) : mins(e);
+const fmtUSD = (d) => "$" + Math.round(d).toLocaleString();
+const fmtVal = (v) => opts.dollars ? fmtUSD(v) : fmtMins(v);
+// entries with billable work but no rate — excluded from $ sums, surfaced as a note
+const noRateCount = (entries) => entries.filter((e) => e.billable && rateOf(e) === 0).length;
 
 function restoreSelection(sel) {
   const saved = localStorage.getItem("last-" + sel.id);
@@ -1451,6 +1494,7 @@ async function renderPeople() {
     return;
   }
   if (seq !== peoSeq) return;
+  entries = applyOpts(entries);  // drop mileage/expense lines when toggled
   if (peo.projectId) renderPersonDrill(entries, win);
   else renderProjectTotals(entries, win);
 }
@@ -1464,31 +1508,33 @@ function renderProjectTotals(entries, win) {
     const id = e.projectId || e.customerId;
     if (!id) return;
     const p = projs.get(id) || { id, name: e.customer || "(no client)", total: 0, billable: 0 };
-    p.total += mins(e);
-    if (e.billable) p.billable += mins(e);
+    p.total += val(e);
+    if (e.billable) p.billable += val(e);
     if (e.customer) p.name = e.customer;
     projs.set(id, p);
   });
   const rows = [...projs.values()].filter((p) => p.total > 0)
     .sort((a, b) => a.name.localeCompare(b.name));
   if (!rows.length) {
-    $("peoBody").innerHTML = '<div class="card"><div class="empty">No time logged in '
-      + escapeHtml(win.title) + '.</div></div>';
+    $("peoBody").innerHTML = '<div class="card"><div class="empty">No '
+      + (opts.dollars ? "billable value" : "time") + ' logged in ' + escapeHtml(win.title) + '.</div></div>';
     return;
   }
   const grand = rows.reduce((s, p) => s + p.total, 0);
   const max = Math.max(...rows.map((p) => p.total));
+  const unit = opts.dollars ? "" : '<span class="u"> h</span>';
   let html = '<div class="card"><div class="peo-tot">'
-    + `<span class="big">${fmtMins(grand)}<span class="u"> h</span></span>`
+    + `<span class="big">${fmtVal(grand)}${unit}</span>`
     + `<span class="cap">${escapeHtml(win.title)} · ${rows.length} ${rows.length === 1 ? "project" : "projects"}</span></div>`
     + '<p class="sub" style="margin:0 0 4px">Tap a project for the per-person breakdown.</p>';
   rows.forEach((p) => {
     const billTxt = p.billable === p.total ? "all billable"
       : p.billable ? `${fmtMins(p.billable)} billable` : "none billable";
-    const bpart = p.billable ? `<b style="width:${(p.billable / p.total) * 100}%"></b>` : "";
+    const bpart = (!opts.dollars && p.billable) ? `<b style="width:${(p.billable / p.total) * 100}%"></b>` : "";
+    const sub = opts.dollars ? "" : `<div class="sub">${p.billable ? `<span class="g">${billTxt}</span>` : billTxt}</div>`;
     html += `<div class="tot-row" data-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}"><div class="info">`
-      + `<div class="nm"><span>${escapeHtml(p.name)}</span><span class="h">${fmtMins(p.total)}</span></div>`
-      + `<div class="sub">${p.billable ? `<span class="g">${billTxt}</span>` : billTxt}</div>`
+      + `<div class="nm"><span>${escapeHtml(p.name)}</span><span class="h">${fmtVal(p.total)}</span></div>`
+      + sub
       + `<div class="bar"><i style="width:${(p.total / max) * 100}%">${bpart}</i></div>`
       + `</div><span class="chev">›</span></div>`;
   });
@@ -1514,38 +1560,42 @@ function renderPersonDrill(entries, win) {
     const i = bucketOf(e.date);
     if (i < 0) return;
     const p = people.get(e.employee) || { name: e.employee, total: 0, billable: 0, buckets: new Array(nb).fill(0) };
-    const m = mins(e);
-    p.total += m; p.buckets[i] += m;
-    if (e.billable) p.billable += m;
+    const v = val(e);
+    p.total += v; p.buckets[i] += v;
+    if (e.billable) p.billable += v;
     people.set(e.employee, p);
   });
-  const rows = [...people.values()].sort((a, b) => b.total - a.total);
+  const rows = [...people.values()].filter((p) => p.total > 0).sort((a, b) => b.total - a.total);
   rows.forEach((p, i) => { p.color = PEO_COLORS[i % PEO_COLORS.length]; });
   const grand = rows.reduce((s, p) => s + p.total, 0);
 
   const back = '<button class="peo-back" id="peoBack">‹ All projects</button>';
   if (!rows.length) {
     $("peoBody").innerHTML = back + '<div class="card"><h2>' + escapeHtml(peo.projectName)
-      + '</h2><div class="empty">No time on this project in ' + escapeHtml(win.title) + '.</div></div>';
+      + '</h2><div class="empty">No ' + (opts.dollars ? "billable value" : "time")
+      + ' on this project in ' + escapeHtml(win.title) + '.</div></div>';
     $("peoBack").onclick = peoToList;
     return;
   }
 
   // Leaderboard (summary) — ranked people with share + trend.
+  const unit = opts.dollars ? "" : '<span class="u"> h</span>';
   let html = back + '<div class="card"><h2 style="margin-bottom:12px">' + escapeHtml(peo.projectName) + '</h2>'
     + '<div class="peo-tot">'
-    + `<span class="big">${fmtMins(grand)}<span class="u"> h</span></span>`
+    + `<span class="big">${fmtVal(grand)}${unit}</span>`
     + `<span class="cap">${escapeHtml(win.title)} · ${rows.length} ${rows.length === 1 ? "person" : "people"}</span></div>`;
   rows.forEach((p, i) => {
     const share = grand ? Math.round((p.total / grand) * 100) : 0;
     const billTxt = p.billable === p.total ? "all billable"
       : p.billable ? `${fmtMins(p.billable)} billable` : "none billable";
+    const sub = opts.dollars ? `${share}% of project`
+      : `${share}% of project · <span class="g">${billTxt}</span>`;
     html += '<div class="rank">'
       + `<span class="pos">${i + 1}</span>`
       + `<span class="av" style="background:${p.color}">${escapeHtml(peoInitials(p.name))}</span>`
       + '<div class="body">'
-      + `<div class="nm"><span>${escapeHtml(p.name)}</span><span class="h">${fmtMins(p.total)}</span></div>`
-      + `<div class="sub">${share}% of project · <span class="g">${billTxt}</span></div>`
+      + `<div class="nm"><span>${escapeHtml(p.name)}</span><span class="h">${fmtVal(p.total)}</span></div>`
+      + `<div class="sub">${sub}</div>`
       + `<div class="share"><i style="width:${share}%;background:${p.color}"></i></div></div>`
       + peoSparkline(p.buckets, p.color)
       + '</div>';
@@ -1555,18 +1605,19 @@ function renderPersonDrill(entries, win) {
   // Pivot grid (detail) — people × buckets, shown when expanded.
   if (peo.expanded) {
     const colTot = win.buckets.map((_, i) => rows.reduce((s, p) => s + p.buckets[i], 0));
-    html += '<div class="card"><h2>Hours by ' + peoUnitNoun() + '</h2><div class="grid-scroll"><table class="ptbl"><thead><tr>'
+    const gridTitle = (opts.dollars ? "Value by " : "Hours by ") + peoUnitNoun();
+    html += '<div class="card"><h2>' + gridTitle + '</h2><div class="grid-scroll"><table class="ptbl"><thead><tr>'
       + '<th class="who">Person</th>'
       + win.buckets.map((b) => `<th>${escapeHtml(b.label)}</th>`).join("")
       + '<th class="rtot">Total</th></tr></thead><tbody>';
     rows.forEach((p) => {
       html += '<tr><td class="who"><span class="dot" style="background:' + p.color + '"></span><span class="pn">' + escapeHtml(p.name) + '</span></td>'
-        + p.buckets.map((m) => `<td class="${m ? "" : "zero"}">${m ? fmtMins(m) : "·"}</td>`).join("")
-        + `<td class="rtot">${fmtMins(p.total)}</td></tr>`;
+        + p.buckets.map((m) => `<td class="${m ? "" : "zero"}">${m ? fmtVal(m) : "·"}</td>`).join("")
+        + `<td class="rtot">${fmtVal(p.total)}</td></tr>`;
     });
     html += '</tbody><tfoot><tr><td class="who">Total</td>'
-      + colTot.map((m) => `<td>${fmtMins(m)}</td>`).join("")
-      + `<td class="gt">${fmtMins(grand)}</td></tr></tfoot></table></div></div>`;
+      + colTot.map((m) => `<td>${fmtVal(m)}</td>`).join("")
+      + `<td class="gt">${fmtVal(grand)}</td></tr></tfoot></table></div></div>`;
   }
 
   $("peoBody").innerHTML = html;
@@ -1600,7 +1651,7 @@ function renderChart(entries) {
     bars = [0, 1, 2].map((k) => {
       const ms = new Date(y, m0 + k, 1), me = new Date(y, m0 + k + 1, 0);
       let v = 0;
-      entries.forEach((e) => { if (!e.date) return; const d = new Date(e.date + "T00:00"); if (d >= ms && d <= me) v += mins(e); });
+      entries.forEach((e) => { if (!e.date) return; const d = new Date(e.date + "T00:00"); if (d >= ms && d <= me) v += val(e); });
       return {
         value: v, label: MONTHS[m0 + k],
         today: now.getFullYear() === y && now.getMonth() === m0 + k,
@@ -1611,7 +1662,7 @@ function renderChart(entries) {
   } else {
     const nDays = Math.round((end - start) / 86400000) + 1;
     const perDay = new Array(nDays).fill(0);
-    entries.forEach((e) => { if (!e.date) return; const i = Math.round((new Date(e.date + "T00:00") - start) / 86400000); if (i >= 0 && i < nDays) perDay[i] += mins(e); });
+    entries.forEach((e) => { if (!e.date) return; const i = Math.round((new Date(e.date + "T00:00") - start) / 86400000); if (i >= 0 && i < nDays) perDay[i] += val(e); });
     const todayIdx = Math.round((new Date(ymd(new Date()) + "T00:00") - start) / 86400000);
     bars = perDay.map((v, i) => ({
       value: v, dayIndex: i, today: i === todayIdx,
@@ -1622,22 +1673,29 @@ function renderChart(entries) {
 
   const vals = bars.map((b) => b.value);
   const maxM = Math.max(...vals);
-  if (maxM === 0) { box.innerHTML = '<div class="empty">No time in this period.</div>'; return; }
-  // clean axis: pick an hour step so there are 2–4 gridlines
-  const steps = [1, 2, 4, 8, 12, 24, 40, 80, 160, 320];
-  const maxH = maxM / 60;
-  const step = steps.find((s) => maxH / s <= 4) || 320;
-  const topH = Math.ceil(maxH / step) * step;
+  if (maxM === 0) {
+    box.innerHTML = '<div class="empty">No ' + (opts.dollars ? "billable value" : "time") + ' in this period.</div>';
+    return;
+  }
+  // axis in the active unit: hours mode works in hours, $ mode in dollars
+  const toDisp = (v) => opts.dollars ? v : v / 60;   // minutes→hours, dollars→dollars
+  const dispMax = toDisp(maxM);
+  const steps = opts.dollars
+    ? [50, 100, 250, 500, 1000, 2000, 5000, 10000, 25000, 50000, 100000, 250000]
+    : [1, 2, 4, 8, 12, 24, 40, 80, 160, 320];
+  const step = steps.find((s) => dispMax / s <= 4) || steps[steps.length - 1];
+  const top = Math.ceil(dispMax / step) * step || step;
+  const tickTxt = (x) => opts.dollars ? (x >= 1000 ? "$" + (x / 1000) + "k" : "$" + x) : x + "h";
 
   const plot = document.createElement("div");
   plot.className = "plot";
-  for (let h = step; h <= topH; h += step) {
+  for (let x = step; x <= top; x += step) {
     const g = document.createElement("div");
     g.className = "gridline";
-    g.style.bottom = (h / topH) * 100 + "%";
+    g.style.bottom = (x / top) * 100 + "%";
     const t = document.createElement("span");
     t.className = "tick";
-    t.textContent = h + "h";
+    t.textContent = tickTxt(x);
     g.appendChild(t);
     plot.appendChild(g);
   }
@@ -1654,16 +1712,16 @@ function renderChart(entries) {
   bars.forEach((b, i) => {
     const slot = document.createElement("button");
     slot.className = "slot";
-    slot.setAttribute("aria-label", `${b.label || ymd(addDays(start, b.dayIndex))}: ${fmtMins(b.value)}`);
+    slot.setAttribute("aria-label", `${b.label || ymd(addDays(start, b.dayIndex))}: ${fmtVal(b.value)}`);
     slot.onclick = b.onTap;
     const col = document.createElement("div");
     col.className = "col";
-    const pct = b.value ? Math.max((b.value / 60 / topH) * 100, 2) : 0;
+    const pct = b.value ? Math.max((toDisp(b.value) / top) * 100, 2) : 0;
     col.style.height = pct + "%";
     if (i === maxIdx && capOn) {
       const cap = document.createElement("span");
       cap.className = "cap";
-      cap.textContent = fmtMins(b.value);
+      cap.textContent = fmtVal(b.value);
       cap.style.bottom = `calc(${pct}% + 4px)`;
       slot.appendChild(cap);
     }
@@ -1716,13 +1774,15 @@ function renderToInvoice(entries) {
   let grand = 0;
   entries.forEach((e) => {
     if (e.billableStatus !== "Billable") return;  // Billable = not yet invoiced
+    const v = val(e);
+    if (!v) return;
     const k = e.customer || "(no client)";
-    g.set(k, (g.get(k) || 0) + mins(e));
-    grand += mins(e);
+    g.set(k, (g.get(k) || 0) + v);
+    grand += v;
   });
   if (!g.size) { card.style.display = "none"; return; }
   card.style.display = "block";
-  $("toInvoiceTotal").textContent = fmtMins(grand);
+  $("toInvoiceTotal").textContent = fmtVal(grand);
   const rows = [...g.entries()].sort((a, b) => b[1] - a[1]);
   const max = rows[0][1];
   box.innerHTML = "";
@@ -1730,7 +1790,7 @@ function renderToInvoice(entries) {
     const row = document.createElement("div"); row.className = "proj-row";
     const top = document.createElement("div"); top.className = "proj-top";
     const n = document.createElement("span"); n.className = "n"; n.textContent = name;
-    const h = document.createElement("span"); h.className = "h"; h.style.color = "var(--accent)"; h.textContent = fmtMins(m);
+    const h = document.createElement("span"); h.className = "h"; h.style.color = "var(--accent)"; h.textContent = fmtVal(m);
     top.append(n, h);
     const track = document.createElement("div"); track.className = "track";
     const fill = document.createElement("div"); fill.className = "fill"; fill.style.width = (m / max) * 100 + "%";
@@ -1745,16 +1805,16 @@ function renderBreakdown(box, entries, keyOf) {
   entries.forEach((e) => {
     const key = keyOf(e);
     const cur = groups.get(key) || { total: 0, billable: 0 };
-    cur.total += mins(e);
-    if (e.billable) cur.billable += mins(e);
+    cur.total += val(e);
+    if (e.billable) cur.billable += val(e);
     groups.set(key, cur);
   });
-  if (!groups.size) {
-    box.innerHTML = '<div class="empty">No time in this period.</div>';
+  const rows = [...groups.entries()].filter(([, v]) => v.total > 0).sort((a, b) => b[1].total - a[1].total);
+  if (!rows.length) {
+    box.innerHTML = '<div class="empty">No ' + (opts.dollars ? "billable value" : "time") + ' in this period.</div>';
     return;
   }
   box.innerHTML = "";
-  const rows = [...groups.entries()].sort((a, b) => b[1].total - a[1].total);
   const max = rows[0][1].total;
   rows.forEach(([name, v]) => {
     const row = document.createElement("div");
@@ -1766,22 +1826,21 @@ function renderBreakdown(box, entries, keyOf) {
     n.textContent = name;
     const h = document.createElement("span");
     h.className = "h";
-    if (v.billable) {
+    // $ mode is already all billable value → skip the green billable split
+    if (!opts.dollars && v.billable) {
       const b = document.createElement("span");
       b.className = "b";
-      // green share of the total that is billable time (no $ — reads as hours)
       b.textContent = v.billable === v.total ? "all billable" : fmtMins(v.billable) + " billable";
       h.appendChild(b);
     }
-    h.append(fmtMins(v.total));
+    h.append(fmtVal(v.total));
     top.append(n, h);
     const track = document.createElement("div");
     track.className = "track";
     const fillEl = document.createElement("div");
     fillEl.className = "fill";
     fillEl.style.width = (v.total / max) * 100 + "%";
-    // billable portion tinted green within the total bar
-    if (v.billable) {
+    if (!opts.dollars && v.billable) {
       const bpart = document.createElement("div");
       bpart.className = "bpart";
       bpart.style.width = (v.billable / v.total) * 100 + "%";
@@ -1809,6 +1868,8 @@ async function renderReport() {
   }
   if (seq !== repSeq) return;  // a newer render superseded this one
 
+  entries = applyOpts(entries);  // drop mileage/expense lines when toggled
+
   // people with time in this period → filter chips; then scope the report
   const people = [...new Set(entries.map((e) => e.employee).filter(Boolean))].sort();
   if (rep.person && !people.includes(rep.person)) rep.person = "";
@@ -1817,27 +1878,42 @@ async function renderReport() {
 
   let total = 0, billable = 0, unbilled = 0;
   entries.forEach((e) => {
-    total += mins(e);
-    if (e.billable) billable += mins(e);                    // billable work
-    if (e.billableStatus === "Billable") unbilled += mins(e);  // not yet invoiced
+    total += val(e);
+    if (e.billable) billable += val(e);                     // billable work
+    if (e.billableStatus === "Billable") unbilled += val(e);  // not yet invoiced
   });
-  $("heroTotal").textContent = fmtMins(total);
+  $("heroTotal").textContent = fmtVal(total);
   $("heroSub").innerHTML = "";
-  $("heroSub").append("hours total");
-  if (billable) {
-    const b = document.createElement("span");
-    b.className = "b";
-    b.textContent = billable === total
-      ? " · all billable"
-      : ` · ${fmtMins(billable)} billable`;
-    $("heroSub").appendChild(b);
+  if (opts.dollars) {
+    $("heroSub").append("billable value");
+    if (unbilled > 0 && unbilled < total) {
+      const u = document.createElement("span");
+      u.style.color = "var(--accent)";
+      u.textContent = ` · ${fmtUSD(unbilled)} to invoice`;
+      $("heroSub").appendChild(u);
+    }
+  } else {
+    $("heroSub").append("hours total");
+    if (billable) {
+      const b = document.createElement("span");
+      b.className = "b";
+      b.textContent = billable === total ? " · all billable" : ` · ${fmtMins(billable)} billable`;
+      $("heroSub").appendChild(b);
+    }
+    if (unbilled > 0 && unbilled < billable) {
+      const u = document.createElement("span");
+      u.style.color = "var(--accent)";
+      u.textContent = ` · ${fmtMins(unbilled)} to invoice`;
+      $("heroSub").appendChild(u);
+    }
   }
-  // call out the portion still to invoice (Billable, not yet HasBeenBilled)
-  if (unbilled > 0 && unbilled < billable) {
-    const u = document.createElement("span");
-    u.style.color = "var(--accent)";
-    u.textContent = ` · ${fmtMins(unbilled)} to invoice`;
-    $("heroSub").appendChild(u);
+  // in $ mode, warn about billable entries with no rate (excluded from $)
+  const note = $("heroNote"), nr = opts.dollars ? noRateCount(entries) : 0;
+  if (nr > 0) {
+    note.style.display = "block";
+    note.textContent = `$ excludes ${nr} billable ${nr === 1 ? "entry" : "entries"} with no rate on file.`;
+  } else {
+    note.style.display = "none";
   }
   renderChart(entries);
   renderToInvoice(entries);
@@ -1850,6 +1926,17 @@ async function renderReport() {
 function syncSeg() {
   document.querySelectorAll("#seg button").forEach((b) =>
     b.classList.toggle("on", b.dataset.unit === rep.unit));
+}
+
+// Hours ⇄ $ + hide-expenses toggles are shared across Report and Totals.
+function syncOptsUI() {
+  document.querySelectorAll(".modeseg button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.mode === (opts.dollars ? "dollars" : "hours")));
+  document.querySelectorAll(".hideExp").forEach((c) => { c.checked = opts.hideExpenses; });
+}
+function rerenderActive() {
+  if ($("reportView").style.display === "block") renderReport();
+  if ($("peopleView").style.display === "block") renderPeople();
 }
 
 // ── Tabs ────────────────────────────────────────────────────────────
@@ -1893,6 +1980,13 @@ async function boot() {
   });
   $("peoPrev").onclick = () => peoShift(-1);
   $("peoNext").onclick = () => peoShift(1);
+  document.querySelectorAll(".modeseg button").forEach((b) => {
+    b.onclick = () => { opts.dollars = b.dataset.mode === "dollars"; localStorage.setItem("opt-dollars", opts.dollars ? "1" : "0"); syncOptsUI(); rerenderActive(); };
+  });
+  document.querySelectorAll(".hideExp").forEach((c) => {
+    c.onchange = () => { opts.hideExpenses = c.checked; localStorage.setItem("opt-hideexp", opts.hideExpenses ? "1" : "0"); syncOptsUI(); rerenderActive(); };
+  });
+  syncOptsUI();
   document.querySelectorAll("#tabbar button").forEach((b) => {
     b.onclick = () => showView(b.dataset.view);
   });

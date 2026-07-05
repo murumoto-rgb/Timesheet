@@ -245,6 +245,25 @@ Field rules that trip people up:
   could hand the drill-down a non-matching id (time showed in Report but not
   here). All client-side from one `fetchRange`. Person colors `PEO_COLORS`.
 
+- **Dollars + expense filter** (Report & Totals): a shared **Hours ⇄ $**
+  toggle and a **Hide mileage & expenses** checkbox (`opts.dollars` /
+  `opts.hideExpenses`, persisted in localStorage, synced across both tabs via
+  `syncOptsUI`). `$` figures come **straight from each entry's own QBO
+  `HourlyRate`** (`dollarsOf` = hours × that entry's rate = the QBO line
+  amount) — never an average; `/ratecheck` confirmed ~98% of entries carry a
+  rate. The value layer is `val(e)` (minutes in Hours mode; in $ mode only
+  **billable** work has value, non-billable → $0) + `fmtVal`. In $ mode: hero
+  shows "billable value · $X to invoice", a `#heroNote` flags billable
+  entries with no rate (excluded from $), breakdowns/leaderboard drop the
+  green billable split (all $ is billable) and hide zero-value rows, the
+  chart axis switches to $ (`toDisp`/`tickTxt`), and the grid title reads
+  "Value by …". Expense/mileage lines are name-matched (`EXPENSE_RE =
+  /mileage|expense|reimburs/i`) and removed from both tabs when the box is
+  checked — a per-entry `hours × rate` still yields the right $ for a mileage
+  line, but hiding them keeps *hours* totals honest. `$` never appears on
+  hours (keeps the "green hours ≠ dollars" rule); the Log/Week/entry-list
+  surfaces stay in hours always.
+
 ## Backlog (not yet built)
 
 - Timer mode (start/stop instead of typing a duration).
