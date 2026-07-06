@@ -106,6 +106,23 @@ test("unbilled WIP is stable across the Day/Week/Month toggle", async () => {
   await ctx.close();
 });
 
+test("dashboard chart renders gridlines + one bar per bucket (shared axis engine)", async () => {
+  const entries = [
+    entry({ id: "1", hours: 8, billableStatus: "HasBeenBilled" }),   // invoiced → charted
+    entry({ id: "2", hours: 4, date: daysAgo(40), billableStatus: "HasBeenBilled" }),
+  ];
+  const { ctx, page, errors } = await openApp(browser, baseData(entries), "dash");
+  await page.waitForSelector("#dashChart .cols");
+  const gridlines = await page.$$eval("#dashChart .gridline", (e) => e.length);
+  const bars = await page.$$eval("#dashChart .cols .slot", (e) => e.length);
+  const ticks = await page.$$eval("#dashChart .tick", (e) => e.map((t) => t.textContent));
+  assert.ok(gridlines >= 2, "chart should draw gridlines");
+  assert.equal(bars, 12, "month view = 12 bucket slots");
+  assert.ok(ticks.every((t) => /h$/.test(t)), "hours-mode ticks end in h");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test("receivables card renders aging + who-owes from /api/receivables", async () => {
   const receivables = { asOf: "2026-07-05", outstanding: 3500, pastDue: 2500,
     aging: { "0-30": 1000, "31-60": 2000, "61-90": 0, "90+": 500 }, dso: 36, billed365: 35000,
