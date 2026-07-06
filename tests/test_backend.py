@@ -190,6 +190,21 @@ def test_receivables_summary_ages_and_totals():
     assert s["dso"] == round(3500 / 35000 * 365)    # ≈ 36
 
 
+def test_receivables_byclient_keys_by_id_not_name(monkeypatch):
+    from datetime import date
+    # two DISTINCT customers share a display name — they must not merge
+    invoices = [
+        {"Id": "1", "TxnDate": "2026-06-01", "Balance": 1000,
+         "CustomerRef": {"value": "10", "name": "City of Springfield"}},
+        {"Id": "2", "TxnDate": "2026-06-02", "Balance": 400,
+         "CustomerRef": {"value": "20", "name": "City of Springfield"}},
+    ]
+    s = main._receivables_summary(invoices, billed_365=0, as_of=date(2026, 7, 5))
+    assert len(s["byClient"]) == 2                       # kept separate by id
+    assert {c["customerId"] for c in s["byClient"]} == {"10", "20"}
+    assert s["outstanding"] == 1400
+
+
 def test_receivables_dso_none_without_billing():
     from datetime import date
     s = main._receivables_summary([], billed_365=0, as_of=date(2026, 7, 5))

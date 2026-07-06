@@ -615,7 +615,7 @@ def _timeactivity_payload(entry: TimeEntry):
         "Hours": entry.hours,
         "Minutes": entry.minutes,
         "Description": entry.description,
-        "TxnDate": entry.txn_date or date.today().isoformat(),
+        "TxnDate": entry.txn_date or _today().isoformat(),
     }
     # A QBO Project IS a sub-customer (IsProject=true), so time attaches to it
     # through CustomerRef = the project's own Customer.Id; QBO derives the
@@ -709,6 +709,16 @@ def update_time(entry_id: str, entry: TimeEntry, request: Request):
 # ---------------------------------------------------------------------------
 # Routes: recent entries + delete
 # ---------------------------------------------------------------------------
+def _today():
+    """Today's date in the business timezone (REMINDER_TZ). Using the server's
+    UTC date would shift ranges and the A/R 'as of' by a day for a Pacific user
+    after ~5pm — this keeps every 'today' consistent with the reminder path."""
+    try:
+        return datetime.now(ZoneInfo(REMINDER_TZ)).date()
+    except Exception:
+        return date.today()
+
+
 def _resolve_range(days, start, end):
     """Validate optional ?start/?end (must be real YYYY-MM-DD dates) and, when
     no start is given, default to `days` back from today. Returns (start, end).
@@ -721,7 +731,7 @@ def _resolve_range(days, start, end):
         except ValueError:
             raise HTTPException(400, "Dates must be valid YYYY-MM-DD.")
     if not start:
-        start = (date.today() - timedelta(days=days)).isoformat()
+        start = (_today() - timedelta(days=days)).isoformat()
     return start, end
 
 
@@ -875,8 +885,12 @@ def _receivables_summary(open_invoices, billed_365, as_of):
                 overdue = False
         if overdue:
             past_due += bal
-        cust = (inv.get("CustomerRef") or {}).get("name") or "—"
-        c = by_client.setdefault(cust, {"customer": cust, "balance": 0.0, "count": 0})
+        cref = inv.get("CustomerRef") or {}
+        cust = cref.get("name") or "—"
+        # key by customer id (not name) so two distinct QBO customers that share
+        # a display name don't merge into one "who owes you" row.
+        ckey = cref.get("value") or ("n:" + cust)
+        c = by_client.setdefault(ckey, {"customer": cust, "customerId": cref.get("value"), "balance": 0.0, "count": 0})
         c["balance"] += bal
         c["count"] += 1
         rows.append({
@@ -913,12 +927,13 @@ def list_receivables():
     past-due, per-client balances, and an approximate DSO. Reads QBO Invoice
     (Balance / TxnDate / DueDate / CustomerRef)."""
     open_invoices = qbo_query_all("Invoice", "WHERE Balance > '0'")
-    year_ago = (date.today() - timedelta(days=365)).isoformat()
+    today = _today()
+    year_ago = (today - timedelta(days=365)).isoformat()
     billed_365 = sum(
         _num(i.get("TotalAmt"))
         for i in qbo_query_all("Invoice", f"WHERE TxnDate >= '{year_ago}'")
     )
-    return _receivables_summary(open_invoices, billed_365, date.today())
+    return _receivables_summary(open_invoices, billed_365, today)
 
 
 @app.delete("/api/timeactivity/{entry_id}")
@@ -1024,7 +1039,7 @@ font-weight:700;padding:2px 8px;border-radius:6px}}
 # building any $ feature. Reads only; writes nothing.
 # ---------------------------------------------------------------------------
 def _ratecheck(days=365):
-    start = (date.today() - timedelta(days=days)).isoformat()
+    start = (_today() - timedelta(days=days)).isoformat()
     rows = qbo_query_all("TimeActivity", f"WHERE TxnDate >= '{start}' ORDERBY TxnDate DESC")
     total = with_rate = 0
     combos = {}  # (person, service) -> {"n":int, "withrate":int, "rates":set}
@@ -1204,15 +1219,20 @@ def _send_push(sub):
 
 
 def _notify_all():
-    """Send the reminder to every subscribed device; prune dead subs."""
-    push = _load_push()
-    subs = push.get("subs", [])
+    """Send the reminder to every subscribed device; prune dead subs. Reads and
+    prunes under _push_lock (network sends happen outside it) and re-reads before
+    pruning so a subscription added concurrently isn't clobbered."""
+    with _push_lock:
+        subs = list(_load_push().get("subs", []))
     if not subs:
         return 0
-    alive = [s for s in subs if _send_push(s)]
-    if len(alive) != len(subs):
-        push["subs"] = alive
-        _save_push(push)
+    alive = [s for s in subs if _send_push(s)]  # network — outside the lock
+    dead = [s for s in subs if s not in alive]
+    if dead:
+        with _push_lock:
+            push = _load_push()
+            push["subs"] = [s for s in push.get("subs", []) if s not in dead]
+            _save_push(push)
     return len(alive)
 
 
@@ -1227,20 +1247,22 @@ def _logged_time_today(tz_today):
 
 
 def _reminder_tick():
-    push = _load_push()
-    if not push.get("subs"):
-        return
     now = datetime.now(ZoneInfo(REMINDER_TZ))
     today = now.date().isoformat()
-    if push.get("last_reminder") == today:
-        return
-    if now.hour < REMINDER_HOUR:
-        return
-    if REMINDER_WEEKDAYS_ONLY and now.weekday() >= 5:
-        return
-    # one QBO check per day, inside the window
-    push["last_reminder"] = today
-    _save_push(push)
+    # Claim the once-per-day slot under the lock so this write can't clobber a
+    # subscription added concurrently. Release before the QBO check / sends.
+    with _push_lock:
+        push = _load_push()
+        if not push.get("subs"):
+            return
+        if push.get("last_reminder") == today:
+            return
+        if now.hour < REMINDER_HOUR:
+            return
+        if REMINDER_WEEKDAYS_ONLY and now.weekday() >= 5:
+            return
+        push["last_reminder"] = today
+        _save_push(push)
     if not _logged_time_today(today):
         n = _notify_all()
         log.info("daily reminder sent to %d device(s)", n)

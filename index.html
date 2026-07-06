@@ -655,7 +655,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.34</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.35</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2082,6 +2082,7 @@ function goToTotals(projectId, projectName) {
 
 // ── Dashboard: billed (invoiced) or received (payments) trend + 12-mo avg ──
 const dash = { unit: "month", metric: "billed", concBy: "client" };   // metric only applies in $ mode; concBy: client-rollup vs project
+const WIP_LOOKBACK_DAYS = 730;   // fixed window for "Unbilled WIP" so it's stable across the unit toggle
 const MB_RE = /murat\s*baykal/i;   // Murat Baykal, for the effective-rate stat
 
 async function fetchPayments(start, end) {
@@ -2117,7 +2118,7 @@ const AGE_COLORS = ["var(--good)", "var(--accent)", "#d9a441", "var(--bad)"];
 
 // The dashboard "Money" card: outstanding A/R, aging, DSO, unbilled WIP, and
 // a who-owes-you list. `rec` is /api/receivables; `wip` is unbilled billable
-// value ($) computed from the window's time entries.
+// value ($) over a fixed window (null if it couldn't be computed → shown "—").
 function renderMoney(rec, wip) {
   const asOf = rec.asOf ? new Date(rec.asOf + "T00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
   const outstanding = rec.outstanding || 0;
@@ -2136,7 +2137,7 @@ function renderMoney(rec, wip) {
     + `<div class="mstat"><span class="mnum">${fmtK(outstanding)}</span><span class="mlbl">Outstanding</span></div>`
     + `<div class="mstat"><span class="mnum${rec.pastDue > 0 ? " bad" : ""}">${fmtK(rec.pastDue || 0)}</span><span class="mlbl">Past due</span></div>`
     + `<div class="mstat"><span class="mnum">${rec.dso != null ? rec.dso : "—"}</span><span class="mlbl">Days to pay (DSO)</span></div>`
-    + `<div class="mstat"><span class="mnum${wip > 0 ? " good" : ""}">${fmtK(wip || 0)}</span><span class="mlbl">Unbilled WIP</span></div>`
+    + `<div class="mstat"><span class="mnum${wip > 0 ? " good" : ""}">${wip == null ? "—" : fmtK(wip)}</span><span class="mlbl">Unbilled WIP</span></div>`
     + "</div>";
 
   if (outstanding > 0) {
@@ -2249,6 +2250,11 @@ async function renderDash() {
   const subNames = new Set();       // vendors who log time = the subcontractors
   entries.forEach((e) => {
     if (!e.date || !inWin(e.date)) return;
+    // Mileage/expense lines carry Hours that aren't labor and dollars that are
+    // pass-through reimbursements — exclude them from every practice metric
+    // (utilization/realization/effective-rate), concentration, and margin,
+    // regardless of the "Hide mileage & expenses" display toggle.
+    if (isExpense(e)) return;
     const m = mins(e);
     totalMin += m;
     if ((e.vendorId || e.nameOf === "Vendor") && e.employee) subNames.add(e.employee.toLowerCase());
@@ -2305,16 +2311,19 @@ async function renderDash() {
   //    Client/Project toggle rolls sub-clients & projects up to their main
   //    client (dash.concBy), or shows each tagged project/client on its own. ──
   const byMain = dash.concBy === "client";
-  const grouped = new Map();   // label → { name, v }
+  const grouped = new Map();   // key (customer id) → { name, v }
   byCust.forEach((rec) => {
-    let name = rec.name;
+    let id = rec.id, name = rec.name;
     if (byMain && rec.id) {                       // roll up to the top-level client
       const root = rootClientOf(rec.id);
-      if (root != null) name = custName.get(root) || rec.name;
+      if (root != null) { id = root; name = custName.get(root) || rec.name; }
     }
-    const g = grouped.get(name) || { name, v: 0 };
+    // key by id (not name) so two distinct customers sharing a display name
+    // don't merge; fall back to name only when the entry has no customer id.
+    const key = id || ("n:" + name);
+    const g = grouped.get(key) || { name, v: 0 };
     g.v += rec.v;
-    grouped.set(name, g);
+    grouped.set(key, g);
   });
   const concList = [...grouped.values()].filter((c) => c.v > 0).sort((a, b) => b.v - a.v);
   const concTotal = concList.reduce((s, c) => s + c.v, 0);
@@ -2374,9 +2383,17 @@ async function renderDash() {
 
   // Money / A-R section — as-of-today (independent of the unit/metric toggles).
   // Non-fatal: a receivables error must not blank the rest of the dashboard.
-  // Unbilled WIP = billable work not yet invoiced ("Billable", not billed) in
-  // the fetched window, valued at each entry's own rate.
-  const wip = entries.reduce((s, e) => e.billableStatus === "Billable" ? s + fin(dollarsOf(e)) : s, 0);
+  // Unbilled WIP = all billable work not yet invoiced ("Billable", not billed),
+  // valued at each entry's own rate, over a FIXED 2-year window — so this "as of
+  // today" figure is stable across the Day/Week/Month toggle and the
+  // hide-expenses toggle, and doesn't silently drop older unbilled work. null if
+  // the fetch fails (rendered as "—" rather than a misleading $0).
+  let wip = null;
+  try {
+    const wipEntries = await fetchRange(addDays(new Date(), -WIP_LOOKBACK_DAYS), new Date());
+    if (seq !== dashSeq) return;
+    wip = wipEntries.reduce((s, e) => e.billableStatus === "Billable" ? s + fin(dollarsOf(e)) : s, 0);
+  } catch (e) { /* leave wip = null → shown as "—" */ }
   try {
     const rec = await fetchReceivables();
     if (seq !== dashSeq) return;
