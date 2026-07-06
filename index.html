@@ -107,6 +107,15 @@
     color: var(--accent); border-radius: 8px; padding: 10px 12px;
     font-size: 13px; margin-bottom: 14px;
   }
+  /* Locked "billed" state — amber to distinguish from the blue editing state. */
+  #logForm.billed { border-color: #d9a441; background: rgba(217,164,65,0.07); box-shadow: 0 0 0 1px #d9a441; }
+  #logForm.billed input, #logForm.billed select, #logForm.billed textarea,
+  #logForm.billed .pickbtn, #logForm.billed .chip { opacity: 0.55; cursor: not-allowed; }
+  #billedBanner {
+    background: rgba(217,164,65,0.15); border: 1px solid #d9a441;
+    color: #d9a441; border-radius: 8px; padding: 10px 12px;
+    font-size: 13px; margin-bottom: 14px; line-height: 1.4;
+  }
   .msg { margin-top: 14px; font-size: 13px; font-family: var(--mono); display: none; }
   .msg.good { color: var(--good); display: block; }
   .msg.bad { color: var(--bad); display: block; white-space: pre-wrap; word-break: break-word; }
@@ -133,6 +142,7 @@
   .entry .dur { font-family: var(--mono); font-size: 14px; flex-shrink: 0; }
   .entry .date { font-family: var(--mono); font-size: 11px; color: var(--muted); flex-shrink: 0; width: 44px; }
   .entry .bill { color: var(--good); font-size: 11px; }
+  .entry .bill.billed { color: #d9a441; font-weight: 600; }
   .entry .del {
     background: none; border: none; color: var(--muted); font-size: 18px;
     padding: 10px; margin: -10px -6px -10px 0; cursor: pointer; flex-shrink: 0;
@@ -423,6 +433,10 @@
   button.wg-cell { cursor: pointer; }
   button.wg-cell:active { background: var(--field); }
   .wg-cell.has { color: var(--accent); font-weight: 700; }
+  /* billed (invoiced) time — amber; fully billed fills the cell, partial gets an underline */
+  .wg-cell.billed { color: #d9a441; }
+  button.wg-cell.billed.has { background: rgba(217,164,65,0.13); }
+  .wg-cell.billed-part { box-shadow: inset 0 -2px 0 #d9a441; }
   .wg-head .wg-cell { min-height: 30px; flex-direction: column; gap: 1px; font-size: 10px; }
   .wg-head .wg-dom { font-size: 12px; font-weight: 600; color: var(--ink); }
   .wg-head .wg-dow { font-size: 9px; opacity: 0.75; }
@@ -487,6 +501,7 @@
 
     <div class="card" id="logForm">
       <div id="editBanner" style="display:none">✎ Editing an existing entry — saving updates it</div>
+      <div id="billedBanner" style="display:none">🔒 Billed — this entry was invoiced in QuickBooks and can't be edited here. Change it in QuickBooks.</div>
       <label for="projectBtn">Project / client</label>
       <button type="button" class="pickbtn" id="projectBtn">
         <span id="projectName">Select…</span>
@@ -528,6 +543,7 @@
       <button class="primary" id="submit">Log time</button>
       <button class="secondary" id="cancelEdit" style="display:none">Cancel edit</button>
       <button class="secondary" id="cancelNew">Cancel</button>
+      <button class="secondary" id="closeBilled" style="display:none">Close</button>
       <div class="msg" id="msg"></div>
     </div>
 
@@ -655,7 +671,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.35</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.36</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1106,7 +1122,12 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
     who.className = "who";
     who.textContent = e.customer || "(no client)";
     top.appendChild(who);
-    if (e.billable) {
+    if (e.billableStatus === "HasBeenBilled") {
+      const b = document.createElement("span");
+      b.className = "bill billed";
+      b.textContent = "🔒 billed";
+      top.appendChild(b);
+    } else if (e.billable) {
       const b = document.createElement("span");
       b.className = "bill";
       b.textContent = "• billable";
@@ -1129,6 +1150,7 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
     rep.textContent = "⟳";
     rep.setAttribute("aria-label", "Repeat entry today");
     rep.onclick = () => copyEntry(e);
+    // billed (invoiced) entries are locked — no delete button
     const del = document.createElement("button");
     del.className = "del";
     del.textContent = "×";
@@ -1146,7 +1168,9 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
       date.textContent = (e.date || "").slice(5);
       row.appendChild(date);
     }
-    row.append(meta, dur, rep, del);
+    // billed entries can't be deleted through the app — omit the × button
+    if (e.billableStatus === "HasBeenBilled") row.append(meta, dur, rep);
+    else row.append(meta, dur, rep, del);
     box.appendChild(row);
   });
 }
@@ -1205,6 +1229,7 @@ function fillFormFromEntry(e, dateOverride) {
 
 // Put the form back to a fresh, blank new-entry state (shared by cancel + save).
 function clearFormFields() {
+  setBilledLock(false);               // leave the read-only billed view if active
   setProject(null, false);            // back to a deliberate, blank choice
   $("date").value = ymd(new Date());  // default to today
   $("durh").value = "";
@@ -1223,15 +1248,40 @@ function setEditMode(on) {
   $("logForm").classList.toggle("editing", on);  // recolor the whole form while editing
 }
 
+// Fields locked in the read-only "billed" view.
+const LOCK_FIELDS = ["projectBtn", "employee", "item", "date", "durh", "desc", "template", "billable"];
+function setBilledLock(on) {
+  $("logForm").classList.toggle("billed", on);
+  $("billedBanner").style.display = on ? "block" : "none";
+  LOCK_FIELDS.forEach((id) => { $(id).disabled = on; });
+  document.querySelectorAll("#chips .chip").forEach((c) => { c.disabled = on; });
+  $("submit").style.display = on ? "none" : "";
+  $("closeBilled").style.display = on ? "block" : "none";
+  if (on) { $("cancelNew").style.display = "none"; $("cancelEdit").style.display = "none"; }
+}
+
 function startEdit(e) {
+  // Already-invoiced (billed) time is locked — show it read-only, never editable.
+  if (e.billableStatus === "HasBeenBilled") { showBilledEntry(e); return; }
+  setBilledLock(false);   // clear any prior billed view
   editingId = e.id;
   fillFormFromEntry(e);
   setEditMode(true);
   $("msg").className = "msg";
 }
 
+function showBilledEntry(e) {
+  editingId = null;
+  setEditMode(false);
+  fillFormFromEntry(e);
+  setBilledLock(true);
+  $("msg").className = "msg";
+  $("logForm").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function copyEntry(e) {
   editingId = null;
+  setBilledLock(false);   // a copy is a fresh, editable, billable entry
   setEditMode(false);
   fillFormFromEntry(e, ymd(new Date()));  // same entry, dated today
   const msg = $("msg");
@@ -1413,7 +1463,13 @@ async function renderWeekGrid() {
     r.days.forEach((m, i) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "wg-cell" + (m ? " has" : "");
+      // amber when the cell holds invoiced (billed) time — filled if all of it
+      // is billed, underlined if only some.
+      const billedMin = r.dayEntries[i].reduce((s, e) => e.billableStatus === "HasBeenBilled" ? s + mins(e) : s, 0);
+      let cls = "wg-cell" + (m ? " has" : "");
+      if (billedMin > 0) cls += m && billedMin >= m ? " billed" : " billed-part";
+      b.className = cls;
+      if (billedMin > 0) b.title = "Includes billed (invoiced) time — locked";
       b.textContent = m ? fmtCell(m) : "·";
       b.onclick = () => weekCellTap(r, i, start);
       div.appendChild(b);
@@ -2057,7 +2113,7 @@ async function renderReport() {
         yoyEl.textContent = `${arrow} ${Math.abs(pct)}% vs last year · ${fmtVal(ptot)} → ${fmtVal(total)}`;
       }
       yoyEl.style.display = "block";
-    }).catch(() => { yoyEl.style.display = "none"; });
+    }).catch(() => { if (seq === repSeq) yoyEl.style.display = "none"; });
   } else {
     yoyEl.style.display = "none";
   }
@@ -2103,13 +2159,13 @@ async function fetchBills(start, end) {
   return res.json();
 }
 
-// compact money for the stat blocks: $8.2K / $42K / $950
+// compact money for the stat blocks: $8.2K / $42K / $950 / -$15K
 const fmtK = (d) => {
-  d = Math.round(d);
-  const a = Math.abs(d);
-  if (a >= 10000) return "$" + Math.round(d / 1000) + "K";
-  if (a >= 1000) return "$" + (d / 1000).toFixed(1) + "K";
-  return "$" + d.toLocaleString();
+  const sign = d < 0 ? "-" : "";
+  const a = Math.round(Math.abs(d));
+  if (a >= 10000) return sign + "$" + Math.round(a / 1000) + "K";
+  if (a >= 1000) return sign + "$" + (a / 1000).toFixed(1) + "K";
+  return sign + "$" + a.toLocaleString();
 };
 
 const AGE_LABELS = ["0–30", "31–60", "61–90", "90+"];
@@ -2141,11 +2197,13 @@ function renderMoney(rec, wip) {
     + "</div>";
 
   if (outstanding > 0) {
-    html += `<div class="agebar">${segs}</div><div class="agelegend">${legend}</div>`;
+    html += `<div class="agebar">${segs}</div><div class="agelegend">${legend}</div>`
+      + '<div class="sub" style="margin-top:6px">Aged by invoice date.</div>';
     html += "<h3>Who owes you</h3>";
     const max = Math.max(...rec.byClient.map((c) => c.balance), 0) || 1;
     rec.byClient.forEach((c) => {
-      const od = rec.invoices.filter((iv) => iv.customer === c.customer && iv.overdue).reduce((s, iv) => s + iv.balance, 0);
+      // match past-due invoices by customer id (fall back to name) so same-named clients don't cross-count
+      const od = rec.invoices.filter((iv) => (c.customerId ? iv.customerId === c.customerId : iv.customer === c.customer) && iv.overdue).reduce((s, iv) => s + iv.balance, 0);
       const sub = od > 0 ? `<div class="sub"><span class="od">${fmtUSD(od)} past due</span> · ${c.count} invoice${c.count > 1 ? "s" : ""}</div>`
         : `<div class="sub">${c.count} invoice${c.count > 1 ? "s" : ""}</div>`;
       html += '<div class="owe-row"><div class="info">'
@@ -2333,7 +2391,7 @@ async function renderDash() {
     const top1 = (concList[0].v / concTotal) * 100;
     const top3 = (concList.slice(0, 3).reduce((s, c) => s + c.v, 0) / concTotal) * 100;
     const rows = otherV > 0.5 ? [...topN, { name: `Other (${concList.length - topN.length})`, v: otherV, other: true }] : topN;
-    const cmax = rows[0].v || 1;
+    const cmax = Math.max(...rows.map((r) => r.v), 1);   // include "Other" so its bar can't overflow 100%
     const unitLbl = byMain ? "client" : "project";
     html += '<div class="card money"><div class="conc-head"><h2>Client concentration '
       + '<span class="asof">share of billable value</span></h2>'
@@ -2422,8 +2480,8 @@ async function renderDash() {
         + '<div class="money-stats">'
         + `<div class="mstat"><span class="mnum">${fmtK(revenue)}</span><span class="mlbl">Revenue (billable)</span></div>`
         + `<div class="mstat"><span class="mnum bad">${fmtK(subCost)}</span><span class="mlbl">Sub cost</span></div>`
-        + `<div class="mstat"><span class="mnum good">${fmtK(margin)}</span><span class="mlbl">Gross margin</span></div>`
-        + `<div class="mstat"><span class="mnum">${marginPct != null ? Math.round(marginPct) + "%" : "—"}</span><span class="mlbl">Margin %</span></div>`
+        + `<div class="mstat"><span class="mnum ${margin >= 0 ? "good" : "bad"}">${fmtK(margin)}</span><span class="mlbl">Gross margin</span></div>`
+        + `<div class="mstat"><span class="mnum${marginPct != null && marginPct < 0 ? " bad" : ""}">${marginPct != null ? Math.round(marginPct) + "%" : "—"}</span><span class="mlbl">Margin %</span></div>`
         + "</div>"
         + `<p class="sub" style="margin:10px 0 0">Cost = bills to the ${subNames.size} vendor${subNames.size > 1 ? "s" : ""} who logged time this window; enter subcontractor bills in QuickBooks for this to be complete.</p>`
         + "</div>";
@@ -2801,6 +2859,7 @@ async function submit() {
 
 $("submit").addEventListener("click", submit);
 $("cancelEdit").addEventListener("click", cancelEdit);
+$("closeBilled").addEventListener("click", () => { setBilledLock(false); clearFormFields(); $("msg").className = "msg"; });
 $("cancelNew").addEventListener("click", () => {
   clearFormFields();               // discard the in-progress new entry
   const msg = $("msg");

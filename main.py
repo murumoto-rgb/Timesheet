@@ -686,18 +686,16 @@ def update_time(entry_id: str, entry: TimeEntry, request: Request):
         raise HTTPException(400, "Pick an employee or vendor.")
     # Update needs the current SyncToken — read the entity first.
     before = _read_timeactivity(entry_id)
+    # Already-invoiced (billed) time is locked: editing it here would desync the
+    # books from the sent invoice. It can only be changed in QuickBooks.
+    if before.get("BillableStatus") == "HasBeenBilled":
+        raise HTTPException(409, "This entry was already invoiced (billed) in QuickBooks and can't be edited here.")
     payload = _timeactivity_payload(entry)
-    # QBO TimeActivity update is a FULL replace, and the edit form resends
-    # neither HourlyRate nor the invoiced state. Carry both from the existing
-    # entry so a routine edit (e.g. fixing a description) can't silently zero an
-    # entry's $ value or un-invoice already-billed time:
-    #  - keep HasBeenBilled instead of flipping it back to Billable
-    #    (only when the entry is still billable; an explicit un-check → NotBillable);
-    #  - keep the prior HourlyRate when the form didn't send one.
-    if before.get("BillableStatus") == "HasBeenBilled" and payload.get("BillableStatus") == "Billable":
-        payload["BillableStatus"] = "HasBeenBilled"
+    # QBO update is a FULL replace and the edit form doesn't resend HourlyRate —
+    # carry the prior rate so a routine edit (e.g. fixing a description) can't
+    # silently zero the entry's $ value.
     if ("HourlyRate" not in payload and before.get("HourlyRate") is not None
-            and payload.get("BillableStatus") in ("Billable", "HasBeenBilled")):
+            and payload.get("BillableStatus") == "Billable"):
         payload["HourlyRate"] = before["HourlyRate"]
     payload["Id"] = entry_id
     payload["SyncToken"] = before["SyncToken"]
@@ -897,6 +895,7 @@ def _receivables_summary(open_invoices, billed_365, as_of):
             "id": inv.get("Id"),
             "docNumber": inv.get("DocNumber"),
             "customer": cust,
+            "customerId": cref.get("value"),
             "date": txn,
             "dueDate": due,
             "amount": _num(inv.get("TotalAmt")),
@@ -940,6 +939,10 @@ def list_receivables():
 def delete_time(entry_id: str, request: Request):
     # Delete requires the current SyncToken, so read the entity first.
     deleted = _read_timeactivity(entry_id)
+    # Already-invoiced (billed) time is locked — deleting it here would desync
+    # the books from the sent invoice. It can only be removed in QuickBooks.
+    if deleted.get("BillableStatus") == "HasBeenBilled":
+        raise HTTPException(409, "This entry was already invoiced (billed) in QuickBooks and can't be deleted here.")
     _post_timeactivity(
         {"Id": entry_id, "SyncToken": deleted["SyncToken"]},
         params={"operation": "delete"},

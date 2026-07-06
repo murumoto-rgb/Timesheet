@@ -57,19 +57,29 @@ def _mock_update(monkeypatch, before):
     return sent
 
 
-def test_update_preserves_hasbeenbilled_and_rate(monkeypatch):
+def test_update_blocks_billed_entry(monkeypatch):
+    # already-invoiced (billed) time is locked — the update must be refused (409)
     before = {"Id": "77", "SyncToken": "3", "BillableStatus": "HasBeenBilled", "HourlyRate": 250}
-    sent = _mock_update(monkeypatch, before)
-    # form edits an already-invoiced billable entry; sends no rate, billable=True
+    _mock_update(monkeypatch, before)
     e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10", hours=2)
-    main.update_time("77", e, request=None)
-    assert sent["BillableStatus"] == "HasBeenBilled"   # not flipped back to Billable
-    assert sent["HourlyRate"] == 250                    # prior rate carried, not wiped
+    with pytest.raises(HTTPException) as ei:
+        main.update_time("77", e, request=None)
+    assert ei.value.status_code == 409
+
+
+def test_delete_blocks_billed_entry(monkeypatch):
+    before = {"Id": "77", "SyncToken": "3", "BillableStatus": "HasBeenBilled"}
+    monkeypatch.setattr(main, "_read_timeactivity", lambda _id: before)
+    monkeypatch.setattr(main, "_post_timeactivity", lambda *a, **k: pytest.fail("delete must not reach QBO"))
+    monkeypatch.setattr(main, "_audit", lambda *a, **k: None)
+    with pytest.raises(HTTPException) as ei:
+        main.delete_time("77", request=None)
+    assert ei.value.status_code == 409
 
 
 def test_update_honors_explicit_unbill(monkeypatch):
-    # unchecking billable on a previously-billed entry is a real intent → NotBillable
-    before = {"Id": "77", "SyncToken": "3", "BillableStatus": "HasBeenBilled", "HourlyRate": 250}
+    # unchecking billable on a not-yet-billed entry → NotBillable
+    before = {"Id": "77", "SyncToken": "3", "BillableStatus": "Billable", "HourlyRate": 250}
     sent = _mock_update(monkeypatch, before)
     e = TimeEntry(item_id="5", employee_id="55", billable=False, customer_id="10", hours=2)
     main.update_time("77", e, request=None)
