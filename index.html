@@ -817,6 +817,7 @@ const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 
 // Number()-coerce so a stray non-numeric Hours/Minutes from QBO yields 0, not
 // NaN — a single NaN would otherwise poison every sum/average it feeds.
 const mins = (e) => (Number(e.hours) || 0) * 60 + (Number(e.minutes) || 0);
+const fin = (x) => Number.isFinite(x) ? x : 0;   // never let a bad value poison a sum
 
 // ── Report/Totals options: Hours ⇄ $ and hide mileage/expense lines ──
 // $ figures come straight from each entry's own QBO HourlyRate (never an
@@ -2168,6 +2169,26 @@ const fmtK = (d) => {
   return sign + "$" + a.toLocaleString();
 };
 
+// ── Shared builders for the dashboard "money" cards ──────────────────
+// one stat block (big number + label); cls adds good/bad colour.
+const mstat = (num, label, cls = "") =>
+  `<div class="mstat"><span class="mnum${cls ? " " + cls : ""}">${num}</span><span class="mlbl">${label}</span></div>`;
+// card frame: title + optional caption, a stats row, and a body. headExtra (e.g.
+// a toggle) switches the header to the conc-head flex layout.
+const moneyCard = (title, caption, statsHtml, bodyHtml = "", headExtra = "") => {
+  const h2 = `<h2>${title}${caption ? ` <span class="asof">${caption}</span>` : ""}</h2>`;
+  const head = headExtra ? `<div class="conc-head">${h2}${headExtra}</div>` : h2;
+  return `<div class="card money">${head}<div class="money-stats">${statsHtml}</div>${bodyHtml}</div>`;
+};
+// one horizontal bar row (who-owes / concentration): name, right-aligned value,
+// optional sub-line, and a bar filled to widthPct (clamped, so it can't overflow).
+const oweRow = (name, right, subHtml, widthPct, barStyle = "") =>
+  '<div class="owe-row"><div class="info">'
+  + `<div class="nm"><span>${escapeHtml(name)}</span><span class="h">${right}</span></div>`
+  + (subHtml || "")
+  + `<div class="bar"><i style="width:${Math.min(widthPct, 100)}%${barStyle}"></i></div>`
+  + "</div></div>";
+
 const AGE_LABELS = ["0–30", "31–60", "61–90", "90+"];
 const AGE_KEYS = ["0-30", "31-60", "61-90", "90+"];
 const AGE_COLORS = ["var(--good)", "var(--accent)", "#d9a441", "var(--bad)"];
@@ -2187,36 +2208,27 @@ function renderMoney(rec, wip) {
     return v > 0 ? `<span><i style="background:${AGE_COLORS[i]}"></i>${AGE_LABELS[i]}d <b>${fmtK(v)}</b></span>` : "";
   }).join("");
 
-  let html = '<div class="card money"><h2>Accounts receivable'
-    + (asOf ? ` <span class="asof">as of ${asOf}</span>` : "") + "</h2>"
-    + '<div class="money-stats">'
-    + `<div class="mstat"><span class="mnum">${fmtK(outstanding)}</span><span class="mlbl">Outstanding</span></div>`
-    + `<div class="mstat"><span class="mnum${rec.pastDue > 0 ? " bad" : ""}">${fmtK(rec.pastDue || 0)}</span><span class="mlbl">Past due</span></div>`
-    + `<div class="mstat"><span class="mnum">${rec.dso != null ? rec.dso : "—"}</span><span class="mlbl">Days to pay (DSO)</span></div>`
-    + `<div class="mstat"><span class="mnum${wip > 0 ? " good" : ""}">${wip == null ? "—" : fmtK(wip)}</span><span class="mlbl">Unbilled WIP</span></div>`
-    + "</div>";
+  const stats = mstat(fmtK(outstanding), "Outstanding")
+    + mstat(fmtK(rec.pastDue || 0), "Past due", rec.pastDue > 0 ? "bad" : "")
+    + mstat(rec.dso != null ? rec.dso : "—", "Days to pay (DSO)")
+    + mstat(wip == null ? "—" : fmtK(wip), "Unbilled WIP", wip > 0 ? "good" : "");
 
+  let body;
   if (outstanding > 0) {
-    html += `<div class="agebar">${segs}</div><div class="agelegend">${legend}</div>`
-      + '<div class="sub" style="margin-top:6px">Aged by invoice date.</div>';
-    html += "<h3>Who owes you</h3>";
+    body = `<div class="agebar">${segs}</div><div class="agelegend">${legend}</div>`
+      + '<div class="sub" style="margin-top:6px">Aged by invoice date.</div><h3>Who owes you</h3>';
     const max = Math.max(...rec.byClient.map((c) => c.balance), 0) || 1;
     rec.byClient.forEach((c) => {
       // match past-due invoices by customer id (fall back to name) so same-named clients don't cross-count
       const od = rec.invoices.filter((iv) => (c.customerId ? iv.customerId === c.customerId : iv.customer === c.customer) && iv.overdue).reduce((s, iv) => s + iv.balance, 0);
       const sub = od > 0 ? `<div class="sub"><span class="od">${fmtUSD(od)} past due</span> · ${c.count} invoice${c.count > 1 ? "s" : ""}</div>`
         : `<div class="sub">${c.count} invoice${c.count > 1 ? "s" : ""}</div>`;
-      html += '<div class="owe-row"><div class="info">'
-        + `<div class="nm"><span>${escapeHtml(c.customer)}</span><span class="h">${fmtUSD(c.balance)}</span></div>`
-        + sub
-        + `<div class="bar"><i style="width:${(c.balance / max) * 100}%"></i></div>`
-        + "</div></div>";
+      body += oweRow(c.customer, fmtUSD(c.balance), sub, (c.balance / max) * 100);
     });
   } else {
-    html += '<div class="empty" style="padding:12px 0">No open invoices — you\'re all paid up.</div>';
+    body = '<div class="empty" style="padding:12px 0">No open invoices — you\'re all paid up.</div>';
   }
-  html += "</div>";
-  return html;
+  return moneyCard("Accounts receivable", asOf ? `as of ${asOf}` : "", stats, body);
 }
 
 // Trailing display window + the fetch range needed for a 12-month trailing avg.
@@ -2249,6 +2261,39 @@ function dashRowLabel(i) {
 let dashBuckets = [];
 let dashDefaultBig = "", dashDefaultCap = "";   // hero text to restore after scrubbing
 
+// Pure practice-metric accumulation over the shown window, in one pass over the
+// entries `inWin` (mileage/expense lines excluded — they aren't labor). Returns
+// the KPI values plus the per-customer billable map (for concentration) and the
+// subcontractor set (vendors who log time). No DOM — unit-testable.
+function computeDashMetrics(entries, inWin) {
+  let mbMin = 0, billedD = 0, totalMin = 0, billMin = 0, billValue = 0;
+  const byCust = new Map();     // key → { id, name, v }  (billable value per customer id)
+  const subNames = new Set();   // vendors who log time = the subcontractors
+  entries.forEach((e) => {
+    if (!e.date || !inWin(e.date) || isExpense(e)) return;
+    const m = mins(e);
+    totalMin += m;
+    if ((e.vendorId || e.nameOf === "Vendor") && e.employee) subNames.add(e.employee.toLowerCase());
+    if (MB_RE.test(e.employee || "")) mbMin += m;
+    if (e.billable) {
+      billMin += m;
+      const d = fin(dollarsOf(e));
+      billValue += d;
+      const key = e.customerId || ("n:" + (e.customer || "—"));
+      const rec = byCust.get(key) || { id: e.customerId || null, name: e.customer || "—", v: 0 };
+      rec.v += d;
+      byCust.set(key, rec);
+    }
+    if (e.billableStatus === "HasBeenBilled") billedD += fin(dollarsOf(e));
+  });
+  return {
+    totalMin, billMin, billValue, billedD, mbMin, byCust, subNames,
+    utilPct: totalMin > 0 ? (billMin / totalMin) * 100 : null,          // billable ÷ total hrs
+    realPct: billValue > 0 ? (billedD / billValue) * 100 : null,        // invoiced ÷ billable value
+    effRate: totalMin > 0 ? billValue / (totalMin / 60) : null,         // billable value ÷ hrs worked
+  };
+}
+
 let dashSeq = 0;
 async function renderDash() {
   document.querySelectorAll("#dashSeg button").forEach((b) => b.classList.toggle("on", b.dataset.unit === dash.unit));
@@ -2263,7 +2308,6 @@ async function renderDash() {
   dashBuckets = win.buckets;
   $("dashBody").innerHTML = '<div class="card"><div class="empty">Loading…</div></div>';
   const seq = ++dashSeq;
-  const fin = (x) => Number.isFinite(x) ? x : 0;   // never let a bad value poison a sum
 
   // Always fetch time entries (for the billed series + MB's hours); fetch
   // payments too when the metric is Received.
@@ -2298,39 +2342,8 @@ async function renderDash() {
   //    hours worked by Murat Baykal in that window. ──
   const winStart = win.buckets[0].start.getTime(), winEnd = win.buckets[n - 1].end.getTime();
   const inWin = (ds) => { const t = new Date(ds + "T00:00").getTime(); return t >= winStart && t <= winEnd; };
-  // Accumulate practice KPIs over the shown window in one pass:
-  //   totalMin/billMin → utilization; billValue → effective rate;
-  //   billedD/billValue → realization (share of billable work invoiced).
-  let mbMin = 0, billedD = 0, totalMin = 0, billMin = 0, billValue = 0;
-  // billable value per tagged customer, keyed by id so it can be regrouped by
-  // main client (rolling up sub-clients/projects) or shown per project.
-  const byCust = new Map();         // key → { id, name, v }
-  const subNames = new Set();       // vendors who log time = the subcontractors
-  entries.forEach((e) => {
-    if (!e.date || !inWin(e.date)) return;
-    // Mileage/expense lines carry Hours that aren't labor and dollars that are
-    // pass-through reimbursements — exclude them from every practice metric
-    // (utilization/realization/effective-rate), concentration, and margin,
-    // regardless of the "Hide mileage & expenses" display toggle.
-    if (isExpense(e)) return;
-    const m = mins(e);
-    totalMin += m;
-    if ((e.vendorId || e.nameOf === "Vendor") && e.employee) subNames.add(e.employee.toLowerCase());
-    if (MB_RE.test(e.employee || "")) mbMin += m;
-    if (e.billable) {
-      billMin += m;
-      const d = fin(dollarsOf(e));
-      billValue += d;
-      const key = e.customerId || ("n:" + (e.customer || "—"));
-      const rec = byCust.get(key) || { id: e.customerId || null, name: e.customer || "—", v: 0 };
-      rec.v += d;
-      byCust.set(key, rec);
-    }
-    if (e.billableStatus === "HasBeenBilled") billedD += fin(dollarsOf(e));
-  });
-  const utilPct = totalMin > 0 ? (billMin / totalMin) * 100 : null;
-  const realPct = billValue > 0 ? (billedD / billValue) * 100 : null;
-  const effRate = totalMin > 0 ? billValue / (totalMin / 60) : null;
+  const { byCust, subNames, billValue, billedD, mbMin, utilPct, realPct, effRate } = computeDashMetrics(entries, inWin);
+  // MB effective rate: billed (or received) $ over the window ÷ MB's hours.
   let dollars = billedD;
   if (received) { dollars = 0; pmts.forEach((p) => { if (p.date && inWin(p.date)) dollars += fin(Number(p.amount)); }); }
   const mbRate = mbMin > 0 ? dollars / (mbMin / 60) : null;
