@@ -45,6 +45,46 @@ def test_payload_hourly_rate_only_when_billable():
     assert p["HourlyRate"] == 250
 
 
+# ── update_time: a full-replace edit must not corrupt invoiced/rate data ────
+def _mock_update(monkeypatch, before):
+    """Wire update_time so it uses `before` as the existing entry and captures
+    the payload actually sent to QBO (returned as `sent`)."""
+    sent = {}
+    monkeypatch.setattr(main, "_read_timeactivity", lambda _id: before)
+    monkeypatch.setattr(main, "_post_timeactivity",
+                        lambda payload, params=None: (sent.update(payload), {"Id": "77", **payload})[1])
+    monkeypatch.setattr(main, "_audit", lambda *a, **k: None)
+    return sent
+
+
+def test_update_preserves_hasbeenbilled_and_rate(monkeypatch):
+    before = {"Id": "77", "SyncToken": "3", "BillableStatus": "HasBeenBilled", "HourlyRate": 250}
+    sent = _mock_update(monkeypatch, before)
+    # form edits an already-invoiced billable entry; sends no rate, billable=True
+    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10", hours=2)
+    main.update_time("77", e, request=None)
+    assert sent["BillableStatus"] == "HasBeenBilled"   # not flipped back to Billable
+    assert sent["HourlyRate"] == 250                    # prior rate carried, not wiped
+
+
+def test_update_honors_explicit_unbill(monkeypatch):
+    # unchecking billable on a previously-billed entry is a real intent → NotBillable
+    before = {"Id": "77", "SyncToken": "3", "BillableStatus": "HasBeenBilled", "HourlyRate": 250}
+    sent = _mock_update(monkeypatch, before)
+    e = TimeEntry(item_id="5", employee_id="55", billable=False, customer_id="10", hours=2)
+    main.update_time("77", e, request=None)
+    assert sent["BillableStatus"] == "NotBillable"
+
+
+def test_update_carries_rate_on_plain_billable_edit(monkeypatch):
+    before = {"Id": "77", "SyncToken": "3", "BillableStatus": "Billable", "HourlyRate": 180}
+    sent = _mock_update(monkeypatch, before)
+    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10", hours=1)
+    main.update_time("77", e, request=None)
+    assert sent["BillableStatus"] == "Billable"
+    assert sent["HourlyRate"] == 180                    # not zeroed by the edit
+
+
 # ── qbo_query_all: pagination past the 1000-row page cap ────────────────────
 def test_qbo_query_all_paginates_past_1000(monkeypatch):
     import re

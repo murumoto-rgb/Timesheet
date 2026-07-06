@@ -687,6 +687,18 @@ def update_time(entry_id: str, entry: TimeEntry, request: Request):
     # Update needs the current SyncToken — read the entity first.
     before = _read_timeactivity(entry_id)
     payload = _timeactivity_payload(entry)
+    # QBO TimeActivity update is a FULL replace, and the edit form resends
+    # neither HourlyRate nor the invoiced state. Carry both from the existing
+    # entry so a routine edit (e.g. fixing a description) can't silently zero an
+    # entry's $ value or un-invoice already-billed time:
+    #  - keep HasBeenBilled instead of flipping it back to Billable
+    #    (only when the entry is still billable; an explicit un-check → NotBillable);
+    #  - keep the prior HourlyRate when the form didn't send one.
+    if before.get("BillableStatus") == "HasBeenBilled" and payload.get("BillableStatus") == "Billable":
+        payload["BillableStatus"] = "HasBeenBilled"
+    if ("HourlyRate" not in payload and before.get("HourlyRate") is not None
+            and payload.get("BillableStatus") in ("Billable", "HasBeenBilled")):
+        payload["HourlyRate"] = before["HourlyRate"]
     payload["Id"] = entry_id
     payload["SyncToken"] = before["SyncToken"]
     result = _post_timeactivity(payload)
