@@ -301,6 +301,17 @@
     border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
   .rep-filter .filter-row { display: flex; gap: 8px; }
   .rep-filter .filter-row select { flex: 1; }
+  /* Bulk select (#9) */
+  .entries-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .entries-head h2 { margin: 0; }
+  .sel-box { width: 20px; height: 20px; min-height: 0; margin: 0 6px 0 0; flex-shrink: 0;
+    appearance: auto; -webkit-appearance: checkbox; accent-color: var(--accent); }
+  .bulk-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px;
+    padding: 10px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; }
+  .bulk-bar #bulkCount { font-size: 12px; color: var(--muted); margin-right: auto; }
+  .bulk-bar button, .bulk-bar select { background: var(--panel); border: 1px solid var(--line);
+    color: var(--ink); border-radius: 6px; padding: 7px 10px; font-size: 12.5px; cursor: pointer; min-height: 0; }
+  .bulk-bar button.danger { color: var(--bad); border-color: var(--bad); }
   .track { height: 6px; border-radius: 3px; background: var(--field); margin-top: 6px; }
   .fill { height: 100%; border-radius: 3px; background: var(--series-1); min-width: 2px; }
   .fill .bpart { height: 100%; border-radius: 3px; background: var(--good); }
@@ -655,7 +666,17 @@
     </div>
 
     <div class="card">
-      <h2 id="repEntriesTitle">Entries</h2>
+      <div class="entries-head">
+        <h2 id="repEntriesTitle">Entries</h2>
+        <button class="ie-btn" id="repSelectToggle" type="button">Select</button>
+      </div>
+      <div id="bulkBar" class="bulk-bar" style="display:none">
+        <span id="bulkCount">0 selected</span>
+        <button data-bulk="billable" type="button">Billable</button>
+        <button data-bulk="nonbillable" type="button">Non-billable</button>
+        <select id="bulkSvc"><option value="">Set service…</option></select>
+        <button data-bulk="delete" type="button" class="danger">Delete</button>
+      </div>
       <div id="repEntries"><div class="empty">–</div></div>
     </div>
   </div>
@@ -712,7 +733,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.39</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.40</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1166,7 +1187,7 @@ function initPicker() {
 }
 
 // ── Entry rows (shared by Log + Report) ─────────────────────────────
-function renderEntryRows(box, entries, { showDate = true } = {}) {
+function renderEntryRows(box, entries, { showDate = true, selectable = false, selected = null } = {}) {
   if (!entries.length) {
     box.innerHTML = '<div class="empty">No entries.</div>';
     return;
@@ -1175,6 +1196,14 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
   entries.forEach((e) => {
     const row = document.createElement("div");
     row.className = "entry";
+    // Bulk select mode: a checkbox on each non-billed row; tapping the row toggles it.
+    const selBox = (selectable && e.billableStatus !== "HasBeenBilled") ? document.createElement("input") : null;
+    if (selBox) {
+      selBox.type = "checkbox";
+      selBox.className = "sel-box";
+      selBox.checked = selected && selected.has(e.id);
+      selBox.onclick = (ev) => { ev.stopPropagation(); toggleBulk(e.id, selBox.checked); };
+    }
     const meta = document.createElement("div");
     meta.className = "meta";
     const top = document.createElement("div");
@@ -1202,7 +1231,9 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
       meta.appendChild(d);
     }
     row.classList.add("editable");
-    meta.onclick = () => startEdit(e);
+    // in select mode, tapping the row toggles its checkbox instead of editing
+    meta.onclick = selBox ? () => { selBox.checked = !selBox.checked; toggleBulk(e.id, selBox.checked); }
+                          : () => startEdit(e);
     const dur = document.createElement("span");
     dur.className = "dur";
     dur.textContent = fmtDur(e.hours, e.minutes);
@@ -1229,15 +1260,18 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
         });
       } else { del.disabled = false; alert("Delete failed: " + (await res.text())); }
     };
+    if (selBox) row.appendChild(selBox);
     if (showDate) {
       const date = document.createElement("span");
       date.className = "date";
       date.textContent = (e.date || "").slice(5);
       row.appendChild(date);
     }
-    // billed entries are locked — no quick-edit or delete
-    if (e.billableStatus === "HasBeenBilled") {
-      row.append(meta, dur, rep);
+    if (selectable) {
+      // select mode: just the row + duration (no per-row edit/repeat/delete)
+      row.append(meta, dur);
+    } else if (e.billableStatus === "HasBeenBilled") {
+      row.append(meta, dur, rep);   // billed entries are locked — no quick-edit or delete
     } else {
       const edit = document.createElement("button");
       edit.className = "del edit";
@@ -1608,7 +1642,9 @@ async function renderWeekGrid() {
 
 // ── Report state ────────────────────────────────────────────────────
 const rep = { unit: "week", anchor: new Date(), person: "",   // person "" = All
-  q: "", svc: "", status: "", needs: false };                 // review search/filter (#7/#8)
+  q: "", svc: "", status: "", needs: false,                   // review search/filter (#7/#8)
+  selecting: false };                                         // bulk select mode (#9)
+const bulkSel = new Set();   // ids selected for a bulk action
 
 // People-filter chips for the report (employees + vendors with time in the
 // period). Same pattern as the week grid; only shown when >1 person.
@@ -2272,7 +2308,8 @@ function renderReportView() {
     { idOf: (e) => e.projectId || e.customerId, go: goToTotals });
   renderBreakdown($("serviceRows"), entries, (e) => e.service || "(no service)");
   $("repEntriesTitle").textContent = "Entries — " + periodLabel();
-  renderEntryRows($("repEntries"), entries, { showDate: rep.unit !== "day" });
+  renderEntryRows($("repEntries"), entries, { showDate: rep.unit !== "day", selectable: rep.selecting, selected: bulkSel });
+  updateBulkBar();
 }
 
 // Fill the service filter from the services present this period, keeping the selection.
@@ -2291,6 +2328,46 @@ function syncFilterUI() {
   if ($("repQ").value !== rep.q) $("repQ").value = rep.q;   // guard so typing keeps the caret
   $("repStatus").value = rep.status;
   $("repNeeds").checked = rep.needs;
+}
+
+// ── Bulk actions (#9): select rows in Report → flip billable, set service, delete ──
+function toggleBulk(id, on) {
+  if (on) bulkSel.add(id); else bulkSel.delete(id);
+  updateBulkBar();
+}
+function updateBulkBar() {
+  $("bulkBar").style.display = rep.selecting ? "flex" : "none";
+  $("bulkCount").textContent = bulkSel.size + " selected";
+  $("repSelectToggle").textContent = rep.selecting ? "Done" : "Select";
+}
+function fillBulkSvc() {   // populate the "Set service" picker from the form's item list
+  const src = $("item");
+  $("bulkSvc").innerHTML = '<option value="">Set service…</option>' +
+    [...src.options].map((o) => `<option value="${o.value}">${escapeHtml(o.textContent)}</option>`).join("");
+}
+async function bulkApply(action, itemId) {
+  const ids = [...bulkSel].filter((id) => repFetched.some((e) => e.id === id));
+  if (!ids.length) return;
+  if (action === "delete" && !confirm(`Delete ${ids.length} ${ids.length === 1 ? "entry" : "entries"}? (no undo)`)) return;
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    const e = repFetched.find((x) => x.id === id);
+    let spec;
+    if (action === "delete") {
+      spec = { method: "DELETE" };
+    } else {
+      const body = entryToBody(e);
+      if (action === "billable") body.billable = true;
+      else if (action === "nonbillable") body.billable = false;
+      else if (action === "service") body.item_id = itemId;
+      spec = { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+    }
+    try { const res = await fetch("/api/timeactivity/" + id, spec); res.ok ? ok++ : fail++; }
+    catch { fail++; }
+  }
+  bulkSel.clear(); rep.selecting = false;
+  showToast(`${action === "delete" ? "Deleted" : "Updated"} ${ok}${fail ? ` · ${fail} failed` : ""}`, "", null);
+  renderReport();   // refetch to reflect the changes
 }
 
 // From a Report project row → the Totals drill-down for that project, same period.
@@ -2811,6 +2888,16 @@ async function boot() {
     rep.q = ""; rep.svc = ""; rep.status = ""; rep.needs = false;
     $("repQ").value = ""; renderReportView();
   };
+  // Bulk select mode + actions (#9)
+  $("repSelectToggle").onclick = () => {
+    rep.selecting = !rep.selecting;
+    if (rep.selecting) fillBulkSvc(); else bulkSel.clear();
+    renderReportView();
+  };
+  document.querySelectorAll("#bulkBar button[data-bulk]").forEach((b) => {
+    b.onclick = () => bulkApply(b.dataset.bulk);
+  });
+  $("bulkSvc").onchange = () => { if ($("bulkSvc").value) bulkApply("service", $("bulkSvc").value); };
   $("wgPrev").onclick = () => { wg.anchor = addDays(wg.anchor, -7); renderWeekGrid(); };
   $("wgNext").onclick = () => { wg.anchor = addDays(wg.anchor, 7); renderWeekGrid(); };
   document.querySelectorAll("#totSeg button").forEach((b) => {
