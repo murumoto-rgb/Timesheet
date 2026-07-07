@@ -610,6 +610,11 @@
       <button data-unit="week" class="on">Week</button>
       <button data-unit="month">Month</button>
       <button data-unit="quarter">Qtr</button>
+      <button data-unit="custom">Custom</button>
+    </div>
+    <div id="customRange" class="filter-row" style="display:none;margin-top:10px">
+      <input type="date" id="repCStart" aria-label="Start date">
+      <input type="date" id="repCEnd" aria-label="End date">
     </div>
     <div class="opts">
       <div class="modeseg">
@@ -631,6 +636,10 @@
         </select>
       </div>
       <label class="optck"><input type="checkbox" id="repNeeds"> Needs attention — missing client, notes, or rate</label>
+      <div class="filter-row">
+        <select id="savedViews"><option value="">Saved views…</option></select>
+        <button class="ie-btn" id="saveView" type="button">Save view</button>
+      </div>
       <button class="ie-btn" id="repFilterClear" type="button">Clear filters</button>
     </div>
     <div class="chips" id="repPeople" style="margin:12px 0 14px"></div>
@@ -733,7 +742,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.40</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.41</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1643,7 +1652,8 @@ async function renderWeekGrid() {
 // ── Report state ────────────────────────────────────────────────────
 const rep = { unit: "week", anchor: new Date(), person: "",   // person "" = All
   q: "", svc: "", status: "", needs: false,                   // review search/filter (#7/#8)
-  selecting: false };                                         // bulk select mode (#9)
+  selecting: false,                                           // bulk select mode (#9)
+  cStart: "", cEnd: "" };                                     // custom range (#11), ymd strings
 const bulkSel = new Set();   // ids selected for a bulk action
 
 // People-filter chips for the report (employees + vendors with time in the
@@ -1670,6 +1680,11 @@ function mondayOf(d) {
 
 function periodRange() {
   const a = rep.anchor, y = a.getFullYear();
+  if (rep.unit === "custom") {
+    const s = rep.cStart ? new Date(rep.cStart + "T00:00") : new Date();
+    const e = rep.cEnd ? new Date(rep.cEnd + "T00:00") : s;
+    return { start: s, end: e };
+  }
   if (rep.unit === "day") return { start: a, end: a };
   if (rep.unit === "week") {
     const s = mondayOf(a);
@@ -1688,6 +1703,11 @@ function periodRange() {
 function periodLabel() {
   const today = ymd(new Date());
   const { start, end } = periodRange();
+  if (rep.unit === "custom") {
+    if (!rep.cStart || !rep.cEnd) return "Pick a range";
+    const f = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+    return `${f(start)} – ${f(end)}, ${end.getFullYear()}`;
+  }
   if (rep.unit === "day") {
     if (ymd(rep.anchor) === today) return "Today";
     if (ymd(rep.anchor) === ymd(addDays(new Date(), -1))) return "Yesterday";
@@ -1709,7 +1729,14 @@ function periodLabel() {
 }
 
 function shiftPeriod(dir) {
-  if (rep.unit === "day") rep.anchor = addDays(rep.anchor, dir);
+  if (rep.unit === "custom") {
+    if (!rep.cStart || !rep.cEnd) return;
+    const s = new Date(rep.cStart + "T00:00"), e = new Date(rep.cEnd + "T00:00");
+    const span = Math.round((e - s) / 86400000) + 1;   // page by the window's length
+    rep.cStart = ymd(addDays(s, span * dir));
+    rep.cEnd = ymd(addDays(e, span * dir));
+    syncCustomInputs();
+  } else if (rep.unit === "day") rep.anchor = addDays(rep.anchor, dir);
   else if (rep.unit === "week") rep.anchor = addDays(rep.anchor, 7 * dir);
   else if (rep.unit === "quarter") rep.anchor = new Date(rep.anchor.getFullYear(), rep.anchor.getMonth() + 3 * dir, 1);
   else rep.anchor = new Date(rep.anchor.getFullYear(), rep.anchor.getMonth() + dir, 1);
@@ -2821,6 +2848,35 @@ function drawDashChart(box, win, bMetric, trail) {
 function syncSeg() {
   document.querySelectorAll("#seg button").forEach((b) =>
     b.classList.toggle("on", b.dataset.unit === rep.unit));
+  $("customRange").style.display = rep.unit === "custom" ? "flex" : "none";
+}
+function syncCustomInputs() {
+  $("repCStart").value = rep.cStart || "";
+  $("repCEnd").value = rep.cEnd || "";
+}
+
+// ── Saved views (#11): persist unit + custom range + filters to localStorage ──
+function loadViews() { try { return JSON.parse(localStorage.getItem("saved-views") || "[]"); } catch { return []; } }
+function renderSavedViews() {
+  const views = loadViews();
+  $("savedViews").innerHTML = '<option value="">Saved views…</option>' +
+    views.map((v, i) => `<option value="${i}">${escapeHtml(v.name)}</option>`).join("");
+}
+function applyView(v) {
+  rep.unit = v.unit; rep.cStart = v.cStart || ""; rep.cEnd = v.cEnd || "";
+  rep.q = v.q || ""; rep.svc = v.svc || ""; rep.status = v.status || ""; rep.needs = !!v.needs;
+  if (v.unit !== "custom") rep.anchor = new Date();
+  syncSeg(); syncCustomInputs();
+  renderReport();
+}
+function saveCurrentView() {
+  const name = prompt("Name this view:");
+  if (!name) return;
+  const views = loadViews().filter((v) => v.name !== name);
+  views.push({ name, unit: rep.unit, cStart: rep.cStart, cEnd: rep.cEnd,
+    q: rep.q, svc: rep.svc, status: rep.status, needs: rep.needs });
+  localStorage.setItem("saved-views", JSON.stringify(views));
+  renderSavedViews();
 }
 
 // Hours ⇄ $ + hide-expenses toggles are shared across Report and Totals.
@@ -2870,10 +2926,26 @@ async function boot() {
   $("billable").checked = true;  // billable is the default for new entries
   buildChips();
   document.querySelectorAll("#seg button").forEach((b) => {
-    b.onclick = () => { rep.unit = b.dataset.unit; rep.anchor = new Date(); syncSeg(); renderReport(); };
+    b.onclick = () => {
+      rep.unit = b.dataset.unit;
+      if (rep.unit === "custom") {
+        if (!rep.cStart || !rep.cEnd) { rep.cEnd = ymd(new Date()); rep.cStart = ymd(addDays(new Date(), -29)); }
+        syncCustomInputs();
+      } else {
+        rep.anchor = new Date();
+      }
+      syncSeg();
+      renderReport();
+    };
   });
   $("prev").onclick = () => shiftPeriod(-1);
   $("next").onclick = () => shiftPeriod(1);
+  // Custom range (#11) + saved views
+  $("repCStart").onchange = () => { rep.cStart = $("repCStart").value; if (rep.cStart && rep.cEnd) renderReport(); };
+  $("repCEnd").onchange = () => { rep.cEnd = $("repCEnd").value; if (rep.cStart && rep.cEnd) renderReport(); };
+  $("savedViews").onchange = () => { const v = loadViews()[+$("savedViews").value]; if (v) applyView(v); $("savedViews").value = ""; };
+  $("saveView").onclick = saveCurrentView;
+  renderSavedViews();
   // Review filter/search — all in-memory (renderReportView, no refetch)
   $("filterToggle").onclick = () => {
     const f = $("repFilter");
