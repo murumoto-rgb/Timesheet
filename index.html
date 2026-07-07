@@ -654,6 +654,11 @@
       <div class="hero-sub" id="heroSub"></div>
       <div class="sub" id="heroNote" style="display:none;margin-top:4px"></div>
       <div class="sub yoy" id="repYoY" style="display:none;margin-top:4px"></div>
+      <span class="sortseg" id="repCompare" style="margin-top:8px">
+        <button class="sortbtn on" data-cmp="year" type="button">vs last yr</button>
+        <button class="sortbtn" data-cmp="prev" type="button">vs prev</button>
+        <button class="sortbtn" data-cmp="off" type="button">off</button>
+      </span>
       <div class="chart" id="chart"></div>
     </div>
 
@@ -742,7 +747,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.41</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.42</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1653,7 +1658,8 @@ async function renderWeekGrid() {
 const rep = { unit: "week", anchor: new Date(), person: "",   // person "" = All
   q: "", svc: "", status: "", needs: false,                   // review search/filter (#7/#8)
   selecting: false,                                           // bulk select mode (#9)
-  cStart: "", cEnd: "" };                                     // custom range (#11), ymd strings
+  cStart: "", cEnd: "",                                       // custom range (#11), ymd strings
+  compare: "year" };                                          // #12: "year" | "prev" | "off"
 const bulkSel = new Set();   // ids selected for a bulk action
 
 // People-filter chips for the report (employees + vendors with time in the
@@ -1741,6 +1747,26 @@ function shiftPeriod(dir) {
   else if (rep.unit === "quarter") rep.anchor = new Date(rep.anchor.getFullYear(), rep.anchor.getMonth() + 3 * dir, 1);
   else rep.anchor = new Date(rep.anchor.getFullYear(), rep.anchor.getMonth() + dir, 1);
   renderReport();
+}
+
+// The range to compare the current period against (#12): the same period a year
+// back, or the immediately preceding period of the same unit. null when off/day.
+function compareRange(start, end) {
+  if (rep.compare === "off" || rep.unit === "day") return null;
+  if (rep.compare === "prev") {
+    if (rep.unit === "week") return { s: addDays(start, -7), e: addDays(end, -7) };
+    if (rep.unit === "quarter") return { s: new Date(start.getFullYear(), start.getMonth() - 3, 1), e: new Date(end.getFullYear(), end.getMonth() - 2, 0) };
+    if (rep.unit === "month") return { s: new Date(start.getFullYear(), start.getMonth() - 1, 1), e: new Date(end.getFullYear(), end.getMonth(), 0) };
+    const span = Math.round((end - start) / 86400000) + 1;   // custom → preceding window of the same length
+    return { s: addDays(start, -span), e: addDays(end, -span) };
+  }
+  return { s: new Date(start.getFullYear() - 1, start.getMonth(), start.getDate()),
+           e: new Date(end.getFullYear() - 1, end.getMonth(), end.getDate()) };
+}
+function compareWord() {
+  if (rep.compare === "year") return "last year";
+  const u = { week: "week", month: "month", quarter: "quarter", custom: "period" }[rep.unit] || "period";
+  return "previous " + u;
 }
 
 async function fetchRange(start, end) {
@@ -2233,13 +2259,10 @@ async function renderReport() {
   // don't page into the future
   $("next").disabled = end >= new Date(new Date().setHours(0, 0, 0, 0)) && ymd(end) >= ymd(new Date());
   const seq = ++repSeq;
-  const wantPrev = rep.unit === "month" || rep.unit === "quarter";
+  const cr = compareRange(start, end);   // #12
   try {
     repFetched = await fetchRange(start, end);
-    repPrev = wantPrev
-      ? await fetchRange(new Date(start.getFullYear() - 1, start.getMonth(), start.getDate()),
-                         new Date(end.getFullYear() - 1, end.getMonth(), end.getDate()))
-      : null;
+    repPrev = cr ? await fetchRange(cr.s, cr.e) : null;
   } catch (e) {
     if (seq === repSeq) $("repEntries").innerHTML = '<div class="empty">Could not load: ' + e.message + "</div>";
     return;
@@ -2301,12 +2324,13 @@ function renderReportView() {
   }
   renderChart(entries);
 
-  // ── Year-over-year: this period's total vs the same period one year ago
-  //    (month/quarter only). Prior year is prefetched + cached in repPrev, and
-  //    scoped by the same person + review filters as the current period. ──
+  // ── Period comparison (#12): this period vs the comparison period (last year
+  //    or the previous period), prefetched + cached in repPrev, scoped by the
+  //    same person + review filters. Hidden for Day and when compare is off. ──
   const yoyEl = $("repYoY");
-  if (repPrev && (rep.unit === "month" || rep.unit === "quarter")) {
-    const unitWord = rep.unit === "quarter" ? "quarter" : "month";
+  syncCompare();
+  if (repPrev && rep.compare !== "off" && rep.unit !== "day") {
+    const word = compareWord();
     let prev = applyOpts(repPrev);
     if (rep.person) prev = prev.filter((e) => e.employee === rep.person);
     prev = reviewFilter(prev);
@@ -2317,12 +2341,12 @@ function renderReportView() {
     } else {
       if (ptot <= 0) {
         yoyEl.className = "sub yoy";
-        yoyEl.textContent = `No time in the same ${unitWord} last year`;
+        yoyEl.textContent = `No time in the ${word === "last year" ? "same period last year" : word}`;
       } else {
         const pct = Math.round(((total - ptot) / ptot) * 100);
         const arrow = pct > 0 ? "▲" : pct < 0 ? "▼" : "▬";
         yoyEl.className = "sub yoy " + (pct > 0 ? "up" : pct < 0 ? "down" : "");
-        yoyEl.textContent = `${arrow} ${Math.abs(pct)}% vs last year · ${fmtVal(ptot)} → ${fmtVal(total)}`;
+        yoyEl.textContent = `${arrow} ${Math.abs(pct)}% vs ${word} · ${fmtVal(ptot)} → ${fmtVal(total)}`;
       }
       yoyEl.style.display = "block";
     }
@@ -2854,6 +2878,11 @@ function syncCustomInputs() {
   $("repCStart").value = rep.cStart || "";
   $("repCEnd").value = rep.cEnd || "";
 }
+function syncCompare() {
+  const seg = $("repCompare");
+  seg.style.display = rep.unit === "day" ? "none" : "inline-flex";   // no comparison for a single day
+  seg.querySelectorAll(".sortbtn").forEach((b) => b.classList.toggle("on", b.dataset.cmp === rep.compare));
+}
 
 // ── Saved views (#11): persist unit + custom range + filters to localStorage ──
 function loadViews() { try { return JSON.parse(localStorage.getItem("saved-views") || "[]"); } catch { return []; } }
@@ -2946,6 +2975,10 @@ async function boot() {
   $("savedViews").onchange = () => { const v = loadViews()[+$("savedViews").value]; if (v) applyView(v); $("savedViews").value = ""; };
   $("saveView").onclick = saveCurrentView;
   renderSavedViews();
+  // Period comparison (#12) — changing the basis refetches the comparison range
+  document.querySelectorAll("#repCompare .sortbtn").forEach((b) => {
+    b.onclick = () => { rep.compare = b.dataset.cmp; renderReport(); };
+  });
   // Review filter/search — all in-memory (renderReportView, no refetch)
   $("filterToggle").onclick = () => {
     const f = $("repFilter");

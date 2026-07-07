@@ -24,9 +24,9 @@ test("custom range drives the fetch and the period label", async () => {
   await page.fill("#repCEnd", "2026-03-15");
   await page.dispatchEvent("#repCEnd", "change");
   await page.waitForTimeout(200);
-  const last = reqs[reqs.length - 1];
-  assert.equal(last.start, "2026-03-01");
-  assert.equal(last.end, "2026-03-15");
+  // the current range is fetched (a comparison range may also be fetched for #12)
+  assert.ok(reqs.some((r) => r.start === "2026-03-01" && r.end === "2026-03-15"),
+    "custom range should drive the period fetch");
   assert.match(await page.textContent("#periodLabel"), /Mar 1 – Mar 15/);
   assert.deepEqual(errors, []);
   await ctx.close();
