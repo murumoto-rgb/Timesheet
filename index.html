@@ -290,6 +290,17 @@
     letter-spacing: 0; color: var(--muted); white-space: nowrap; }
   .optck input { width: 20px; height: 20px; min-height: 0; padding: 0; flex-shrink: 0;
     appearance: auto; -webkit-appearance: checkbox; accent-color: var(--accent); }
+  /* Report filter/search (progressive disclosure) */
+  .filter-toggle { background: none; border: 1px solid var(--line); color: var(--muted);
+    border-radius: 8px; padding: 8px 12px; font-size: 13px; font-family: var(--sans);
+    cursor: pointer; margin-top: 12px; width: 100%; text-align: left; }
+  .filter-toggle.active { border-color: var(--accent); color: var(--accent); }
+  .rep-filter { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .rep-filter input[type=search], .rep-filter select {
+    width: 100%; font-size: 16px; padding: 9px 11px; min-height: 0; background: var(--field);
+    border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
+  .rep-filter .filter-row { display: flex; gap: 8px; }
+  .rep-filter .filter-row select { flex: 1; }
   .track { height: 6px; border-radius: 3px; background: var(--field); margin-top: 6px; }
   .fill { height: 100%; border-radius: 3px; background: var(--series-1); min-width: 2px; }
   .fill .bpart { height: 100%; border-radius: 3px; background: var(--good); }
@@ -596,6 +607,21 @@
       </div>
       <label class="optck"><input type="checkbox" class="hideExp"> Hide mileage &amp; expenses</label>
     </div>
+    <button class="filter-toggle" id="filterToggle" type="button">Filter &amp; search ▾</button>
+    <div id="repFilter" class="rep-filter" style="display:none">
+      <input type="search" id="repQ" placeholder="Search notes, client, service, person…">
+      <div class="filter-row">
+        <select id="repSvc"><option value="">All services</option></select>
+        <select id="repStatus">
+          <option value="">All time</option>
+          <option value="billable">Billable</option>
+          <option value="unbilled">To invoice</option>
+          <option value="nonbillable">Non-billable</option>
+        </select>
+      </div>
+      <label class="optck"><input type="checkbox" id="repNeeds"> Needs attention — missing client, notes, or rate</label>
+      <button class="ie-btn" id="repFilterClear" type="button">Clear filters</button>
+    </div>
     <div class="chips" id="repPeople" style="margin:12px 0 14px"></div>
 
     <div class="card">
@@ -686,7 +712,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.38</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.39</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1581,7 +1607,8 @@ async function renderWeekGrid() {
 }
 
 // ── Report state ────────────────────────────────────────────────────
-const rep = { unit: "week", anchor: new Date(), person: "" };  // person "" = All
+const rep = { unit: "week", anchor: new Date(), person: "",   // person "" = All
+  q: "", svc: "", status: "", needs: false };                 // review search/filter (#7/#8)
 
 // People-filter chips for the report (employees + vendors with time in the
 // period). Same pattern as the week grid; only shown when >1 person.
@@ -1594,7 +1621,7 @@ function renderRepPeople(people) {
     b.type = "button";
     b.className = "chip" + (rep.person === val ? " on" : "");
     b.textContent = label;
-    b.onclick = () => { rep.person = val; renderReport(); };
+    b.onclick = () => { rep.person = val; renderReportView(); };   // no refetch
     box.appendChild(b);
   };
   mk("All", "");
@@ -2119,29 +2146,56 @@ function renderBreakdown(box, entries, keyOf, pick) {
   });
 }
 
-let repSeq = 0;
+// Review search/filter over the period's entries (#7 search, #8 cleanup preset).
+function reviewFilter(entries) {
+  let out = entries;
+  const q = (rep.q || "").trim().toLowerCase();
+  if (q) out = out.filter((e) => [e.description, e.customer, e.service, e.employee].some((s) => (s || "").toLowerCase().includes(q)));
+  if (rep.svc) out = out.filter((e) => (e.service || "") === rep.svc);
+  if (rep.status === "billable") out = out.filter((e) => e.billable);
+  else if (rep.status === "unbilled") out = out.filter((e) => e.billableStatus === "Billable");
+  else if (rep.status === "nonbillable") out = out.filter((e) => !e.billable);
+  // "Needs attention": missing client, missing notes, or billable with no rate
+  if (rep.needs) out = out.filter((e) => !e.customer || !e.description || (e.billable && rateOf(e) === 0));
+  return out;
+}
+
+let repSeq = 0, repFetched = [], repPrev = null;
+// Fetch the period (and, for month/quarter, the prior year for the vs-last-year
+// line) once; then render. Search/filter changes call renderReportView directly
+// so typing never refetches.
 async function renderReport() {
   $("periodLabel").textContent = periodLabel();
   const { start, end } = periodRange();
   // don't page into the future
   $("next").disabled = end >= new Date(new Date().setHours(0, 0, 0, 0)) && ymd(end) >= ymd(new Date());
   const seq = ++repSeq;
-  let entries;
+  const wantPrev = rep.unit === "month" || rep.unit === "quarter";
   try {
-    entries = await fetchRange(start, end);
+    repFetched = await fetchRange(start, end);
+    repPrev = wantPrev
+      ? await fetchRange(new Date(start.getFullYear() - 1, start.getMonth(), start.getDate()),
+                         new Date(end.getFullYear() - 1, end.getMonth(), end.getDate()))
+      : null;
   } catch (e) {
     if (seq === repSeq) $("repEntries").innerHTML = '<div class="empty">Could not load: ' + e.message + "</div>";
     return;
   }
   if (seq !== repSeq) return;  // a newer render superseded this one
+  renderReportView();
+}
 
-  entries = applyOpts(entries);  // drop mileage/expense lines when toggled
+function renderReportView() {
+  let entries = applyOpts(repFetched);  // drop mileage/expense lines when toggled
+  populateSvcFilter(entries);
 
   // people with time in this period → filter chips; then scope the report
   const people = [...new Set(entries.map((e) => e.employee).filter(Boolean))].sort();
   if (rep.person && !people.includes(rep.person)) rep.person = "";
   renderRepPeople(people);
   if (rep.person) entries = entries.filter((e) => e.employee === rep.person);
+  entries = reviewFilter(entries);   // #7 search / #8 cleanup
+  syncFilterUI();
 
   let total = 0, billable = 0, unbilled = 0;
   entries.forEach((e) => {
@@ -2184,21 +2238,20 @@ async function renderReport() {
   }
   renderChart(entries);
 
-  // ── Year-over-year: compare this period's total to the same period one year
-  //    ago (month/quarter only — YoY is meaningless day-to-day). Loaded async
-  //    and non-fatally so it never blocks or breaks the report. ──
+  // ── Year-over-year: this period's total vs the same period one year ago
+  //    (month/quarter only). Prior year is prefetched + cached in repPrev, and
+  //    scoped by the same person + review filters as the current period. ──
   const yoyEl = $("repYoY");
-  if (rep.unit === "month" || rep.unit === "quarter") {
-    const pyStart = new Date(start.getFullYear() - 1, start.getMonth(), start.getDate());
-    const pyEnd = new Date(end.getFullYear() - 1, end.getMonth(), end.getDate());
+  if (repPrev && (rep.unit === "month" || rep.unit === "quarter")) {
     const unitWord = rep.unit === "quarter" ? "quarter" : "month";
-    fetchRange(pyStart, pyEnd).then((prev) => {
-      if (seq !== repSeq) return;
-      prev = applyOpts(prev);
-      if (rep.person) prev = prev.filter((e) => e.employee === rep.person);
-      let ptot = 0;
-      prev.forEach((e) => { ptot += val(e); });
-      if (ptot <= 0 && total <= 0) { yoyEl.style.display = "none"; return; }
+    let prev = applyOpts(repPrev);
+    if (rep.person) prev = prev.filter((e) => e.employee === rep.person);
+    prev = reviewFilter(prev);
+    let ptot = 0;
+    prev.forEach((e) => { ptot += val(e); });
+    if (ptot <= 0 && total <= 0) {
+      yoyEl.style.display = "none";
+    } else {
       if (ptot <= 0) {
         yoyEl.className = "sub yoy";
         yoyEl.textContent = `No time in the same ${unitWord} last year`;
@@ -2209,7 +2262,7 @@ async function renderReport() {
         yoyEl.textContent = `${arrow} ${Math.abs(pct)}% vs last year · ${fmtVal(ptot)} → ${fmtVal(total)}`;
       }
       yoyEl.style.display = "block";
-    }).catch(() => { if (seq === repSeq) yoyEl.style.display = "none"; });
+    }
   } else {
     yoyEl.style.display = "none";
   }
@@ -2220,6 +2273,24 @@ async function renderReport() {
   renderBreakdown($("serviceRows"), entries, (e) => e.service || "(no service)");
   $("repEntriesTitle").textContent = "Entries — " + periodLabel();
   renderEntryRows($("repEntries"), entries, { showDate: rep.unit !== "day" });
+}
+
+// Fill the service filter from the services present this period, keeping the selection.
+function populateSvcFilter(entries) {
+  const sel = $("repSvc");
+  const svcs = [...new Set(entries.map((e) => e.service).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All services</option>' +
+    svcs.map((s) => `<option value="${escapeHtml(s)}"${s === rep.svc ? " selected" : ""}>${escapeHtml(s)}</option>`).join("");
+  if (!svcs.includes(rep.svc)) rep.svc = "";
+}
+
+// Reflect filter state in the controls + flag the toggle when any filter is active.
+function syncFilterUI() {
+  const active = !!(rep.q || rep.svc || rep.status || rep.needs);
+  $("filterToggle").classList.toggle("active", active);
+  if ($("repQ").value !== rep.q) $("repQ").value = rep.q;   // guard so typing keeps the caret
+  $("repStatus").value = rep.status;
+  $("repNeeds").checked = rep.needs;
 }
 
 // From a Report project row → the Totals drill-down for that project, same period.
@@ -2726,6 +2797,20 @@ async function boot() {
   });
   $("prev").onclick = () => shiftPeriod(-1);
   $("next").onclick = () => shiftPeriod(1);
+  // Review filter/search — all in-memory (renderReportView, no refetch)
+  $("filterToggle").onclick = () => {
+    const f = $("repFilter");
+    f.style.display = f.style.display === "none" ? "flex" : "none";
+    if (f.style.display === "flex") $("repQ").focus();
+  };
+  $("repQ").oninput = () => { rep.q = $("repQ").value; renderReportView(); };
+  $("repSvc").onchange = () => { rep.svc = $("repSvc").value; renderReportView(); };
+  $("repStatus").onchange = () => { rep.status = $("repStatus").value; renderReportView(); };
+  $("repNeeds").onchange = () => { rep.needs = $("repNeeds").checked; renderReportView(); };
+  $("repFilterClear").onclick = () => {
+    rep.q = ""; rep.svc = ""; rep.status = ""; rep.needs = false;
+    $("repQ").value = ""; renderReportView();
+  };
   $("wgPrev").onclick = () => { wg.anchor = addDays(wg.anchor, -7); renderWeekGrid(); };
   $("wgNext").onclick = () => { wg.anchor = addDays(wg.anchor, 7); renderWeekGrid(); };
   document.querySelectorAll("#totSeg button").forEach((b) => {
