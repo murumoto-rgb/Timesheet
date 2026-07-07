@@ -366,6 +366,15 @@
   .money h2 .asof { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: none; letter-spacing: 0; }
   .conc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
   .conc-head h2 { margin: 0; }
+  /* Billable mix (#13): per-bucket stacked bars, billable (green) over non-billable (muted) */
+  .mix-bars { display: flex; align-items: flex-end; gap: 3px; height: 60px; margin-top: 6px; }
+  .mix-bar { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+  .mix-fill { width: 100%; min-height: 2px; background: var(--muted); border-radius: 2px; display: flex; align-items: flex-end; }
+  .mix-bill { width: 100%; background: var(--good); border-radius: 2px; }
+  .mix-legend { display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .mix-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  .mix-legend .mb-bill { background: var(--good); }
+  .mix-legend .mb-non { background: var(--muted); }
   .money-stats { display: flex; gap: 8px; margin: 4px 0 14px; }
   .mstat { flex: 1; min-width: 0; background: var(--field); border: 1px solid var(--line);
     border-radius: 10px; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
@@ -752,7 +761,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.43</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.44</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2678,6 +2687,35 @@ function renderMarginCard(revenue, subCost, subCount, win) {
   return moneyCard("Subcontractor cost &amp; margin", `last ${win.buckets.length} ${win.unitNoun}s`, stats, note);
 }
 
+// #13 Billable mix: billable vs non-billable HOURS per bucket over the window
+// (expenses excluded — not labor). Always in hours regardless of the $ toggle.
+function renderMixCard(entries, win) {
+  const nb = win.buckets.length;
+  const bBill = new Array(nb).fill(0), bTot = new Array(nb).fill(0);
+  entries.forEach((e) => {
+    if (!e.date || isExpense(e)) return;
+    const t = new Date(e.date + "T00:00").getTime();
+    for (let i = 0; i < nb; i++) {
+      if (t >= win.buckets[i].start.getTime() && t <= win.buckets[i].end.getTime()) {
+        const m = mins(e); bTot[i] += m; if (e.billable) bBill[i] += m; break;
+      }
+    }
+  });
+  const totMin = bTot.reduce((a, b) => a + b, 0), billMin = bBill.reduce((a, b) => a + b, 0);
+  if (totMin <= 0) return "";
+  const pct = Math.round((billMin / totMin) * 100);
+  const stats = mstat(pct + "%", "Billable", "good")
+    + mstat(fmtMins(billMin), "Billable hrs")
+    + mstat(fmtMins(totMin - billMin), "Non-billable hrs");
+  const maxT = Math.max(...bTot, 1);
+  const bars = bTot.map((tot, i) => {
+    const bp = tot > 0 ? (bBill[i] / tot) * 100 : 0;
+    return `<div class="mix-bar"><div class="mix-fill" style="height:${(tot / maxT) * 100}%"><div class="mix-bill" style="height:${bp}%"></div></div></div>`;
+  }).join("");
+  const legend = '<div class="mix-legend"><span><i class="mb-bill"></i>Billable</span><span><i class="mb-non"></i>Non-billable</span></div>';
+  return moneyCard("Billable mix", `last ${nb} ${win.unitNoun}s`, stats, `<div class="mix-bars">${bars}</div>${legend}`);
+}
+
 let dashSeq = 0;
 async function renderDash() {
   document.querySelectorAll("#dashSeg button").forEach((b) => b.classList.toggle("on", b.dataset.unit === dash.unit));
@@ -2752,6 +2790,7 @@ async function renderDash() {
 
   html += renderPracticeCard(M, win);
   html += renderConcentrationCard(byCust);
+  html += renderMixCard(entries, win);
 
   // Subcontractor cost & margin — filled async from /api/bills below; the
   // placeholder keeps its slot in the analytics stack (above the table).
