@@ -671,7 +671,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.36</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.37</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -720,6 +720,25 @@ const minsToHours = (m) => parseFloat((m / 60).toFixed(2));
 const REMEMBER = ["item"];   // "who" and "project" are remembered separately
 const ROUND_MINUTES = 30;    // durations round to the NEAREST this at save (0 = off)
 let editingId = null;        // id of the entry being edited, or null
+let editingBefore = null;    // pre-edit snapshot of that entry, for Undo
+
+// Map a fetched entry back to the create/update API body — used to Undo an edit
+// (re-PUT the old values) or Undo a delete (re-POST the same entry).
+function entryToBody(e) {
+  const body = {
+    item_id: e.itemId,
+    hours: Number(e.hours) || 0,
+    minutes: Number(e.minutes) || 0,
+    description: e.description || "",
+    txn_date: e.date,
+    billable: e.billableStatus === "Billable",
+    hourly_rate: e.hourlyRate,
+  };
+  if (e.vendorId) body.vendor_id = e.vendorId;
+  else if (e.employeeId) body.employee_id = e.employeeId;
+  if (e.customerId) body.customer_id = e.customerId;   // = the project/customer the time is tagged to
+  return body;
+}
 
 const TEMPLATES = [
   "Document review.",
@@ -1157,11 +1176,17 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
     del.textContent = "×";
     del.setAttribute("aria-label", "Delete entry");
     del.onclick = async () => {
-      if (!confirm(`Delete ${fmtDur(e.hours, e.minutes)} on ${e.customer || "no client"} (${e.date})?`)) return;
       del.disabled = true;
       const res = await fetch("/api/timeactivity/" + e.id, { method: "DELETE" });
-      if (res.ok) refreshData();
-      else { del.disabled = false; alert("Delete failed: " + (await res.text())); }
+      if (res.ok) {
+        refreshData();
+        // Undo a delete by re-creating the same entry (QBO assigns a fresh id).
+        showToast("Entry deleted", "Undo", async () => {
+          await fetch("/api/timeactivity", { method: "POST",
+            headers: { "Content-Type": "application/json" }, body: JSON.stringify(entryToBody(e)) });
+          refreshData();
+        });
+      } else { del.disabled = false; alert("Delete failed: " + (await res.text())); }
     };
     if (showDate) {
       const date = document.createElement("span");
@@ -1266,6 +1291,7 @@ function startEdit(e) {
   if (e.billableStatus === "HasBeenBilled") { showBilledEntry(e); return; }
   setBilledLock(false);   // clear any prior billed view
   editingId = e.id;
+  editingBefore = e;      // snapshot for Undo
   fillFormFromEntry(e);
   setEditMode(true);
   $("msg").className = "msg";
@@ -2833,6 +2859,7 @@ async function submit() {
   }
 
   const editing = editingId;
+  const before = editing ? editingBefore : null;   // captured for Undo
   try {
     const res = await fetch(
       editing ? "/api/timeactivity/" + editing : "/api/timeactivity",
@@ -2856,6 +2883,19 @@ async function submit() {
       (editing ? "Updated ✓  entry #" : "Logged ✓  entry #") + (data.Id || "") +
       (rounded ? `  · ${minsToHours(total)}h (rounded to ½ h)` : "");
     msg.className = "msg good";
+    // Undo: for a new entry delete it; for an edit re-PUT the prior values.
+    if (editing && before) {
+      showToast("Entry updated", "Undo", async () => {
+        await fetch("/api/timeactivity/" + editing, { method: "PUT",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify(entryToBody(before)) });
+        refreshData();
+      });
+    } else if (!editing && data.Id) {
+      showToast("Entry logged", "Undo", async () => {
+        await fetch("/api/timeactivity/" + data.Id, { method: "DELETE" });
+        refreshData();
+      });
+    }
     refreshData();
   } catch (e) {
     msg.textContent = "Failed: " + e.message;
