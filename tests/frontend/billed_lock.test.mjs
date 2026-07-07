@@ -27,7 +27,7 @@ test("billed rows: badge shown, delete button omitted; unbilled rows keep delete
   await page.waitForSelector("#entries .entry");
   const rows = await page.$$eval("#entries .entry", (els) => els.map((r) => ({
     billed: !!r.querySelector(".bill.billed"),
-    hasDelete: !!r.querySelector(".del:not(.rep)"),
+    hasDelete: !!r.querySelector('[aria-label="Delete entry"]'),
   })));
   const billedRow = rows.find((r) => r.billed);
   const normalRow = rows.find((r) => !r.billed);

@@ -150,6 +150,21 @@
   .entry .del:active { color: var(--bad); }
   .entry .rep { font-size: 15px; margin-right: -14px; }
   .entry .rep:active { color: var(--accent); }
+  .entry .edit { font-size: 14px; }
+  .entry .edit:active { color: var(--accent); }
+  /* inline quick-edit row */
+  .entry.ie { gap: 8px; flex-wrap: wrap; }
+  .entry.ie .ie-dur, .entry.ie .ie-notes {
+    font-size: 16px; padding: 7px 9px; min-height: 0; background: var(--field);
+    border: 1px solid var(--line); border-radius: 6px; color: var(--ink);
+  }
+  .entry.ie .ie-dur { width: 72px; flex: 0 0 auto; }
+  .entry.ie .ie-notes { flex: 1 1 110px; min-width: 90px; }
+  .entry.ie .ie-btn {
+    background: none; border: 1px solid var(--line); color: var(--muted);
+    border-radius: 6px; padding: 7px 12px; font-size: 13px; cursor: pointer; flex-shrink: 0;
+  }
+  .entry.ie .ie-btn.save { background: var(--accent); color: #06121f; border-color: var(--accent); font-weight: 650; }
   .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
   .foot { text-align: center; color: var(--muted); font-size: 12px; padding: 4px 0 8px; }
   .foot a { color: var(--accent); text-decoration: none; }
@@ -671,7 +686,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.37</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.38</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1194,11 +1209,54 @@ function renderEntryRows(box, entries, { showDate = true } = {}) {
       date.textContent = (e.date || "").slice(5);
       row.appendChild(date);
     }
-    // billed entries can't be deleted through the app — omit the × button
-    if (e.billableStatus === "HasBeenBilled") row.append(meta, dur, rep);
-    else row.append(meta, dur, rep, del);
+    // billed entries are locked — no quick-edit or delete
+    if (e.billableStatus === "HasBeenBilled") {
+      row.append(meta, dur, rep);
+    } else {
+      const edit = document.createElement("button");
+      edit.className = "del edit";
+      edit.textContent = "✎";
+      edit.setAttribute("aria-label", "Quick-edit hours & notes");
+      edit.onclick = () => inlineEditRow(row, e);
+      row.append(meta, dur, edit, rep, del);
+    }
     box.appendChild(row);
   });
+}
+
+// Quick-edit a row in place (hours + notes) without opening the full form.
+// Save PUTs the changed values (rounded like the form); Cancel just re-renders.
+function inlineEditRow(row, e) {
+  row.innerHTML = "";
+  row.classList.add("ie");
+  const h = document.createElement("input");
+  h.type = "number"; h.step = "0.25"; h.min = "0"; h.className = "ie-dur";
+  h.value = minsToHours(mins(e));
+  const notes = document.createElement("input");
+  notes.type = "text"; notes.className = "ie-notes"; notes.placeholder = "Notes"; notes.value = e.description || "";
+  const save = document.createElement("button"); save.className = "ie-btn save"; save.textContent = "Save";
+  const cancel = document.createElement("button"); cancel.className = "ie-btn"; cancel.textContent = "Cancel";
+  cancel.onclick = () => refreshData();
+  save.onclick = async () => {
+    let m = hoursToMins(h.value);
+    if (m <= 0) { h.focus(); return; }
+    if (ROUND_MINUTES > 0) m = Math.max(Math.round(m / ROUND_MINUTES) * ROUND_MINUTES, ROUND_MINUTES);
+    save.disabled = true;
+    const body = entryToBody(e);
+    body.hours = Math.floor(m / 60); body.minutes = m % 60; body.description = notes.value;
+    const res = await fetch("/api/timeactivity/" + e.id, { method: "PUT",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (res.ok) {
+      refreshData();
+      showToast("Entry updated", "Undo", async () => {
+        await fetch("/api/timeactivity/" + e.id, { method: "PUT",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify(entryToBody(e)) });
+        refreshData();
+      });
+    } else { save.disabled = false; alert("Save failed: " + (await res.text())); }
+  };
+  row.append(h, notes, save, cancel);
+  h.focus(); h.select();
 }
 
 async function loadRecent() {

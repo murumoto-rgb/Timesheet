@@ -51,7 +51,7 @@ test("deleting shows an Undo toast that re-creates the entry", async () => {
   const { ctx, page, errors } = await openApp(browser, base(entries));
   const calls = await recordMutations(page);
   await page.waitForSelector("#entries .entry");
-  await page.click("#entries .del:not(.rep)");          // the × delete button
+  await page.click('#entries [aria-label="Delete entry"]');   // the × delete button
   await page.waitForSelector("#toast", { state: "visible" });
   assert.ok(calls.some((c) => c.m === "DELETE" && c.url.endsWith("/E1")), "× should DELETE the entry");
   await page.click("#toastAction");
