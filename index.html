@@ -136,12 +136,13 @@
   }
   .entry:first-of-type { border-top: none; }
   .entry .meta { flex: 1; min-width: 0; }
-  .entry .top { display: flex; gap: 8px; font-size: 14px; }
-  .entry .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+  .entry .top { display: flex; align-items: center; gap: 8px; font-size: 14px; min-width: 0; }
+  .entry .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; min-width: 0; }
   .entry .desc { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .entry .dur { font-family: var(--mono); font-size: 14px; flex-shrink: 0; }
   .entry .date { font-family: var(--mono); font-size: 11px; color: var(--muted); flex-shrink: 0; width: 44px; }
-  .entry .bill { color: var(--good); font-size: 11px; }
+  /* the billable/billed badge never wraps — the client name truncates instead */
+  .entry .bill { color: var(--good); font-size: 11px; flex-shrink: 0; white-space: nowrap; }
   .entry .bill.billed { color: #d9a441; font-weight: 600; }
   .entry .del {
     background: none; border: none; color: var(--muted); font-size: 18px;
@@ -761,7 +762,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.44</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.45</div>
 </div>
 
 <div class="picker" id="picker" hidden>
