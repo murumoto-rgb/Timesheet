@@ -479,6 +479,10 @@
   .wg-head .wg-dow { font-size: 9px; opacity: 0.75; }
   .wg-head .wg-cell.today .wg-dom { color: var(--accent); }
   .wg-head .wg-cell.today { color: var(--ink); font-weight: 700; }
+  /* under-logged weekday (#6) — amber date with a dot */
+  .wg-head .wg-cell.gap .wg-dom { color: #d9a441; }
+  .wg-head .wg-cell.gap .wg-dom::after { content: "•"; display: block; line-height: 0; margin-top: 3px; font-size: 12px; }
+  .wg-gaps { color: #d9a441; margin-top: 10px; }
   .wg-tot {
     flex: 0 0 40px; text-align: right; font-family: var(--mono);
     font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
@@ -599,6 +603,7 @@
       </div>
       <div class="chips" id="wgPeople" style="margin-bottom:12px"></div>
       <div id="wgGrid"><div class="empty">Loading…</div></div>
+      <div class="sub wg-gaps" id="wgGaps" style="display:none"></div>
       <p class="sub" style="margin-top:10px">Tap a cell to log time for that
       project and day.</p>
     </div>
@@ -747,7 +752,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.42</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.43</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -795,6 +800,7 @@ const hoursToMins = (h) => Math.round((parseFloat(h) || 0) * 60);
 const minsToHours = (m) => parseFloat((m / 60).toFixed(2));
 const REMEMBER = ["item"];   // "who" and "project" are remembered separately
 const ROUND_MINUTES = 30;    // durations round to the NEAREST this at save (0 = off)
+const GAP_TARGET_MIN = 360;  // a weekday under this (6h) is flagged as an under-logged gap (#6)
 let editingId = null;        // id of the entry being edited, or null
 let editingBefore = null;    // pre-edit snapshot of that entry, for Undo
 
@@ -1558,6 +1564,20 @@ async function renderWeekGrid() {
   renderWgPeople(people);
   if (wg.person) entries = entries.filter((e) => e.employee === wg.person);
 
+  // ── Gap detector (#6): weekdays (today or past) with less than the target
+  //    logged. Weekends and future days are never flagged. ──
+  const today0 = new Date(ymd(new Date()) + "T00:00").getTime();
+  const dayMin = new Array(7).fill(0);
+  entries.forEach((e) => {
+    const i = Math.round((new Date(e.date + "T00:00") - start) / 86400000);
+    if (i >= 0 && i < 7) dayMin[i] += mins(e);
+  });
+  const gaps = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(start, i);
+    if (d.getDay() >= 1 && d.getDay() <= 5 && d.getTime() <= today0 && dayMin[i] < GAP_TARGET_MIN) gaps.push(i);
+  }
+
   // rows keyed by project/client id
   const itemMap = new Map();
   pickerItems.projects.forEach((r) => itemMap.set(r.id, { ...r, type: "project" }));
@@ -1606,7 +1626,7 @@ async function renderWeekGrid() {
   const head = wgEl("div", "wg-row wg-head");
   head.appendChild(wgEl("span", "wg-name", ""));
   "MTWTFSS".split("").forEach((ch, i) => {
-    const cell = wgEl("span", "wg-cell" + (i === todayI ? " today" : ""), "");
+    const cell = wgEl("span", "wg-cell" + (i === todayI ? " today" : "") + (gaps.includes(i) ? " gap" : ""), "");
     cell.appendChild(wgEl("span", "wg-dom", String(addDays(start, i).getDate())));
     cell.appendChild(wgEl("span", "wg-dow", ch));
     head.appendChild(cell);
@@ -1645,6 +1665,16 @@ async function renderWeekGrid() {
   dayTot.forEach((m) => foot.appendChild(wgEl("span", "wg-cell", m ? fmtCell(m) : "·")));
   foot.appendChild(wgEl("span", "wg-tot", fmtMins(grand)));
   grid.appendChild(foot);
+
+  // gap summary line (amber) — which weekdays are under-logged
+  const gapEl = $("wgGaps");
+  if (gaps.length) {
+    const days = gaps.map((i) => "MTWTFSS"[i] + addDays(start, i).getDate());
+    gapEl.textContent = `${gaps.length} ${gaps.length === 1 ? "gap" : "gaps"} — under ${GAP_TARGET_MIN / 60}h on ${days.join(", ")}`;
+    gapEl.style.display = "block";
+  } else {
+    gapEl.style.display = "none";
+  }
 
   if (!rows.length) {
     $("wgGrid").innerHTML = '<div class="empty">No entries or frequent projects yet this week.</div>';
