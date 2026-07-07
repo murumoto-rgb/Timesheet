@@ -83,6 +83,9 @@
     font-size: 14px; font-family: var(--mono); cursor: pointer;
   }
   .chip.on { border-color: var(--accent); color: var(--accent); }
+  /* duration quick-picks: all on one line, equal width, shrink to fit */
+  #chips { flex-wrap: nowrap; gap: 6px; }
+  #chips .chip { flex: 1 1 0; min-width: 0; padding: 8px 4px; text-align: center; font-size: 13px; }
   .check { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
   .check input {
     width: 22px; height: 22px; min-height: 0; padding: 0;
@@ -762,7 +765,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.45</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.46</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -804,7 +807,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const PRESETS = [0.25, 0.5, 1, 1.5, 2, 4, 8];  // decimal hours
+const PRESETS = [0.25, 0.5, 1, 1.5, 2, 2.5, 3];  // decimal hours (one row of quick picks)
 // decimal hours ⇄ minutes
 const hoursToMins = (h) => Math.round((parseFloat(h) || 0) * 60);
 const minsToHours = (m) => parseFloat((m / 60).toFixed(2));
