@@ -76,6 +76,18 @@
   }
   textarea { resize: vertical; min-height: 64px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  /* multi-entry week-cell chooser (#8) */
+  .chooser { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,0.5); display: flex; align-items: flex-end; }
+  .chooser-sheet { width: 100%; max-width: 480px; margin: 0 auto; background: var(--panel);
+    border-radius: 16px 16px 0 0; padding: 16px; max-height: 70vh; overflow-y: auto; }
+  .chooser-head { display: flex; justify-content: space-between; align-items: center; font-weight: 650; margin-bottom: 4px; }
+  .chooser-head button { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; }
+  .chooser-row { display: block; width: 100%; text-align: left; background: var(--field);
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 8px; cursor: pointer; color: var(--ink); }
+  .chooser-row .cr-top { display: flex; justify-content: space-between; gap: 10px; font-weight: 600; font-size: 14px; }
+  .chooser-row .cr-top .cr-dur { font-family: var(--mono); flex-shrink: 0; }
+  .chooser-row .cr-desc { display: block; color: var(--muted); font-size: 12.5px; margin-top: 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .today-strip { font-size: 13.5px; color: var(--ink); padding: 11px 14px; margin-bottom: 12px;
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px; font-variant-numeric: tabular-nums; }
   .today-strip b { color: var(--accent); font-weight: 650; }
@@ -772,7 +784,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.47</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.48</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -787,6 +799,13 @@
 <div id="toast" class="toast" style="display:none">
   <span id="toastMsg"></span>
   <button id="toastAction" type="button"></button>
+</div>
+
+<div id="cellChooser" class="chooser" style="display:none">
+  <div class="chooser-sheet">
+    <div class="chooser-head"><span>Which entry?</span><button type="button" id="cellChooserClose" aria-label="Close">✕</button></div>
+    <div id="cellChooserList"></div>
+  </div>
 </div>
 
 <nav class="tabbar" id="tabbar" style="display:none">
@@ -1556,20 +1575,41 @@ function openCellInForm(r, dayIndex, start) {
   window.scrollTo({ top: 0 });
 }
 
-// Tap a grid cell: edit the existing entry there, or open a fresh form.
+// Load a grid entry into the Log form and switch to it so the edit is visible.
+function editFromGrid(e) {
+  startEdit(e);
+  showView("log");
+  window.scrollTo({ top: 0 });
+}
+
+// Tap a grid cell: one entry → edit it; several → pick which; none → fresh form.
 function weekCellTap(r, dayIndex, start) {
   const cellEntries = (r.dayEntries && r.dayEntries[dayIndex]) || [];
-  if (cellEntries.length) {
-    startEdit(cellEntries[0]);   // most recent first (entries sorted desc)
-    if (cellEntries.length > 1) {
-      const msg = $("msg");
-      msg.textContent = `Editing the latest of ${cellEntries.length} entries here — the others are in Recent entries.`;
-      msg.className = "msg good";
-    }
-  } else {
-    openCellInForm(r, dayIndex, start);
-  }
+  if (cellEntries.length > 1) openCellChooser(cellEntries);
+  else if (cellEntries.length === 1) editFromGrid(cellEntries[0]);
+  else openCellInForm(r, dayIndex, start);
 }
+
+// #8 chooser: when a week cell holds several entries, list them so you pick one.
+function openCellChooser(entries) {
+  const list = $("cellChooserList");
+  list.innerHTML = "";
+  entries.forEach((e) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chooser-row";
+    const top = document.createElement("div"); top.className = "cr-top";
+    const nm = document.createElement("span");
+    nm.textContent = (e.customer || "(no client)") + (e.service ? " · " + e.service : "")
+      + (e.billableStatus === "HasBeenBilled" ? " 🔒" : "");
+    const dur = document.createElement("span"); dur.className = "cr-dur"; dur.textContent = fmtDur(e.hours, e.minutes);
+    top.append(nm, dur); b.appendChild(top);
+    if (e.description) { const d = document.createElement("span"); d.className = "cr-desc"; d.textContent = e.description; b.appendChild(d); }
+    b.onclick = () => { closeCellChooser(); editFromGrid(e); };
+    list.appendChild(b);
+  });
+  $("cellChooser").style.display = "flex";
+}
+function closeCellChooser() { $("cellChooser").style.display = "none"; }
 
 let wgSeq = 0;
 async function renderWeekGrid() {
@@ -3348,6 +3388,8 @@ async function submit() {
 $("submit").addEventListener("click", submit);
 $("cancelEdit").addEventListener("click", cancelEdit);
 $("closeBilled").addEventListener("click", () => { setBilledLock(false); clearFormFields(); $("msg").className = "msg"; });
+$("cellChooserClose").addEventListener("click", closeCellChooser);
+$("cellChooser").addEventListener("click", (ev) => { if (ev.target === $("cellChooser")) closeCellChooser(); });
 $("cancelNew").addEventListener("click", () => {
   clearFormFields();               // discard the in-progress new entry
   const msg = $("msg");
