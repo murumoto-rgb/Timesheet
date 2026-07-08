@@ -36,6 +36,9 @@ test("under-logged weekdays are flagged in the header + summary", async () => {
   assert.equal(gapCells, pastWeekdays.length, "each under-logged past weekday is flagged");
   assert.equal(await page.isVisible("#wgGaps"), true);
   assert.match(await page.textContent("#wgGaps"), /gap/);
+  // colour legend is present with all three keys
+  const legend = await page.$$eval("#weekView .wg-legend span", (els) => els.map((e) => e.textContent.trim()));
+  assert.deepEqual(legend, ["Unbilled", "Billed (locked)", "Under-logged day"]);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

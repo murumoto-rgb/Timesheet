@@ -510,9 +510,17 @@
   .wg-head .wg-cell.today .wg-dom { color: var(--accent); }
   .wg-head .wg-cell.today { color: var(--ink); font-weight: 700; }
   /* under-logged weekday (#6) — amber date with a dot */
-  .wg-head .wg-cell.gap .wg-dom { color: #d9a441; }
+  /* under-logged "gap" flag — red, distinct from billed-amber */
+  .wg-head .wg-cell.gap .wg-dom { color: var(--bad); }
   .wg-head .wg-cell.gap .wg-dom::after { content: "•"; display: block; line-height: 0; margin-top: 3px; font-size: 12px; }
-  .wg-gaps { color: #d9a441; margin-top: 10px; }
+  .wg-gaps { color: var(--bad); margin-top: 10px; }
+  /* Week colour legend */
+  .wg-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 11.5px; color: var(--muted); }
+  .wg-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .wg-legend i { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+  .wg-legend .lg-unbilled { background: var(--accent); }
+  .wg-legend .lg-billed { background: #d9a441; }
+  .wg-legend .lg-gap { background: var(--bad); }
   .wg-tot {
     flex: 0 0 40px; text-align: right; font-family: var(--mono);
     font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
@@ -642,6 +650,11 @@
       </div>
       <div class="chips" id="wgPeople" style="margin-bottom:12px"></div>
       <div id="wgGrid"><div class="empty">Loading…</div></div>
+      <div class="wg-legend">
+        <span><i class="lg-unbilled"></i>Unbilled</span>
+        <span><i class="lg-billed"></i>Billed (locked)</span>
+        <span><i class="lg-gap"></i>Under-logged day</span>
+      </div>
       <div class="sub wg-gaps" id="wgGaps" style="display:none"></div>
       <p class="sub" style="margin-top:10px">Tap a cell to log time for that
       project and day.</p>
@@ -792,7 +805,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.52</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.53</div>
 </div>
 
 <div class="picker" id="picker" hidden>
