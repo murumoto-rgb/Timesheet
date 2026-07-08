@@ -76,6 +76,11 @@
   }
   textarea { resize: vertical; min-height: 64px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .today-strip { font-size: 13.5px; color: var(--ink); padding: 11px 14px; margin-bottom: 12px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; font-variant-numeric: tabular-nums; }
+  .today-strip b { color: var(--accent); font-weight: 650; }
+  .today-strip .g { color: var(--good); }
+  .today-strip.empty-day { color: var(--muted); }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .chip {
     padding: 8px 14px; min-height: 38px; border-radius: 999px;
@@ -548,6 +553,7 @@
 
 <div id="app">
   <div id="logView">
+    <div class="today-strip" id="todayStrip">—</div>
     <div class="card" id="recentCard" style="display:none">
       <h2>Recent projects</h2>
       <div class="chips" id="recentChips"></div>
@@ -654,6 +660,7 @@
         </select>
       </div>
       <label class="optck"><input type="checkbox" id="repNeeds"> Needs attention — missing client, notes, or rate</label>
+      <label class="optck"><input type="checkbox" id="repAllTime"> Search all history (ignore the period)</label>
       <div class="filter-row">
         <select id="savedViews"><option value="">Saved views…</option></select>
         <button class="ie-btn" id="saveView" type="button">Save view</button>
@@ -765,7 +772,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.46</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.47</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1352,10 +1359,25 @@ function inlineEditRow(row, e) {
   h.focus(); h.select();
 }
 
+// #1 "Today so far" strip: today's total + count (billable split), so you know
+// where the day stands without leaving the Log tab.
+function renderTodayStrip(entries) {
+  const el = $("todayStrip");
+  const t = ymd(new Date());
+  const todays = entries.filter((e) => e.date === t);
+  if (!todays.length) { el.className = "today-strip empty-day"; el.textContent = "No time logged today yet"; return; }
+  const total = todays.reduce((s, e) => s + mins(e), 0);
+  const bill = todays.reduce((s, e) => (e.billable ? s + mins(e) : s), 0);
+  el.className = "today-strip";
+  el.innerHTML = `<b>Today</b> · ${fmtMins(total)} · ${todays.length} ${todays.length === 1 ? "entry" : "entries"}`
+    + (bill && bill !== total ? ` · <span class="g">${fmtMins(bill)} billable</span>` : "");
+}
+
 async function loadRecent() {
   const box = $("entries");
   try {
     const entries = await (await fetch("/api/timeactivities?days=14")).json();
+    renderTodayStrip(entries);
     if (!entries.length) {
       box.innerHTML = '<div class="empty">No entries in the last 14 days.</div>';
       return;
@@ -1702,7 +1724,8 @@ const rep = { unit: "week", anchor: new Date(), person: "",   // person "" = All
   q: "", svc: "", status: "", needs: false,                   // review search/filter (#7/#8)
   selecting: false,                                           // bulk select mode (#9)
   cStart: "", cEnd: "",                                       // custom range (#11), ymd strings
-  compare: "year" };                                          // #12: "year" | "prev" | "off"
+  compare: "year",                                            // #12: "year" | "prev" | "off"
+  allTime: false };                                           // #7: search across all history
 const bulkSel = new Set();   // ids selected for a bulk action
 
 // People-filter chips for the report (employees + vendors with time in the
@@ -2297,12 +2320,15 @@ let repSeq = 0, repFetched = [], repPrev = null;
 // line) once; then render. Search/filter changes call renderReportView directly
 // so typing never refetches.
 async function renderReport() {
-  $("periodLabel").textContent = periodLabel();
-  const { start, end } = periodRange();
-  // don't page into the future
-  $("next").disabled = end >= new Date(new Date().setHours(0, 0, 0, 0)) && ymd(end) >= ymd(new Date());
+  // #7 all-history search: widen the fetch to ~5 years so search finds anything,
+  // no comparison/paging (label + nav reflect it).
+  const wide = rep.allTime;
+  const { start, end } = wide ? { start: addDays(new Date(), -365 * 5), end: new Date() } : periodRange();
+  $("periodLabel").textContent = wide ? "All history" : periodLabel();
+  $("prev").disabled = wide;
+  $("next").disabled = wide || (end >= new Date(new Date().setHours(0, 0, 0, 0)) && ymd(end) >= ymd(new Date()));
   const seq = ++repSeq;
-  const cr = compareRange(start, end);   // #12
+  const cr = wide ? null : compareRange(start, end);   // #12
   try {
     repFetched = await fetchRange(start, end);
     repPrev = cr ? await fetchRange(cr.s, cr.e) : null;
@@ -2365,7 +2391,8 @@ function renderReportView() {
   } else {
     note.style.display = "none";
   }
-  renderChart(entries);
+  if (rep.allTime) $("chart").innerHTML = "";   // no chart for the all-history search view
+  else renderChart(entries);
 
   // ── Period comparison (#12): this period vs the comparison period (last year
   //    or the previous period), prefetched + cached in repPrev, scoped by the
@@ -2417,11 +2444,12 @@ function populateSvcFilter(entries) {
 
 // Reflect filter state in the controls + flag the toggle when any filter is active.
 function syncFilterUI() {
-  const active = !!(rep.q || rep.svc || rep.status || rep.needs);
+  const active = !!(rep.q || rep.svc || rep.status || rep.needs || rep.allTime);
   $("filterToggle").classList.toggle("active", active);
   if ($("repQ").value !== rep.q) $("repQ").value = rep.q;   // guard so typing keeps the caret
   $("repStatus").value = rep.status;
   $("repNeeds").checked = rep.needs;
+  $("repAllTime").checked = rep.allTime;
 }
 
 // ── Bulk actions (#9): select rows in Report → flip billable, set service, delete ──
@@ -2953,7 +2981,8 @@ function syncCustomInputs() {
 }
 function syncCompare() {
   const seg = $("repCompare");
-  seg.style.display = rep.unit === "day" ? "none" : "inline-flex";   // no comparison for a single day
+  // no comparison for a single day or the all-history search view
+  seg.style.display = (rep.unit === "day" || rep.allTime) ? "none" : "inline-flex";
   seg.querySelectorAll(".sortbtn").forEach((b) => b.classList.toggle("on", b.dataset.cmp === rep.compare));
 }
 
@@ -3062,9 +3091,12 @@ async function boot() {
   $("repSvc").onchange = () => { rep.svc = $("repSvc").value; renderReportView(); };
   $("repStatus").onchange = () => { rep.status = $("repStatus").value; renderReportView(); };
   $("repNeeds").onchange = () => { rep.needs = $("repNeeds").checked; renderReportView(); };
+  $("repAllTime").onchange = () => { rep.allTime = $("repAllTime").checked; renderReport(); };   // range changes → refetch
   $("repFilterClear").onclick = () => {
     rep.q = ""; rep.svc = ""; rep.status = ""; rep.needs = false;
-    $("repQ").value = ""; renderReportView();
+    const wasAll = rep.allTime; rep.allTime = false;
+    $("repQ").value = "";
+    wasAll ? renderReport() : renderReportView();
   };
   // Bulk select mode + actions (#9)
   $("repSelectToggle").onclick = () => {
