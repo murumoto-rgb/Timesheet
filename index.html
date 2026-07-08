@@ -602,6 +602,14 @@
         </div>
       </div>
       <div class="chips" id="chips"></div>
+      <label class="optck" id="multiDayToggle" style="margin-top:12px"><input type="checkbox" id="multiDay"> Log across multiple days</label>
+      <div class="row" id="multiDayRow" style="display:none">
+        <div>
+          <label for="dateEnd">Through</label>
+          <input type="date" id="dateEnd" />
+        </div>
+        <div><label>&nbsp;</label><div class="sub" id="multiDayNote" style="padding-top:11px">Creates one entry per day in the range.</div></div>
+      </div>
 
       <label for="desc">Notes</label>
       <select id="template" style="margin-bottom:8px"></select>
@@ -784,7 +792,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.50</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.51</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1477,6 +1485,7 @@ function clearFormFields() {
   if ($("template")) $("template").selectedIndex = 0;
   $("billable").checked = true;       // billable is the default for new entries
   document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+  $("multiDay").checked = false; $("multiDayRow").style.display = "none"; $("dateEnd").value = "";  // #4
 }
 
 // Show the right buttons for new-entry vs editing mode.
@@ -1486,6 +1495,9 @@ function setEditMode(on) {
   $("cancelNew").style.display = on ? "none" : "block";
   $("editBanner").style.display = on ? "block" : "none";
   $("logForm").classList.toggle("editing", on);  // recolor the whole form while editing
+  // multi-day is for new entries only — hide it (and reset) while editing
+  $("multiDayToggle").style.display = on ? "none" : "flex";
+  if (on) { $("multiDay").checked = false; $("multiDayRow").style.display = "none"; }
 }
 
 // Fields locked in the read-only "billed" view.
@@ -3379,6 +3391,35 @@ async function submit() {
 
   const editing = editingId;
   const before = editing ? editingBefore : null;   // captured for Undo
+
+  // #4 multi-day: create one entry per day across [date, dateEnd] (new entries only)
+  if (!editing && $("multiDay").checked && $("dateEnd").value) {
+    const startD = body.txn_date, endD = $("dateEnd").value;
+    if (endD < startD) { msg.textContent = '"Through" date must be on or after the start date.'; msg.className = "msg bad"; $("submit").disabled = false; return; }
+    const days = [];
+    for (let d = new Date(startD + "T00:00"), stop = new Date(endD + "T00:00"); d <= stop; d = addDays(d, 1)) days.push(ymd(d));
+    if (days.length > 31 && !confirm(`Create ${days.length} entries (one per day)?`)) { $("submit").disabled = false; return; }
+    let ok = 0, fail = 0;
+    for (const day of days) {
+      try {
+        const r = await fetch("/api/timeactivity", { method: "POST",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, txn_date: day }) });
+        r.ok ? ok++ : fail++;
+      } catch { fail++; }
+    }
+    localStorage.setItem("last-who-id", whoOpt.value);
+    localStorage.setItem("last-who-type", whoOpt.dataset.type);
+    $("durh").value = ""; $("desc").value = "";
+    $("multiDay").checked = false; $("multiDayRow").style.display = "none"; $("dateEnd").value = "";
+    document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+    $("billable").checked = true;
+    msg.textContent = `Logged ${ok} ${ok === 1 ? "entry" : "entries"} across ${days.length} days` + (fail ? ` · ${fail} failed` : "");
+    msg.className = fail ? "msg bad" : "msg good";
+    $("submit").disabled = false;
+    refreshData();
+    return;
+  }
+
   try {
     const res = await fetch(
       editing ? "/api/timeactivity/" + editing : "/api/timeactivity",
@@ -3427,6 +3468,11 @@ async function submit() {
 $("submit").addEventListener("click", submit);
 $("cancelEdit").addEventListener("click", cancelEdit);
 $("closeBilled").addEventListener("click", () => { setBilledLock(false); clearFormFields(); $("msg").className = "msg"; });
+$("multiDay").addEventListener("change", () => {
+  const on = $("multiDay").checked;
+  $("multiDayRow").style.display = on ? "flex" : "none";
+  if (on && !$("dateEnd").value) $("dateEnd").value = $("date").value;   // seed with the start date
+});
 $("cellChooserClose").addEventListener("click", closeCellChooser);
 $("cellChooser").addEventListener("click", (ev) => { if (ev.target === $("cellChooser")) closeCellChooser(); });
 $("cancelNew").addEventListener("click", () => {
