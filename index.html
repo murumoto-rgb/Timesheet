@@ -784,7 +784,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.48</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.49</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1575,6 +1575,19 @@ function openCellInForm(r, dayIndex, start) {
   window.scrollTo({ top: 0 });
 }
 
+// #5 tap a gap → open a fresh Log entry pre-dated to that day (no project yet).
+function logForDay(d) {
+  cancelEdit();
+  const who = personWhoOption() || resolveWhoOption();
+  if (who) who.selected = true;
+  $("date").value = ymd(d);
+  showView("log");
+  window.scrollTo({ top: 0 });
+  const msg = $("msg");
+  msg.textContent = "Logging time for " + d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " — pick a project.";
+  msg.className = "msg good";
+}
+
 // Load a grid entry into the Log form and switch to it so the edit is visible.
 function editFromGrid(e) {
   startEdit(e);
@@ -1701,9 +1714,11 @@ async function renderWeekGrid() {
   const head = wgEl("div", "wg-row wg-head");
   head.appendChild(wgEl("span", "wg-name", ""));
   "MTWTFSS".split("").forEach((ch, i) => {
-    const cell = wgEl("span", "wg-cell" + (i === todayI ? " today" : "") + (gaps.includes(i) ? " gap" : ""), "");
+    const isGap = gaps.includes(i);
+    const cell = wgEl("span", "wg-cell" + (i === todayI ? " today" : "") + (isGap ? " gap" : ""), "");
     cell.appendChild(wgEl("span", "wg-dom", String(addDays(start, i).getDate())));
     cell.appendChild(wgEl("span", "wg-dow", ch));
+    if (isGap) { cell.style.cursor = "pointer"; cell.title = "Log time for this day"; cell.onclick = () => logForDay(addDays(start, i)); }  // #5
     head.appendChild(cell);
   });
   head.appendChild(wgEl("span", "wg-tot", ""));
@@ -1741,12 +1756,14 @@ async function renderWeekGrid() {
   foot.appendChild(wgEl("span", "wg-tot", fmtMins(grand)));
   grid.appendChild(foot);
 
-  // gap summary line (amber) — which weekdays are under-logged
+  // gap summary line (amber) — which weekdays are under-logged; tap → log the first one
   const gapEl = $("wgGaps");
   if (gaps.length) {
     const days = gaps.map((i) => "MTWTFSS"[i] + addDays(start, i).getDate());
-    gapEl.textContent = `${gaps.length} ${gaps.length === 1 ? "gap" : "gaps"} — under ${GAP_TARGET_MIN / 60}h on ${days.join(", ")}`;
+    gapEl.textContent = `${gaps.length} ${gaps.length === 1 ? "gap" : "gaps"} — under ${GAP_TARGET_MIN / 60}h on ${days.join(", ")} · tap to log`;
     gapEl.style.display = "block";
+    gapEl.style.cursor = "pointer";
+    gapEl.onclick = () => logForDay(addDays(start, gaps[0]));
   } else {
     gapEl.style.display = "none";
   }

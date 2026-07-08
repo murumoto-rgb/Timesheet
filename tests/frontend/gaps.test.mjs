@@ -49,3 +49,15 @@ test("logging the target on every past weekday clears all gaps", async () => {
   assert.equal(await page.isVisible("#wgGaps"), false);
   await ctx.close();
 });
+
+test("#5 tapping the gap summary opens a fresh Log entry for that day", async () => {
+  const { pastWeekdays } = weekInfo();
+  const { ctx, page, errors } = await openApp(browser, base([e(pastWeekdays[0], 2)]), "week");
+  await page.waitForSelector("#wgGaps");
+  await page.click("#wgGaps");                       // tap the gap summary
+  await page.waitForTimeout(200);
+  assert.equal(await page.isVisible("#logView"), true);
+  assert.equal(await page.inputValue("#date"), pastWeekdays[0]);   // form dated to the first gap
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
