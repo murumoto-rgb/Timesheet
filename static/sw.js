@@ -2,7 +2,7 @@
 // shows the daily reminder, and focuses the app on tap.
 // Bump SW_VERSION on each deploy so this worker re-activates and purges any
 // stale app-shell cache left by an earlier build.
-const SW_VERSION = "2026.07.05.7";
+const SW_VERSION = "2026.07.05.8";
 
 self.addEventListener("install", () => self.skipWaiting());
 
@@ -25,12 +25,18 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("push", (event) => {
+  // Payloadless push: pick the message by weekday — Friday is the weekly review
+  // nudge, other days the daily log reminder. (The live numbers live in-app.)
+  const isReviewDay = new Date().getDay() === 5;  // Fri
+  const body = isReviewDay
+    ? "Weekly review — check your gaps and any entries that need attention."
+    : "Don't forget to log today's hours.";
   event.waitUntil(
     self.registration.showNotification("Timesheet", {
-      body: "Don't forget to log today's hours.",
+      body,
       icon: "/static/icon-192.png",
       badge: "/static/icon-192.png",
-      tag: "daily-reminder",
+      tag: isReviewDay ? "weekly-review" : "daily-reminder",
     })
   );
 });

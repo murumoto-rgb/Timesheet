@@ -1151,7 +1151,26 @@ entries and reports which carry an hourly rate. Nothing is changed.</p>
 REMINDER_HOUR = int(os.environ.get("REMINDER_HOUR", "17"))
 REMINDER_TZ = os.environ.get("REMINDER_TZ", "America/Los_Angeles")
 REMINDER_WEEKDAYS_ONLY = os.environ.get("REMINDER_WEEKDAYS_ONLY", "1") != "0"
+# Weekly review nudge (#6): weekday to prompt an end-of-week review on
+# (Mon=0 … Fri=4; -1 disables). Fires once that day past REMINDER_HOUR.
+WEEKLY_REVIEW_DAY = int(os.environ.get("WEEKLY_REVIEW_DAY", "4"))
 _push_lock = threading.Lock()
+
+
+def _reminders_due(now, push):
+    """Which reminders are due given the current time + push state — pure and
+    unit-testable. Returns a set drawn from {"weekly", "daily"}."""
+    due = set()
+    if now.hour < REMINDER_HOUR:
+        return due
+    today = now.date().isoformat()
+    if (WEEKLY_REVIEW_DAY >= 0 and now.weekday() == WEEKLY_REVIEW_DAY
+            and push.get("last_weekly") != today):
+        due.add("weekly")
+    if (push.get("last_reminder") != today
+            and not (REMINDER_WEEKDAYS_ONLY and now.weekday() >= 5)):
+        due.add("daily")
+    return due
 
 
 def _b64u(b):
@@ -1252,21 +1271,27 @@ def _logged_time_today(tz_today):
 def _reminder_tick():
     now = datetime.now(ZoneInfo(REMINDER_TZ))
     today = now.date().isoformat()
-    # Claim the once-per-day slot under the lock so this write can't clobber a
-    # subscription added concurrently. Release before the QBO check / sends.
+    # Claim the once-per-day/week slots under the lock so this write can't clobber
+    # a subscription added concurrently. Release before the QBO check / sends.
     with _push_lock:
         push = _load_push()
         if not push.get("subs"):
             return
-        if push.get("last_reminder") == today:
+        due = _reminders_due(now, push)
+        if not due:
             return
-        if now.hour < REMINDER_HOUR:
-            return
-        if REMINDER_WEEKDAYS_ONLY and now.weekday() >= 5:
-            return
-        push["last_reminder"] = today
+        if "weekly" in due:
+            push["last_weekly"] = today
+        if "daily" in due:
+            push["last_reminder"] = today
         _save_push(push)
-    if not _logged_time_today(today):
+    # A weekly review prompt fires regardless of whether time is logged, and
+    # takes the slot for the day (no duplicate daily nudge on the same tick).
+    if "weekly" in due:
+        n = _notify_all()
+        log.info("weekly review reminder sent to %d device(s)", n)
+        return
+    if "daily" in due and not _logged_time_today(today):
         n = _notify_all()
         log.info("daily reminder sent to %d device(s)", n)
 

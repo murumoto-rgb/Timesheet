@@ -259,6 +259,27 @@ def test_list_bills_merges_and_drops_credits(monkeypatch):
     assert {x["vendor"] for x in out} == {"Sub A", "Sub B"}
 
 
+# ── reminder scheduling: daily + weekly review nudge (#6) ───────────────────
+def test_reminders_due_daily_and_weekly():
+    from datetime import datetime, timedelta
+
+    def at(weekday, hour):
+        d = datetime(2026, 7, 6, hour, 0)          # advance to the wanted weekday, keep the hour
+        while d.weekday() != weekday:
+            d += timedelta(days=1)
+        return d
+
+    fri_5pm, wed_5pm, sat_5pm, fri_3pm = at(4, 17), at(2, 17), at(5, 17), at(4, 15)
+    assert main._reminders_due(fri_5pm, {}) == {"weekly", "daily"}     # Friday evening: both
+    assert main._reminders_due(wed_5pm, {}) == {"daily"}              # midweek: daily only
+    assert main._reminders_due(sat_5pm, {}) == set()                 # weekend: neither
+    assert main._reminders_due(fri_3pm, {}) == set()                 # before REMINDER_HOUR
+    # already-sent slots aren't re-due the same day
+    today = fri_5pm.date().isoformat()
+    assert main._reminders_due(fri_5pm, {"last_weekly": today}) == {"daily"}
+    assert main._reminders_due(fri_5pm, {"last_weekly": today, "last_reminder": today}) == set()
+
+
 # ── date-range validation ───────────────────────────────────────────────────
 def test_list_time_rejects_bad_dates(monkeypatch):
     monkeypatch.setattr(main, "qbo_query_all", lambda *a, **k: [])
