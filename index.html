@@ -784,7 +784,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.49</div>
+  <div class="foot build" id="buildInfo">build 2026.07.05.50</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -916,19 +916,27 @@ function applyRules() {
   }
 }
 
-function buildTemplates() {
+// #2: lead the notes dropdown with the descriptions most used ON THIS PROJECT
+// (last 60 days), then the standard templates.
+function buildTemplates(projectId) {
   const sel = $("template");
   sel.innerHTML = "";
   const ph = document.createElement("option");
   ph.value = "";
-  ph.textContent = "Insert a standard description…";
+  ph.textContent = "Insert a description…";
   sel.appendChild(ph);
-  TEMPLATES.forEach((t) => {
-    const o = document.createElement("option");
-    o.value = t;
-    o.textContent = t;
-    sel.appendChild(o);
+  const addOpts = (parent, items) => items.forEach((t) => {
+    const o = document.createElement("option"); o.value = t; o.textContent = t; parent.appendChild(o);
   });
+  const proj = topNotesFor(projectId);
+  if (proj.length) {
+    const g = document.createElement("optgroup"); g.label = "Frequent on this project";
+    addOpts(g, proj); sel.appendChild(g);
+    const g2 = document.createElement("optgroup"); g2.label = "Standard";
+    addOpts(g2, TEMPLATES.filter((t) => !proj.includes(t))); sel.appendChild(g2);
+  } else {
+    addOpts(sel, TEMPLATES);
+  }
   sel.onchange = () => {
     if (sel.value) $("desc").value = sel.value;
     sel.value = "";
@@ -1025,6 +1033,11 @@ let selProject = null;   // {id, name, type: "project"|"client", parentId?}
 let frequentIds = [];    // most-used project/client ids, last 60 days
 let recentIds = [];      // most-recently-used distinct ids, newest first
 let recentNames = new Map();  // id -> name from entries (fallback if not in picker)
+let projectNotes = new Map(); // id -> Map(description -> count), last 60 days (#2)
+function topNotesFor(id, n = 3) {
+  const m = id && projectNotes.get(id);
+  return m ? [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([d]) => d) : [];
+}
 
 async function loadFrequents() {
   try {
@@ -1032,12 +1045,19 @@ async function loadFrequents() {
     const counts = new Map();            // 60-day usage (picker + week grid)
     const month = new Map();             // last 30 days: {count, mins, last}
     const names = new Map();             // id -> name straight from the entry
+    const notes = new Map();             // id -> Map(description -> count)  (#2)
     const cutoff = ymd(addDays(new Date(), -30));
     entries.forEach((e) => {
       const id = e.projectId || e.customerId;
       if (!id) return;
       counts.set(id, (counts.get(id) || 0) + 1);
       if (!names.has(id) && e.customer) names.set(id, e.customer);  // newest first
+      const desc = (e.description || "").trim();
+      if (desc) {
+        const dm = notes.get(id) || new Map();
+        dm.set(desc, (dm.get(desc) || 0) + 1);
+        notes.set(id, dm);
+      }
       if (e.date && e.date >= cutoff) {
         const s = month.get(id) || { count: 0, mins: 0, last: "" };
         s.count += 1;
@@ -1047,6 +1067,7 @@ async function loadFrequents() {
       }
     });
     recentNames = names;
+    projectNotes = notes;
     frequentIds = [...counts.entries()]
       .sort((a, b) => b[1] - a[1]).slice(0, 15).map(([id]) => id);
     // rank the last month by how often you worked the project, then by hours,
@@ -1188,6 +1209,7 @@ function setProject(item, save = true, apply = true) {
   $("projectName").textContent = item ? item.name : "Select…";
   if (item && save) localStorage.setItem("last-project", item.id);
   if (apply) applyRules();
+  buildTemplates(item ? item.id : null);   // #2 surface this project's frequent notes
   markRecentChips();
 }
 
