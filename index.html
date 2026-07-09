@@ -353,7 +353,7 @@
   }
   .tabbar button.on { color: var(--accent); }
   .tabbar svg { width: 22px; height: 22px; }
-  #app, #connect, #setup, #reportView, #weekView, #totalsView, #dashView { display: none; }
+  #app, #connect, #setup, #reportView, #weekView, #dashView { display: none; }
 
   /* ── Dashboard tab (invoiced trend + trailing average + table) ────── */
   .dash-hero { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-bottom: 6px; }
@@ -680,6 +680,7 @@
       </div>
       <label class="optck"><input type="checkbox" class="hideExp"> Hide mileage &amp; expenses</label>
     </div>
+    <div id="repMain">
     <button class="filter-toggle" id="filterToggle" type="button">Filter &amp; search ▾</button>
     <div id="repFilter" class="rep-filter" style="display:none">
       <input type="search" id="repQ" placeholder="Search notes, client, service, person…">
@@ -751,30 +752,8 @@
       </div>
       <div id="repEntries"><div class="empty">–</div></div>
     </div>
-  </div>
-
-  <div id="totalsView">
-    <div class="card">
-      <div class="seg" id="totSeg">
-        <button data-unit="day">Day</button>
-        <button data-unit="week">Week</button>
-        <button data-unit="month" class="on">Month</button>
-        <button data-unit="quarter">Qtr</button>
-      </div>
-      <div class="nav" id="totNav" style="margin-top:12px">
-        <button id="totPrev" aria-label="Previous period">‹</button>
-        <span class="label" id="totLabel"></span>
-        <button id="totNext" aria-label="Next period">›</button>
-      </div>
-      <div class="opts">
-        <div class="modeseg">
-          <button data-mode="hours" class="on">Hours</button>
-          <button data-mode="dollars">$</button>
-        </div>
-        <label class="optck"><input type="checkbox" class="hideExp"> Hide mileage &amp; expenses</label>
-      </div>
-    </div>
-    <div id="totBody"><div class="card"><div class="empty">Loading…</div></div></div>
+    </div><!-- /#repMain -->
+    <div id="repDrill" style="display:none"></div>
   </div>
 
   <div id="dashView">
@@ -805,7 +784,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.05.53</div>
+  <div class="foot build" id="buildInfo">build 2026.07.09.1</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -837,10 +816,6 @@
   <button data-view="week" aria-label="Week grid">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 4v17M14 4v17"/></svg>
     Week
-  </button>
-  <button data-view="totals" aria-label="Totals">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h11M4 17h7" stroke-linecap="round"/></svg>
-    Totals
   </button>
   <button data-view="report" aria-label="Reports">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>
@@ -1829,7 +1804,8 @@ const rep = { unit: "week", anchor: new Date(), person: "",   // person "" = All
   selecting: false,                                           // bulk select mode (#9)
   cStart: "", cEnd: "",                                       // custom range (#11), ymd strings
   compare: "year",                                            // #12: "year" | "prev" | "off"
-  allTime: false };                                           // #7: search across all history
+  allTime: false,                                             // #7: search across all history
+  projectId: null, projectName: "", drillExpanded: false };   // per-project drill-down (was the Totals tab)
 const bulkSel = new Set();   // ids selected for a bulk action
 
 // People-filter chips for the report (employees + vendors with time in the
@@ -1945,11 +1921,9 @@ async function fetchRange(start, end) {
   return res.json();
 }
 
-// ── People tab: hours per person on one project, over time ──────────
-// Requires a project. Each granularity has a natural window of buckets:
-//   Day → this week (7 days) · Week → this month (its weeks)
-//   Month → this quarter (3 months) · Quarter → this year (4 quarters)
-const tot = { unit: "month", anchor: new Date(), projectId: null, projectName: "", expanded: false, sort: "az" };
+// ── Per-project drill-down (opened from the Report "By project / client"
+//    breakdown): hours per person on one project, over time. Uses the Report
+//    period; `rep.projectId`/`projectName`/`drillExpanded` hold the drill state.
 const TOT_COLORS = ["#4c9be8", "#57b894", "#e0a458", "#c98bdb", "#e0736b", "#5bc0c8", "#b7c25a", "#e089b0"];
 const quarterOf = (m) => Math.floor(m / 3);
 
@@ -1958,46 +1932,64 @@ function totInitials(name) {
   return ((parts[0] || "?")[0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
 }
 
-// The selected unit IS the period shown/summed. `buckets` are one level
-// finer, used only for the drill-down grid + sparkline:
-//   Day → the day · Week → 7 days · Month → its weeks · Quarter → 3 months
-function totWindow() {
-  const a = tot.anchor, y = a.getFullYear(), today = ymd(new Date());
-  if (tot.unit === "day") {
-    const title = ymd(a) === today ? "Today"
-      : ymd(a) === ymd(addDays(new Date(), -1)) ? "Yesterday"
-      : a.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-    return { start: a, end: a, buckets: [{ start: a, end: a, label: String(a.getDate()) }], title };
+// The drill-down grid + sparkline split the Report period into one-finer
+// `buckets`, and `noun` names that column granularity:
+//   Day → the day · Week → 7 days · Month → its weeks · Quarter → 3 months.
+// Custom / all-history ranges pick a bucket size from their span (spanWindow).
+function drillWindow() {
+  if (rep.allTime) {
+    const end = new Date(), start = addDays(end, -365 * 5);
+    return spanWindow(start, end, "All history");
   }
-  if (tot.unit === "week") {
-    const s = mondayOf(a), e = addDays(s, 6), buckets = [];
-    for (let i = 0; i < 7; i++) { const d = addDays(s, i); buckets.push({ start: d, end: d, label: String(d.getDate()) }); }
-    const title = ymd(mondayOf(new Date())) === ymd(s) ? "This week"
-      : `${MONTHS[s.getMonth()]} ${s.getDate()} – ${s.getMonth() === e.getMonth() ? "" : MONTHS[e.getMonth()] + " "}${e.getDate()}`;
-    return { start: s, end: e, buckets, title };
+  const { start, end } = periodRange();
+  const y = start.getFullYear(), title = periodLabel();
+  if (rep.unit === "day") {
+    return { start, end, buckets: [{ start, end, label: String(start.getDate()) }], title, noun: "day" };
   }
-  if (tot.unit === "month") {
-    const mo = a.getMonth(), ms = new Date(y, mo, 1), me = new Date(y, mo + 1, 0), last = me.getDate();
-    const buckets = [];  // 7-day chunks from the 1st, so no label spills into an adjacent month
+  if (rep.unit === "week") {
+    const buckets = [];
+    for (let i = 0; i < 7; i++) { const d = addDays(start, i); buckets.push({ start: d, end: d, label: String(d.getDate()) }); }
+    return { start, end, buckets, title, noun: "day" };
+  }
+  if (rep.unit === "month") {
+    const mo = start.getMonth(), last = end.getDate(), buckets = [];  // 7-day chunks from the 1st
     for (let d = 1; d <= last; d += 7) {
       buckets.push({ start: new Date(y, mo, d), end: new Date(y, mo, Math.min(d + 6, last)), label: `${mo + 1}/${d}` });
     }
-    const now = new Date();
-    const title = (y === now.getFullYear() && mo === now.getMonth()) ? "This month" : `${MONTHS[mo]} ${y}`;
-    return { start: ms, end: me, buckets, title };  // exact calendar month
+    return { start, end, buckets, title, noun: "week" };
   }
-  const q = quarterOf(a.getMonth()), m0 = q * 3, buckets = [];  // quarter → 3 months
-  for (let i = 0; i < 3; i++) buckets.push({ start: new Date(y, m0 + i, 1), end: new Date(y, m0 + i + 1, 0), label: MONTHS[m0 + i] });
-  return { start: new Date(y, m0, 1), end: new Date(y, m0 + 3, 0), buckets, title: `Q${q + 1} ${y}` };
+  if (rep.unit === "quarter") {
+    const m0 = quarterOf(start.getMonth()) * 3, buckets = [];  // 3 months
+    for (let i = 0; i < 3; i++) buckets.push({ start: new Date(y, m0 + i, 1), end: new Date(y, m0 + i + 1, 0), label: MONTHS[m0 + i] });
+    return { start, end, buckets, title, noun: "month" };
+  }
+  return spanWindow(start, end, title);   // custom
 }
 
-function totShift(dir) {
-  const a = tot.anchor;
-  if (tot.unit === "day") tot.anchor = addDays(a, dir);
-  else if (tot.unit === "week") tot.anchor = addDays(a, 7 * dir);
-  else if (tot.unit === "month") tot.anchor = new Date(a.getFullYear(), a.getMonth() + dir, 1);
-  else tot.anchor = new Date(a.getFullYear(), a.getMonth() + 3 * dir, 1);
-  renderTotals();
+// Bucket an arbitrary range: daily (≤16d), weekly (≤100d), monthly (≤24mo),
+// else yearly — so the drill grid stays readable for any custom/long range.
+function spanWindow(start, end, title) {
+  const days = Math.round((end - start) / 86400000) + 1, buckets = [];
+  if (days <= 16) {
+    for (let d = new Date(start); d <= end; d = addDays(d, 1))
+      buckets.push({ start: new Date(d), end: new Date(d), label: `${d.getMonth() + 1}/${d.getDate()}` });
+    return { start, end, buckets, title, noun: "day" };
+  }
+  if (days <= 100) {
+    for (let s = mondayOf(start); s <= end; s = addDays(s, 7))
+      buckets.push({ start: new Date(s), end: addDays(s, 6), label: `${s.getMonth() + 1}/${s.getDate()}` });
+    return { start, end, buckets, title, noun: "week" };
+  }
+  const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
+  if (months <= 24) {
+    for (let s = new Date(start.getFullYear(), start.getMonth(), 1); s <= end; s = new Date(s.getFullYear(), s.getMonth() + 1, 1))
+      buckets.push({ start: new Date(s), end: new Date(s.getFullYear(), s.getMonth() + 1, 0),
+        label: MONTHS[s.getMonth()] + (s.getMonth() === 0 ? ` '${String(s.getFullYear()).slice(2)}` : "") });
+    return { start, end, buckets, title, noun: "month" };
+  }
+  for (let yr = start.getFullYear(); yr <= end.getFullYear(); yr++)
+    buckets.push({ start: new Date(yr, 0, 1), end: new Date(yr, 11, 31), label: String(yr) });
+  return { start, end, buckets, title, noun: "year" };
 }
 
 function totSparkline(vals, color) {
@@ -2010,81 +2002,26 @@ function totSparkline(vals, color) {
     + `<circle cx="${last[0]}" cy="${last[1]}" r="2.6" fill="${color}"/></svg>`;
 }
 
-let totSeq = 0;
-async function renderTotals() {
-  syncPeoSeg();
-  const win = totWindow();
-  $("totLabel").textContent = win.title;
-  $("totBody").innerHTML = '<div class="card"><div class="empty">Loading…</div></div>';
-  const seq = ++totSeq;
-  let entries;
-  try {
-    entries = await fetchRange(win.start, win.end);
-  } catch (e) {
-    if (seq === totSeq) $("totBody").innerHTML = '<div class="card"><div class="empty">Could not load: ' + escapeHtml(e.message) + '</div></div>';
-    return;
-  }
-  if (seq !== totSeq) return;
-  entries = applyOpts(entries);  // drop mileage/expense lines when toggled
-  if (tot.projectId) renderPersonDrill(entries, win);
-  else renderProjectTotals(entries, win);
+// Open the drill-down for one project (from a Report breakdown row). No refetch:
+// the Report already loaded this period's entries, so just flip state + re-render.
+function openProjectDrill(projectId, projectName) {
+  rep.projectId = projectId;
+  rep.projectName = projectName;
+  rep.drillExpanded = false;
+  window.scrollTo({ top: 0 });
+  renderReportView();
+}
+function closeProjectDrill() {
+  rep.projectId = null; rep.projectName = ""; rep.drillExpanded = false;
+  renderReportView();
 }
 
-function totToList() { tot.projectId = null; tot.projectName = ""; tot.expanded = false; renderTotals(); }
-
-// Landing: every project with hours this period, alphabetical, tap to drill in.
-function renderProjectTotals(entries, win) {
-  const projs = new Map();
-  entries.forEach((e) => {
-    const id = e.projectId || e.customerId;
-    if (!id) return;
-    const p = projs.get(id) || { id, name: e.customer || "(no client)", total: 0, billable: 0 };
-    p.total += val(e);
-    if (e.billable) p.billable += val(e);
-    if (e.customer) p.name = e.customer;
-    projs.set(id, p);
-  });
-  const byValue = tot.sort === "value";
-  const rows = [...projs.values()].filter((p) => p.total > 0)
-    .sort(byValue ? (a, b) => b.total - a.total : (a, b) => a.name.localeCompare(b.name));
-  if (!rows.length) {
-    $("totBody").innerHTML = '<div class="card"><div class="empty">No '
-      + (opts.dollars ? "billable value" : "time") + ' logged in ' + escapeHtml(win.title) + '.</div></div>';
-    return;
-  }
-  const grand = rows.reduce((s, p) => s + p.total, 0);
-  const max = Math.max(...rows.map((p) => p.total));
-  const unit = opts.dollars ? "" : '<span class="u"> h</span>';
-  let html = '<div class="card"><div class="tot-hdr">'
-    + `<span class="big">${fmtVal(grand)}${unit}</span>`
-    + `<span class="cap">${escapeHtml(win.title)} · ${rows.length} ${rows.length === 1 ? "project" : "projects"}</span></div>`
-    + '<div class="sortrow"><span class="sub" style="margin:0">Tap a project for the per-person breakdown.</span>'
-    + `<span class="sortseg"><button class="sortbtn${byValue ? "" : " on"}" data-sort="az">A–Z</button>`
-    + `<button class="sortbtn${byValue ? " on" : ""}" data-sort="value">${opts.dollars ? "$" : "Hours"}</button></span></div>`;
-  rows.forEach((p) => {
-    const billTxt = p.billable === p.total ? "all billable"
-      : p.billable ? `${fmtMins(p.billable)} billable` : "none billable";
-    const bpart = (!opts.dollars && p.billable) ? `<b style="width:${(p.billable / p.total) * 100}%"></b>` : "";
-    const sub = opts.dollars ? "" : `<div class="sub">${p.billable ? `<span class="g">${billTxt}</span>` : billTxt}</div>`;
-    html += `<div class="tot-row" data-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}"><div class="info">`
-      + `<div class="nm"><span>${escapeHtml(p.name)}</span><span class="h">${fmtVal(p.total)}</span></div>`
-      + sub
-      + `<div class="bar"><i style="width:${(p.total / max) * 100}%">${bpart}</i></div>`
-      + `</div><span class="chev">›</span></div>`;
-  });
-  html += '</div>';
-  $("totBody").innerHTML = html;
-  $("totBody").querySelectorAll(".tot-row").forEach((r) => {
-    r.onclick = () => { tot.projectId = r.dataset.id; tot.projectName = r.dataset.name; tot.expanded = false; renderTotals(); };
-  });
-  $("totBody").querySelectorAll(".sortbtn").forEach((btn) => {
-    btn.onclick = () => { tot.sort = btn.dataset.sort; renderTotals(); };
-  });
-}
-
-// Drill-down: per-person breakdown for one project (leaderboard + pivot grid).
-function renderPersonDrill(entries, win) {
-  const scoped = entries.filter((e) => (e.projectId || e.customerId) === tot.projectId);
+// Drill-down: per-person breakdown for one project (leaderboard + pivot grid),
+// rendered into #repDrill in place of the normal report body. Ignores the person
+// + search filters (it is itself a per-person view of the whole project).
+function renderDrill(entries) {
+  const win = drillWindow();
+  const scoped = entries.filter((e) => (e.projectId || e.customerId) === rep.projectId);
   const nb = win.buckets.length;
   const bucketOf = (dateStr) => {
     const d = new Date(dateStr + "T00:00");
@@ -2106,21 +2043,21 @@ function renderPersonDrill(entries, win) {
   rows.forEach((p, i) => { p.color = TOT_COLORS[i % TOT_COLORS.length]; });
   const grand = rows.reduce((s, p) => s + p.total, 0);
 
-  const back = '<button class="tot-back" id="totBack">‹ All projects</button>';
+  const back = '<button class="tot-back" id="repDrillBack">‹ Back to report</button>';
   if (!rows.length) {
-    $("totBody").innerHTML = back + '<div class="card"><h2>' + escapeHtml(tot.projectName)
+    $("repDrill").innerHTML = back + '<div class="card"><h2>' + escapeHtml(rep.projectName)
       + '</h2><div class="empty">No ' + (opts.dollars ? "billable value" : "time")
       + ' on this project in ' + escapeHtml(win.title) + '.</div></div>';
-    $("totBack").onclick = totToList;
+    $("repDrillBack").onclick = closeProjectDrill;
     return;
   }
 
   // Leaderboard (summary) — ranked people with share + trend.
   const unit = opts.dollars ? "" : '<span class="u"> h</span>';
-  let html = back + '<div class="card"><h2 style="margin-bottom:12px">' + escapeHtml(tot.projectName) + '</h2>'
+  let html = back + '<div class="card"><h2 style="margin-bottom:12px">' + escapeHtml(rep.projectName) + '</h2>'
     + '<div class="tot-hdr">'
     + `<span class="big">${fmtVal(grand)}${unit}</span>`
-    + `<span class="cap">${escapeHtml(win.title)} · ${rows.length} ${rows.length === 1 ? "person" : "totals"}</span></div>`;
+    + `<span class="cap">${escapeHtml(win.title)} · ${rows.length} ${rows.length === 1 ? "person" : "people"}</span></div>`;
   rows.forEach((p, i) => {
     const share = grand ? Math.round((p.total / grand) * 100) : 0;
     const billTxt = p.billable === p.total ? "all billable"
@@ -2137,12 +2074,12 @@ function renderPersonDrill(entries, win) {
       + totSparkline(p.buckets, p.color)
       + '</div>';
   });
-  html += `<button class="tot-toggle" id="totToggle">${tot.expanded ? "Hide the grid ▴" : "Show the full grid ▾"}</button></div>`;
+  html += `<button class="tot-toggle" id="totToggle">${rep.drillExpanded ? "Hide the grid ▴" : "Show the full grid ▾"}</button></div>`;
 
   // Pivot grid (detail) — people × buckets, shown when expanded.
-  if (tot.expanded) {
+  if (rep.drillExpanded) {
     const colTot = win.buckets.map((_, i) => rows.reduce((s, p) => s + p.buckets[i], 0));
-    const gridTitle = (opts.dollars ? "Value by " : "Hours by ") + totUnitNoun();
+    const gridTitle = (opts.dollars ? "Value by " : "Hours by ") + win.noun;
     html += '<div class="card"><h2>' + gridTitle + '</h2><div class="grid-scroll"><table class="ptbl"><thead><tr>'
       + '<th class="who">Person</th>'
       + win.buckets.map((b) => `<th>${escapeHtml(b.label)}</th>`).join("")
@@ -2157,17 +2094,11 @@ function renderPersonDrill(entries, win) {
       + `<td class="gt">${fmtVal(grand)}</td></tr></tfoot></table></div></div>`;
   }
 
-  $("totBody").innerHTML = html;
-  $("totBack").onclick = totToList;
-  $("totToggle").onclick = () => { tot.expanded = !tot.expanded; renderTotals(); };
+  $("repDrill").innerHTML = html;
+  $("repDrillBack").onclick = closeProjectDrill;
+  $("totToggle").onclick = () => { rep.drillExpanded = !rep.drillExpanded; renderReportView(); };
 }
 
-function totUnitNoun() {  // names the grid's column granularity (finer than the period)
-  return tot.unit === "quarter" ? "month" : tot.unit === "month" ? "week" : "day";
-}
-function syncPeoSeg() {
-  document.querySelectorAll("#totSeg button").forEach((b) => b.classList.toggle("on", b.dataset.unit === tot.unit));
-}
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -2368,7 +2299,7 @@ function renderBreakdown(box, entries, keyOf, pick) {
   rows.forEach(([name, v]) => {
     const row = document.createElement("div");
     row.className = "proj-row";
-    if (pick && v.id != null) {   // tap a project → its Totals drill-down
+    if (pick && v.id != null) {   // tap a project → its per-person drill-down
       row.classList.add("tappable");
       row.onclick = () => pick.go(v.id, name);
     }
@@ -2446,6 +2377,14 @@ async function renderReport() {
 
 function renderReportView() {
   let entries = applyOpts(repFetched);  // drop mileage/expense lines when toggled
+
+  // Per-project drill-down replaces the normal report body (period seg + opts
+  // stay above it so the range is still switchable). Ignores person/search filters.
+  const drilling = !!rep.projectId;
+  $("repMain").style.display = drilling ? "none" : "";
+  $("repDrill").style.display = drilling ? "block" : "none";
+  if (drilling) { renderDrill(entries); return; }
+
   populateSvcFilter(entries);
 
   // people with time in this period → filter chips; then scope the report
@@ -2530,7 +2469,7 @@ function renderReportView() {
 
   renderToInvoice(entries);
   renderBreakdown($("projRows"), entries, (e) => e.customer || "(no client)",
-    { idOf: (e) => e.projectId || e.customerId, go: goToTotals });
+    { idOf: (e) => e.projectId || e.customerId, go: openProjectDrill });
   renderBreakdown($("serviceRows"), entries, (e) => e.service || "(no service)");
   $("repEntriesTitle").textContent = "Entries — " + periodLabel();
   renderEntryRows($("repEntries"), entries, { showDate: rep.unit !== "day", selectable: rep.selecting, selected: bulkSel });
@@ -2594,16 +2533,6 @@ async function bulkApply(action, itemId) {
   bulkSel.clear(); rep.selecting = false;
   showToast(`${action === "delete" ? "Deleted" : "Updated"} ${ok}${fail ? ` · ${fail} failed` : ""}`, "", null);
   renderReport();   // refetch to reflect the changes
-}
-
-// From a Report project row → the Totals drill-down for that project, same period.
-function goToTotals(projectId, projectName) {
-  tot.unit = rep.unit;      // Report and Totals share the same period units
-  tot.anchor = rep.anchor;
-  tot.projectId = projectId;
-  tot.projectName = projectName;
-  tot.expanded = false;
-  showView("totals", { keepTot: true });
 }
 
 // ── Dashboard: billed (invoiced) or received (payments) trend + 12-mo avg ──
@@ -3121,8 +3050,7 @@ function syncOptsUI() {
   document.querySelectorAll(".hideExp").forEach((c) => { c.checked = opts.hideExpenses; });
 }
 function rerenderActive() {
-  if ($("reportView").style.display === "block") renderReport();
-  if ($("totalsView").style.display === "block") renderTotals();
+  if ($("reportView").style.display === "block") renderReportView();
   if ($("dashView").style.display === "block") renderDash();
 }
 
@@ -3131,18 +3059,16 @@ function showView(view, o = {}) {
   $("logView").style.display = view === "log" ? "block" : "none";
   $("weekView").style.display = view === "week" ? "block" : "none";
   $("reportView").style.display = view === "report" ? "block" : "none";
-  $("totalsView").style.display = view === "totals" ? "block" : "none";
   $("dashView").style.display = view === "dash" ? "block" : "none";
   $("title").textContent =
     view === "report" ? "Report" : view === "week" ? "Week"
-    : view === "totals" ? "Totals" : view === "dash" ? "Dashboard" : "Timesheet";
+    : view === "dash" ? "Dashboard" : "Timesheet";
   document.querySelectorAll("#tabbar button").forEach((b) =>
     b.classList.toggle("on", b.dataset.view === view));
   window.scrollTo({ top: 0 });
-  if (view === "report") renderReport();
+  // Landing on Report resets any open per-project drill-down back to the overview.
+  if (view === "report") { rep.projectId = null; rep.projectName = ""; rep.drillExpanded = false; renderReport(); }
   if (view === "week") renderWeekGrid();
-  // tab clicks land on the project list; keepTot preserves a drill-in target
-  if (view === "totals") { if (!o.keepTot) { tot.projectId = null; tot.expanded = false; } renderTotals(); }
   if (view === "dash") renderDash();
 }
 
@@ -3151,7 +3077,6 @@ function refreshData() {
   loadFrequents();
   if ($("reportView").style.display === "block") renderReport();
   if ($("weekView").style.display === "block") renderWeekGrid();
-  if ($("totalsView").style.display === "block") renderTotals();
   if ($("dashView").style.display === "block") renderDash();
 }
 
@@ -3214,11 +3139,6 @@ async function boot() {
   $("bulkSvc").onchange = () => { if ($("bulkSvc").value) bulkApply("service", $("bulkSvc").value); };
   $("wgPrev").onclick = () => { wg.anchor = addDays(wg.anchor, -7); renderWeekGrid(); };
   $("wgNext").onclick = () => { wg.anchor = addDays(wg.anchor, 7); renderWeekGrid(); };
-  document.querySelectorAll("#totSeg button").forEach((b) => {
-    b.onclick = () => { tot.unit = b.dataset.unit; tot.anchor = new Date(); renderTotals(); };
-  });
-  $("totPrev").onclick = () => totShift(-1);
-  $("totNext").onclick = () => totShift(1);
   document.querySelectorAll("#dashSeg button").forEach((b) => {
     b.onclick = () => { dash.unit = b.dataset.unit; renderDash(); };
   });

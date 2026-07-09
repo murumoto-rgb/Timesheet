@@ -229,28 +229,33 @@ Field rules that trip people up:
   via the "Daily reminders" footer link; message lives in `static/sw.js`.
   Only `cryptography` was added (payloadless avoids the http-ece dep).
 
-- **Totals tab** (4th bottom tab; internal ids still `people`/`peo*`):
-  hours by project, then per person, over time. Granularity seg
-  **Day/Week/Month/Qtr** (default **Month**) where the selected unit **is**
-  the period shown and summed (`peoWindow`): Day→that day, Week→Mon–Sun,
-  Month→calendar month, Qtr→the quarter; prev/next pages by that unit. The
-  drill-down grid/sparkline split the period into one-finer `buckets`
-  (Day→the day, Week→7 days, Month→its weeks, Qtr→3 months). **Landing** (`renderProjectTotals`,
-  shown when `peo.projectId` is null; the tab always resets to it on open):
-  every project with hours in the period, **alphabetical**, each a tappable
-  row with total, billable split, and a two-tone bar. Tapping a row sets
-  `peo.projectId`/`projectName` from the row's own data and opens the
-  **drill-down** (`renderPersonDrill`): a "‹ All projects" back button plus
-  the chosen **leaderboard + expandable pivot grid** (ranked people, avatar
-  initials, % share, billable, per-bucket sparkline; "Show the full grid" →
-  people×bucket pivot, sticky first column, row/col/grand totals). Both the
-  list and the drill-down derive project identity from the entries
-  themselves (`e.projectId || e.customerId` + `e.customer`), so the picked
-  id always matches the tagged time — this replaced an earlier dropdown that
-  could hand the drill-down a non-matching id (time showed in Report but not
-  here). All client-side from one `fetchRange`. Person colors `PEO_COLORS`.
+- **Per-project drill-down** (lives INSIDE the Report tab — the standalone
+  "Totals" tab was removed once its landing screen proved to duplicate
+  Report's "By project / client" breakdown). There are now **4 bottom tabs**:
+  Log / Week / Report / Dash. **Entry point**: tap a row in Report's "By
+  project / client" card (`renderBreakdown` → `openProjectDrill(id,name)`,
+  which sets `rep.projectId`/`projectName`/`drillExpanded` and calls
+  `renderReportView` — **no refetch**, it reuses the period's already-loaded
+  `repFetched`). `renderReportView` hides the normal report body (`#repMain`)
+  and shows `#repDrill` when `rep.projectId` is set; the period seg + Hours/$
+  + hide-expenses controls stay above it, so the range is still switchable
+  while drilled (changing it keeps the drill open). **The drill ignores the
+  person filter and the search/cleanup filter** — it is itself a per-person
+  view of the whole project. `renderDrill(entries)` renders a "‹ Back to
+  report" button (`#repDrillBack` → `closeProjectDrill`) plus the
+  **leaderboard + expandable pivot grid** (ranked people, avatar initials, %
+  share, billable, per-bucket sparkline; "Show the full grid" (`#totToggle`)
+  → people×bucket pivot, sticky first column, row/col/grand totals). Buckets
+  come from `drillWindow()` (keyed on `rep.unit`: Day→the day, Week→7 days,
+  Month→its weeks, Qtr→3 months) with `spanWindow()` picking a sensible
+  bucket size for **custom / all-history** ranges (daily ≤16d, weekly ≤100d,
+  monthly ≤24mo, else yearly); `win.noun` names the grid's column
+  granularity. Project identity comes from the entries themselves
+  (`e.projectId || e.customerId` + `e.customer`) so the picked id always
+  matches the tagged time. Landing on the Report tab (or `showView("report")`)
+  resets the drill back to the overview. Person colors `TOT_COLORS`.
 
-- **Dollars + expense filter** (Report & Totals): a shared **Hours ⇄ $**
+- **Dollars + expense filter** (Report + Dashboard): a shared **Hours ⇄ $**
   toggle and a **Hide mileage & expenses** checkbox (`opts.dollars` /
   `opts.hideExpenses`, persisted in localStorage, synced across both tabs via
   `syncOptsUI`). `$` figures come **straight from each entry's own QBO
