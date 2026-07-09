@@ -43,3 +43,25 @@ test("bulk select → set non-billable PUTs each selected entry; billed rows can
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test("bulk 'Invoiced' marks selected entries HasBeenBilled (after confirm)", async () => {
+  const { ctx, page, errors } = await openApp(browser, data, "report");
+  page.on("dialog", (d) => d.accept());   // accept the "mark invoiced?" confirm
+  const puts = [];
+  await page.route("**/api/timeactivity/*", (route) => {
+    const r = route.request();
+    if (r.method() === "PUT") puts.push(r.postDataJSON());
+    return route.fulfill({ json: { Id: "x" } });
+  });
+  await page.waitForSelector("#repEntries .entry");
+  await page.click("#repSelectToggle");
+  await page.waitForSelector("#repEntries .sel-box");
+  await (await page.$$("#repEntries .sel-box"))[0].check();
+  await page.click('#bulkBar button[data-bulk="invoiced"]');
+  await page.waitForTimeout(300);
+  assert.equal(puts.length, 1, "one PUT for the selected entry");
+  assert.equal(puts[0].billable_status, "HasBeenBilled");
+  assert.equal(puts[0].billable, true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

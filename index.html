@@ -241,7 +241,7 @@
   }
   .nav button:disabled { opacity: 0.35; }
   .hero { font-size: 32px; font-weight: 650; letter-spacing: -0.02em; margin: 2px 0 0; }
-  .hero-sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  .hero-sub { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
   .hero-sub .b { color: var(--good); }
   .yoy { font-variant-numeric: tabular-nums; }
   .yoy.up { color: var(--good); }
@@ -295,11 +295,11 @@
   .proj-row.tappable { cursor: pointer; margin: 0 -8px; padding: 8px; border-radius: 8px; }
   .proj-row.tappable:active { background: var(--field); }
   .proj-row.tappable .h::after { content: " ›"; color: var(--muted); font-family: var(--sans); }
-  .proj-top { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+  .proj-top { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
   .proj-top .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .proj-top .h { font-family: var(--mono); font-variant-numeric: tabular-nums; flex-shrink: 0; }
-  .proj-top .h .b { color: var(--good); font-size: 11px; margin-right: 6px; }
-  h2 .ti-sum { color: var(--accent); font-family: var(--mono); font-size: 13px; font-weight: 600; margin-left: 6px; }
+  .proj-top .h .b { color: var(--good); font-size: 12px; margin-right: 6px; }
+  h2 .ti-sum { color: var(--accent); font-family: var(--mono); font-size: 14px; font-weight: 600; margin-left: 6px; }
   /* Hours ⇄ $ + hide-expenses controls (Report + Totals), one row */
   .opts { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: nowrap; margin: 12px 0 2px; }
   .modeseg { display: inline-flex; flex-shrink: 0; background: var(--field); border: 1px solid var(--line); border-radius: 9px; padding: 3px; }
@@ -325,6 +325,9 @@
   /* Bulk select (#9) */
   .entries-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .entries-head h2 { margin: 0; }
+  /* Report cards read a touch larger; the entries list keeps its compact size */
+  #repMain .card h2 { font-size: 13px; }
+  #repMain .entries-head h2 { font-size: 12px; }
   .sel-box { width: 20px; height: 20px; min-height: 0; margin: 0 6px 0 0; flex-shrink: 0;
     appearance: auto; -webkit-appearance: checkbox; accent-color: var(--accent); }
   .bulk-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px;
@@ -721,13 +724,6 @@
       <div class="chart" id="chart"></div>
     </div>
 
-    <div class="card" id="toInvoiceCard" style="display:none">
-      <h2>To invoice <span id="toInvoiceTotal" class="ti-sum"></span></h2>
-      <div class="proj" id="toInvoiceRows"></div>
-      <p class="sub" style="margin:8px 0 0">Not-yet-invoiced billable time in this
-      period. Widen the period (Month / Qtr) to see everything outstanding.</p>
-    </div>
-
     <div class="card">
       <h2>By project / client</h2>
       <div class="proj" id="projRows"><div class="empty">No time in this period.</div></div>
@@ -736,6 +732,13 @@
     <div class="card">
       <h2>By service</h2>
       <div class="proj" id="serviceRows"><div class="empty">No time in this period.</div></div>
+    </div>
+
+    <div class="card" id="toInvoiceCard" style="display:none">
+      <h2>To invoice <span id="toInvoiceTotal" class="ti-sum"></span></h2>
+      <div class="proj" id="toInvoiceRows"></div>
+      <p class="sub" style="margin:8px 0 0">Not-yet-invoiced billable time in this
+      period. Widen the period (Month / Qtr) to see everything outstanding.</p>
     </div>
 
     <div class="card">
@@ -747,6 +750,7 @@
         <span id="bulkCount">0 selected</span>
         <button data-bulk="billable" type="button">Billable</button>
         <button data-bulk="nonbillable" type="button">Non-billable</button>
+        <button data-bulk="invoiced" type="button">Invoiced</button>
         <select id="bulkSvc"><option value="">Set service…</option></select>
         <button data-bulk="delete" type="button" class="danger">Delete</button>
       </div>
@@ -784,7 +788,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.09.1</div>
+  <div class="foot build" id="buildInfo">build 2026.07.09.2</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2514,6 +2518,8 @@ async function bulkApply(action, itemId) {
   const ids = [...bulkSel].filter((id) => repFetched.some((e) => e.id === id));
   if (!ids.length) return;
   if (action === "delete" && !confirm(`Delete ${ids.length} ${ids.length === 1 ? "entry" : "entries"}? (no undo)`)) return;
+  // Marking invoiced (HasBeenBilled) locks the entry from further edits here — confirm first.
+  if (action === "invoiced" && !confirm(`Mark ${ids.length} ${ids.length === 1 ? "entry" : "entries"} invoiced? They'll be locked from edits here.`)) return;
   let ok = 0, fail = 0;
   for (const id of ids) {
     const e = repFetched.find((x) => x.id === id);
@@ -2524,6 +2530,7 @@ async function bulkApply(action, itemId) {
       const body = entryToBody(e);
       if (action === "billable") body.billable = true;
       else if (action === "nonbillable") body.billable = false;
+      else if (action === "invoiced") { body.billable = true; body.billable_status = "HasBeenBilled"; }
       else if (action === "service") body.item_id = itemId;
       spec = { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
     }
@@ -2531,7 +2538,8 @@ async function bulkApply(action, itemId) {
     catch { fail++; }
   }
   bulkSel.clear(); rep.selecting = false;
-  showToast(`${action === "delete" ? "Deleted" : "Updated"} ${ok}${fail ? ` · ${fail} failed` : ""}`, "", null);
+  const verb = action === "delete" ? "Deleted" : action === "invoiced" ? "Marked invoiced" : "Updated";
+  showToast(`${verb} ${ok}${fail ? ` · ${fail} failed` : ""}`, "", null);
   renderReport();   // refetch to reflect the changes
 }
 

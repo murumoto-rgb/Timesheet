@@ -153,15 +153,16 @@ Field rules that trip people up:
 - Report tab (bottom tab bar): Day / Week / Month / **Quarter** periods with
   prev/next navigation, hero total + billable split, column chart (per-day
   for week/month → tap drills into that day; **3 month bars for a quarter →
-  tap drills into that month**), a **"To invoice" card** (per-client
-  not-yet-invoiced `Billable` hours in the period, sorted desc, hidden when
-  none), per-client/project + per-service proportional bars, and the
-  period's entry list. **Tapping a "By project / client" row jumps to that
-  project's Totals drill-down for the same period** (`goToTotals` sets
-  `peo.unit`/`anchor` from `rep`, then `showView("people", {keepPeo:true})`
-  — Report & Totals share the same period units, so they line up). All
-  computed client-side from one range fetch. `list_time` paginates
-  (`qbo_query_all`) so long ranges never truncate.
+  tap drills into that month**), per-client/project + per-service
+  proportional bars, a **"To invoice" card** (per-client not-yet-invoiced
+  `Billable` hours in the period, sorted desc, hidden when none — placed
+  **after** the By-service card), and the period's entry list. **Tapping a
+  "By project / client" row opens that project's per-person drill-down in
+  place (see the drill-down bullet below).** All computed client-side from
+  one range fetch. `list_time` paginates (`qbo_query_all`) so long ranges
+  never truncate. Report-card text (headings, breakdown rows, hero subline)
+  is sized a touch larger than the compact entries list for readability
+  (`#repMain .card h2` etc.).
 - Mobile-first UI: duration preset chips, remembered last-used
   project/employee/service (localStorage), 16px inputs (no iOS zoom).
 - PWA installability: `static/manifest.webmanifest`, icons, apple-touch meta —
@@ -194,6 +195,14 @@ Field rules that trip people up:
   for billable *hours* (it misreads as dollars); billable time is shown as
   green text/markers and a green share of each per-project/service bar
   (`.bpart` inside `.fill`). API returns raw `billableStatus`.
+- **Bulk "Invoiced" action**: in Report's Select mode the bulk bar has an
+  **Invoiced** button that marks the selected entries `HasBeenBilled` (after a
+  confirm — it locks them from further edits here). Sends `billable_status`
+  on the PUT; `_timeactivity_payload` honours the explicit status override
+  (Billable/NotBillable/HasBeenBilled) and carries the rate onto the billed
+  entry. Already-billed rows have no checkbox, so they can't be re-selected.
+  Caveat: QBO normally sets `HasBeenBilled` itself when time is invoiced, so
+  a manual mark may be rejected — the bulk op surfaces failures per row.
 - **Repeat entry**: ⟳ on every entry row copies it into the form as a new
   entry dated today.
 - **Duration rounding**: durations round to the NEAREST 30 min (half hour)

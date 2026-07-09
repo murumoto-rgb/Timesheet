@@ -599,6 +599,7 @@ class TimeEntry(BaseModel):
     description: str = ""
     txn_date: str | None = None
     billable: bool = False
+    billable_status: str | None = None  # override: "Billable" | "NotBillable" | "HasBeenBilled" (mark invoiced)
     hourly_rate: float | None = None
     project_id: str | None = None
     customer_id: str | None = None  # project's parent, or the client itself
@@ -634,6 +635,14 @@ def _timeactivity_payload(entry: TimeEntry):
             payload["HourlyRate"] = entry.hourly_rate
     else:
         payload["BillableStatus"] = "NotBillable"
+    # Explicit status override (e.g. the "Invoiced" bulk action → HasBeenBilled).
+    # Only honoured with a CustomerRef, since billed/billable time must be tied
+    # to a customer; carry the rate for the billed statuses too.
+    if entry.billable_status in ("Billable", "NotBillable", "HasBeenBilled"):
+        if entry.billable_status == "NotBillable" or billable_ref:
+            payload["BillableStatus"] = entry.billable_status
+            if entry.billable_status in ("Billable", "HasBeenBilled") and entry.hourly_rate:
+                payload["HourlyRate"] = entry.hourly_rate
     return payload
 
 
@@ -695,7 +704,7 @@ def update_time(entry_id: str, entry: TimeEntry, request: Request):
     # carry the prior rate so a routine edit (e.g. fixing a description) can't
     # silently zero the entry's $ value.
     if ("HourlyRate" not in payload and before.get("HourlyRate") is not None
-            and payload.get("BillableStatus") == "Billable"):
+            and payload.get("BillableStatus") in ("Billable", "HasBeenBilled")):
         payload["HourlyRate"] = before["HourlyRate"]
     payload["Id"] = entry_id
     payload["SyncToken"] = before["SyncToken"]
