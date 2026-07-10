@@ -45,16 +45,6 @@ def test_payload_hourly_rate_only_when_billable():
     assert p["HourlyRate"] == 250
 
 
-def test_payload_invoiced_status_override():
-    # the "Invoiced" bulk action → BillableStatus HasBeenBilled, rate carried
-    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10",
-                  hourly_rate=250, billable_status="HasBeenBilled")
-    p = main._timeactivity_payload(e)
-    assert p["BillableStatus"] == "HasBeenBilled"
-    assert p["CustomerRef"] == {"value": "10"}
-    assert p["HourlyRate"] == 250
-
-
 # ── update_time: a full-replace edit must not corrupt invoiced/rate data ────
 def _mock_update(monkeypatch, before):
     """Wire update_time so it uses `before` as the existing entry and captures
@@ -103,17 +93,6 @@ def test_update_carries_rate_on_plain_billable_edit(monkeypatch):
     main.update_time("77", e, request=None)
     assert sent["BillableStatus"] == "Billable"
     assert sent["HourlyRate"] == 180                    # not zeroed by the edit
-
-
-def test_update_marks_billable_entry_invoiced(monkeypatch):
-    # the "Invoiced" bulk action on a not-yet-billed entry → HasBeenBilled, rate kept
-    before = {"Id": "77", "SyncToken": "3", "BillableStatus": "Billable", "HourlyRate": 180}
-    sent = _mock_update(monkeypatch, before)
-    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10",
-                  hours=1, billable_status="HasBeenBilled")
-    main.update_time("77", e, request=None)
-    assert sent["BillableStatus"] == "HasBeenBilled"
-    assert sent["HourlyRate"] == 180                    # carried onto the invoiced entry
 
 
 # ── qbo_query_all: pagination past the 1000-row page cap ────────────────────

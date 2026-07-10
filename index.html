@@ -750,7 +750,6 @@
         <span id="bulkCount">0 selected</span>
         <button data-bulk="billable" type="button">Billable</button>
         <button data-bulk="nonbillable" type="button">Non-billable</button>
-        <button data-bulk="invoiced" type="button">Invoiced</button>
         <select id="bulkSvc"><option value="">Set service…</option></select>
         <button data-bulk="delete" type="button" class="danger">Delete</button>
       </div>
@@ -788,7 +787,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.09.2</div>
+  <div class="foot build" id="buildInfo">build 2026.07.09.3</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2518,8 +2517,6 @@ async function bulkApply(action, itemId) {
   const ids = [...bulkSel].filter((id) => repFetched.some((e) => e.id === id));
   if (!ids.length) return;
   if (action === "delete" && !confirm(`Delete ${ids.length} ${ids.length === 1 ? "entry" : "entries"}? (no undo)`)) return;
-  // Marking invoiced (HasBeenBilled) locks the entry from further edits here — confirm first.
-  if (action === "invoiced" && !confirm(`Mark ${ids.length} ${ids.length === 1 ? "entry" : "entries"} invoiced? They'll be locked from edits here.`)) return;
   let ok = 0, fail = 0;
   for (const id of ids) {
     const e = repFetched.find((x) => x.id === id);
@@ -2530,7 +2527,6 @@ async function bulkApply(action, itemId) {
       const body = entryToBody(e);
       if (action === "billable") body.billable = true;
       else if (action === "nonbillable") body.billable = false;
-      else if (action === "invoiced") { body.billable = true; body.billable_status = "HasBeenBilled"; }
       else if (action === "service") body.item_id = itemId;
       spec = { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
     }
@@ -2538,8 +2534,7 @@ async function bulkApply(action, itemId) {
     catch { fail++; }
   }
   bulkSel.clear(); rep.selecting = false;
-  const verb = action === "delete" ? "Deleted" : action === "invoiced" ? "Marked invoiced" : "Updated";
-  showToast(`${verb} ${ok}${fail ? ` · ${fail} failed` : ""}`, "", null);
+  showToast(`${action === "delete" ? "Deleted" : "Updated"} ${ok}${fail ? ` · ${fail} failed` : ""}`, "", null);
   renderReport();   // refetch to reflect the changes
 }
 

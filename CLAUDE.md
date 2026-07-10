@@ -195,14 +195,12 @@ Field rules that trip people up:
   for billable *hours* (it misreads as dollars); billable time is shown as
   green text/markers and a green share of each per-project/service bar
   (`.bpart` inside `.fill`). API returns raw `billableStatus`.
-- **Bulk "Invoiced" action**: in Report's Select mode the bulk bar has an
-  **Invoiced** button that marks the selected entries `HasBeenBilled` (after a
-  confirm — it locks them from further edits here). Sends `billable_status`
-  on the PUT; `_timeactivity_payload` honours the explicit status override
-  (Billable/NotBillable/HasBeenBilled) and carries the rate onto the billed
-  entry. Already-billed rows have no checkbox, so they can't be re-selected.
-  Caveat: QBO normally sets `HasBeenBilled` itself when time is invoiced, so
-  a manual mark may be rejected — the bulk op surfaces failures per row.
+- **Billed time is strictly read-only.** Entries QuickBooks has marked
+  `HasBeenBilled` (invoiced) cannot be edited, deleted, bulk-changed, or
+  otherwise modified through this app — `update_time`/`delete_time` reject
+  them (409), Select mode gives them no checkbox, and there is deliberately
+  no "mark invoiced" action (that status is QBO's to set when time is
+  invoiced). This app only ever writes `Billable`/`NotBillable`.
 - **Repeat entry**: ⟳ on every entry row copies it into the form as a new
   entry dated today.
 - **Duration rounding**: durations round to the NEAREST 30 min (half hour)
