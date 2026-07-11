@@ -228,7 +228,14 @@ Field rules that trip people up:
   the **last 30 days**, ranked by entry count (then hours, then most-recent
   day) — so active projects lead stably instead of noisy last-touched order.
   Tapping one selects it in the form (applying smart-default rules) and
-  scrolls the form to the top.
+  scrolls the form to the top. **Chips resolve to the LIVE project/client
+  entity** (`recentChipItem` → `idToItem` by id, else `nameToItem` by the
+  stored qualified name) so the field always gets the correct id + full
+  `Client:Sub` name; a recent id/name that resolves to no live project is
+  dropped rather than offered. (Earlier it synthesised a `{id, short-name,
+  type:"client"}` item from the entry — a stale id + shortened name that QBO
+  rejected as an "Invalid Reference Id" on save.) Repeat/edit
+  (`fillFormFromEntry`) uses the same name recovery.
 - **Daily reminder push** (optional): payloadless Web Push, VAPID keys
   auto-generated + persisted with `_load_push`/`_save_push`. A background
   thread (`_reminder_loop`) nudges once/day past `REMINDER_HOUR` in

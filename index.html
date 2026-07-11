@@ -787,7 +787,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.09.4</div>
+  <div class="foot build" id="buildInfo">build 2026.07.09.5</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -1081,12 +1081,32 @@ async function loadFrequents() {
   } catch { /* frequents are a nicety — ignore failures */ }
 }
 
-// Resolve a recent id to a selectable item — prefer the full picker entry,
-// but fall back to the name from the entry so chips show even when the
-// project isn't in the loaded picker set.
+// Resolve a recent id to a REAL, selectable project/client — always the live
+// picker entry, so tapping a chip fills the form with the correct id and the
+// full "Client:Sub" qualified name. Match by id first; if the stored id is
+// stale (e.g. the customer was merged/renamed → new id) recover the current
+// entity by its stored qualified name. Unresolvable ids are dropped rather than
+// selecting a shortened name that maps to no live project — that mismatch is
+// exactly what QBO rejects as an "Invalid Reference Id" on save.
 function recentChipItem(id) {
-  return idToItem(id) ||
-    (recentNames.has(id) ? { id, name: recentNames.get(id), type: "client" } : null);
+  return idToItem(id) || (recentNames.has(id) ? nameToItem(recentNames.get(id)) : null);
+}
+
+// Find the live picker entry for a stored customer name: exact qualified-name
+// match first, else a *unique* leaf-segment ("…:Leaf") match; null if there is
+// no match or it's ambiguous (never guess between two same-named subs).
+function nameToItem(name) {
+  const all = [
+    ...pickerItems.projects.map((r) => ({ ...r, type: "project" })),
+    ...pickerItems.clients.map((r) => ({ ...r, type: "client" })),
+  ];
+  let hit = all.filter((r) => r.name === name);
+  if (!hit.length && name) {
+    const leaf = (s) => (s.includes(":") ? s.split(":").pop() : s).trim();
+    const target = leaf(name);
+    hit = all.filter((r) => leaf(r.name) === target);
+  }
+  return hit.length === 1 ? hit[0] : null;
 }
 
 function frequentItems() {
@@ -1446,8 +1466,11 @@ function fillFormFromEntry(e, dateOverride) {
       selType = "client";
     }
   }
+  // stale id (customer merged/renamed → new id): recover the live entity by the
+  // entry's stored qualified name so repeat/edit re-selects the correct project.
+  const resolved = sel ? { ...sel, type: selType } : nameToItem(e.customer);
   // don't let smart-default rules overwrite the entry's own values
-  setProject(sel ? { ...sel, type: selType } : null, false, false);
+  setProject(resolved || null, false, false);
   // who
   const wantId = e.vendorId || e.employeeId;
   const wantType = e.vendorId ? "vendor" : "employee";
