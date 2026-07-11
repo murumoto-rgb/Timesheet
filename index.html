@@ -787,7 +787,7 @@
     <a href="/audit">Activity log</a> ·
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.09.3</div>
+  <div class="foot build" id="buildInfo">build 2026.07.09.4</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -3394,10 +3394,33 @@ async function submit() {
     }
     refreshData();
   } catch (e) {
-    msg.textContent = "Failed: " + e.message;
-    msg.className = "msg bad";
+    showSubmitError(msg, e.message || "");
   } finally {
     $("submit").disabled = false;
+  }
+}
+
+// Turn a raw QBO fault into something actionable. The common one here is
+// "Invalid Reference Id … not found" (code 2500): a reference sent with the
+// entry (employee, service, or project) doesn't exist in the connected
+// QuickBooks company — usually because the app's open lists are stale (the
+// company changed, or that item was deactivated/merged in QBO). Offer a reload.
+function showSubmitError(msg, raw) {
+  msg.className = "msg bad";
+  if (/Invalid Reference Id|"code\\?":\s*\\?"2500/.test(raw)) {
+    const m = raw.match(/id (\d+) not found/i);
+    msg.innerHTML =
+      "QuickBooks didn't recognize one of this entry's references"
+      + (m ? " (id " + escapeHtml(m[1]) + ")" : "")
+      + " — the employee, service, or project. The app's lists may be out of "
+      + "date, or the connected QuickBooks company changed. Reload to refetch, "
+      + "then reselect the project. If it still fails, the connected company "
+      + "isn't the one that has this project — reconnect QuickBooks."
+      + ' <button type="button" id="reloadApp" class="ie-btn" style="margin-top:8px">Reload the app</button>';
+    const rb = $("reloadApp");
+    if (rb) rb.onclick = () => location.reload();
+  } else {
+    msg.textContent = "Failed: " + raw;
   }
 }
 
