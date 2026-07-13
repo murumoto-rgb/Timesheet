@@ -17,6 +17,7 @@ import base64
 import struct
 import hashlib
 import logging
+import math
 import secrets
 import threading
 import urllib.parse
@@ -96,6 +97,10 @@ log = logging.getLogger("qbo-timesheet")
 
 @asynccontextmanager
 async def _lifespan(app):
+    if HOSTED and not APP_PASSWORD:
+        raise RuntimeError(
+            "APP_PASSWORD is required when the Timesheet app is hosted or connected to production."
+        )
     # Start the daily-reminder background thread on startup (lifespan replaces
     # the deprecated @app.on_event("startup")). _reminder_loop is defined below.
     threading.Thread(target=_reminder_loop, daemon=True).start()
@@ -104,24 +109,39 @@ async def _lifespan(app):
 
 app = FastAPI(title="QBO Timesheet", lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
-_pending_states: set[str] = set()  # CSRF state (fine for a single local user)
+_pending_states: dict[str, float] = {}  # OAuth CSRF state -> creation time
 
 
 def _qbo_error(resp):
-    """Log a QBO error with its intuit_tid (support trace id) and return an
-    HTTPException that surfaces both to the client."""
+    """Log full QBO diagnostics, but return a small, safe, readable error."""
     tid = resp.headers.get("intuit_tid", "")
     log.error("QBO error %s tid=%s: %s", resp.status_code, tid, resp.text[:1000])
-    detail = resp.text
-    if tid:
-        detail += f"\n(intuit_tid: {tid})"
-    return HTTPException(resp.status_code, detail)
+    code, message = "", "QuickBooks could not complete this request."
+    try:
+        errors = (resp.json().get("Fault") or {}).get("Error") or []
+        if errors:
+            first = errors[0]
+            code = str(first.get("code") or "")
+            message = first.get("Detail") or first.get("Message") or message
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return HTTPException(
+        resp.status_code,
+        {"message": message, "code": code, "supportId": tid or None},
+    )
 
 
 # ---------------------------------------------------------------------------
 # Password gate (only active when APP_PASSWORD is set — required for hosting)
 # ---------------------------------------------------------------------------
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+_redirect_host = (urllib.parse.urlparse(REDIRECT_URI).hostname or "").lower()
+HOSTED = (
+    ENVIRONMENT == "production"
+    or urllib.parse.urlparse(REDIRECT_URI).scheme == "https"
+    or _redirect_host not in {"", "localhost", "127.0.0.1", "::1"}
+)
+SESSION_MAX_AGE = 12 * 3600
 # Optional TOTP two-factor. When TOTP_SECRET is set, login also requires the
 # current 6-digit code from an authenticator app (1Password, Google
 # Authenticator, etc). Unset = password-only.
@@ -156,20 +176,40 @@ def _totp_valid(code, window=1):
     )
 
 
-def _auth_cookie_value():
+def _auth_signature(payload):
     key = hashlib.sha256(f"{APP_PASSWORD}:{CLIENT_SECRET}:{TOTP_SECRET}".encode()).digest()
-    return hmac.new(key, b"qbo-timesheet-auth-v1", hashlib.sha256).hexdigest()
+    return hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()
+
+
+def _auth_cookie_value(now=None):
+    issued = int(now if now is not None else time.time())
+    payload = f"{issued}.{secrets.token_urlsafe(18)}"
+    return f"{payload}.{_auth_signature(payload)}"
 
 
 def _is_authed(request: Request) -> bool:
     if not APP_PASSWORD:
-        return True
-    return hmac.compare_digest(request.cookies.get("ts_auth", ""), _auth_cookie_value())
+        return not HOSTED
+    raw = request.cookies.get("ts_auth", "")
+    try:
+        issued_s, nonce, signature = raw.split(".", 2)
+        issued = int(issued_s)
+    except (ValueError, TypeError):
+        return False
+    if not nonce or issued > time.time() + 60 or time.time() - issued > SESSION_MAX_AGE:
+        return False
+    payload = f"{issued_s}.{nonce}"
+    return hmac.compare_digest(signature, _auth_signature(payload))
 
 
 @app.middleware("http")
 async def require_password(request: Request, call_next):
     path = request.url.path
+    if HOSTED and not APP_PASSWORD and path != "/api/status":
+        return JSONResponse(
+            {"detail": "This hosted app is locked because APP_PASSWORD is not configured."},
+            status_code=503,
+        )
     if APP_PASSWORD and path not in _PUBLIC_PATHS and not path.startswith("/static/"):
         if not _is_authed(request):
             # Browser page navigations get sent to the sign-in screen; API
@@ -180,27 +220,93 @@ async def require_password(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def browser_security(request: Request, call_next):
+    """Browser hardening plus a same-origin guard for every data-changing call."""
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+            return JSONResponse({"detail": "Cross-site request blocked."}, status_code=403)
+        origin = request.headers.get("origin")
+        if origin:
+            origin_host = urllib.parse.urlparse(origin).netloc.lower()
+            request_host = request.headers.get("host", "").lower()
+            if origin_host and origin_host != request_host:
+                return JSONResponse({"detail": "Request origin did not match this app."}, status_code=403)
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+    )
+    if request.url.scheme == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if request.url.path.startswith("/api/") or request.url.path in {"/mfa-setup", "/audit", "/ratecheck"}:
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
 class Login(BaseModel):
     password: str
     code: str = ""  # TOTP 6-digit code, when MFA is enabled
 
 
+_login_attempts: dict[str, list[float]] = {}
+_login_lock = threading.Lock()
+LOGIN_WINDOW = 15 * 60
+LOGIN_MAX_FAILURES = 8
+
+
+def _login_key(request):
+    return request.client.host if request.client else "unknown"
+
+
+def _login_failures(request):
+    key, cutoff = _login_key(request), time.time() - LOGIN_WINDOW
+    with _login_lock:
+        recent = [t for t in _login_attempts.get(key, []) if t >= cutoff]
+        _login_attempts[key] = recent
+        return len(recent)
+
+
+def _record_login_failure(request):
+    key = _login_key(request)
+    with _login_lock:
+        _login_attempts.setdefault(key, []).append(time.time())
+
+
 @app.post("/login")
 def login(body: Login, request: Request):
+    if _login_failures(request) >= LOGIN_MAX_FAILURES:
+        raise HTTPException(429, "Too many sign-in attempts. Wait 15 minutes and try again.")
     if APP_PASSWORD and not hmac.compare_digest(body.password, APP_PASSWORD):
-        raise HTTPException(401, "Wrong password.")
+        _record_login_failure(request)
+        raise HTTPException(401, "The password or authentication code was not accepted.")
     if TOTP_SECRET and not _totp_valid(body.code):
-        raise HTTPException(401, "Wrong or missing authentication code.")
+        _record_login_failure(request)
+        raise HTTPException(401, "The password or authentication code was not accepted.")
+    with _login_lock:
+        _login_attempts.pop(_login_key(request), None)
     resp = JSONResponse({"ok": True})
     if APP_PASSWORD:
         resp.set_cookie(
             "ts_auth",
             _auth_cookie_value(),
-            max_age=180 * 24 * 3600,
+            max_age=SESSION_MAX_AGE,
             httponly=True,
             samesite="lax",
             secure=request.url.scheme == "https",
         )
+    return resp
+
+
+@app.post("/logout")
+def logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("ts_auth")
     return resp
 
 
@@ -264,7 +370,9 @@ def _save_blob(path, sb_id, data):
         json.dump(data, f, indent=2)
         f.flush()
         os.fsync(f.fileno())
+    os.chmod(tmp, 0o600)
     os.replace(tmp, path)
+    os.chmod(path, 0o600)
 
 
 def _load_tokens():
@@ -339,8 +447,10 @@ def _audit(action, entry_id, ta, request=None, before=None):
             events.append(rec)
             data["events"] = events[-AUDIT_MAX:]
             _save_audit(data)
+        return True
     except Exception:
         logging.exception("audit write failed")
+        return False
 
 
 def _basic_auth_header():
@@ -362,7 +472,10 @@ def _token_request(payload):
     if resp.status_code >= 400:
         tid = resp.headers.get("intuit_tid", "")
         log.error("Token endpoint error %s tid=%s: %s", resp.status_code, tid, resp.text[:500])
-        raise HTTPException(resp.status_code, f"Intuit token endpoint: {resp.text}")
+        raise HTTPException(
+            resp.status_code,
+            {"message": "QuickBooks sign-in could not be completed. Try reconnecting.", "supportId": tid or None},
+        )
     return resp.json()
 
 
@@ -449,7 +562,7 @@ def status(request: Request):
         "connected": _load_tokens() is not None,
         "environment": ENVIRONMENT,
         "configured": bool(CLIENT_ID and CLIENT_SECRET),
-        "auth_required": bool(APP_PASSWORD),
+        "auth_required": bool(APP_PASSWORD) or HOSTED,
         "mfa_required": bool(TOTP_SECRET),
         "authed": _is_authed(request),
     }
@@ -499,8 +612,14 @@ one you actually saved in both places.</p>
 def connect():
     if not (CLIENT_ID and CLIENT_SECRET):
         raise HTTPException(500, "Set QBO_CLIENT_ID and QBO_CLIENT_SECRET in .env first.")
-    state = secrets.token_urlsafe(16)
-    _pending_states.add(state)
+    now = time.time()
+    for old_state, created in list(_pending_states.items()):
+        if now - created > 600:
+            _pending_states.pop(old_state, None)
+    while len(_pending_states) >= 20:
+        _pending_states.pop(next(iter(_pending_states)))
+    state = secrets.token_urlsafe(24)
+    _pending_states[state] = now
     params = {
         "client_id": CLIENT_ID,
         "response_type": "code",
@@ -513,9 +632,9 @@ def connect():
 
 @app.get("/callback")
 def callback(code: str = "", state: str = "", realmId: str = ""):
-    if state not in _pending_states:
+    created = _pending_states.pop(state, None)
+    if created is None or time.time() - created > 600:
         raise HTTPException(400, "Invalid or expired state.")
-    _pending_states.discard(state)
     data = _token_request(
         {"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI}
     )
@@ -544,7 +663,9 @@ def qbo_query_all(entity, where="", key=None):
         )
         batch = rows.get(key, [])
         out.extend(batch)
-        if len(batch) < page or start > 100000:  # last page, or safety cap
+        if start > 100000:
+            raise HTTPException(413, f"QuickBooks returned more than 100,000 {entity} records. Narrow the date range.")
+        if len(batch) < page:
             break
         start += page
     return out
@@ -567,6 +688,19 @@ def list_projects():
         else:
             clients.append({"id": c["Id"], "name": name, "parentId": parent_id})
     return {"projects": projects, "clients": clients}
+
+
+@app.get("/api/company")
+def company_identity():
+    """Small authenticated identity banner so the user can verify the QBO company."""
+    rows = qbo_query("SELECT * FROM CompanyInfo").get("CompanyInfo", [])
+    company = rows[0] if rows else {}
+    _, realm_id = get_access_token()
+    return {
+        "name": company.get("CompanyName") or company.get("LegalName") or "QuickBooks company",
+        "realmSuffix": str(realm_id)[-4:] if realm_id else "",
+        "environment": ENVIRONMENT,
+    }
 
 
 @app.get("/api/employees")
@@ -602,6 +736,37 @@ class TimeEntry(BaseModel):
     hourly_rate: float | None = None
     project_id: str | None = None
     customer_id: str | None = None  # project's parent, or the client itself
+    # The SyncToken seen by the browser. Required for edits so a QuickBooks-side
+    # change made after the screen loaded cannot be silently overwritten.
+    sync_token: str | None = None
+    allow_duplicate: bool = False
+    allow_day_overflow: bool = False
+
+
+def _validate_time_entry(entry: TimeEntry, *, updating=False):
+    """Reject ambiguous or impossible writes before they reach QuickBooks."""
+    if bool(entry.employee_id) == bool(entry.vendor_id):
+        raise HTTPException(400, "Pick exactly one employee or vendor.")
+    if not (entry.item_id or "").strip():
+        raise HTTPException(400, "Pick a service.")
+    if entry.hours < 0 or entry.minutes < 0 or entry.minutes > 59:
+        raise HTTPException(400, "Enter a valid duration; minutes must be between 0 and 59.")
+    total_minutes = entry.hours * 60 + entry.minutes
+    if total_minutes <= 0:
+        raise HTTPException(400, "Enter a duration greater than zero.")
+    if total_minutes > 24 * 60:
+        raise HTTPException(400, "A single entry cannot be longer than 24 hours.")
+    if entry.txn_date:
+        try:
+            date.fromisoformat(entry.txn_date)
+        except ValueError:
+            raise HTTPException(400, "Choose a valid date.")
+    if entry.hourly_rate is not None and (
+        entry.hourly_rate < 0 or not math.isfinite(entry.hourly_rate)
+    ):
+        raise HTTPException(400, "Hourly rate must be zero or greater.")
+    if entry.billable and not (entry.project_id or entry.customer_id):
+        raise HTTPException(400, "Choose a project or client before marking time billable.")
 
 
 def _timeactivity_payload(entry: TimeEntry):
@@ -628,13 +793,55 @@ def _timeactivity_payload(entry: TimeEntry):
     if billable_ref:
         payload["CustomerRef"] = {"value": billable_ref}
 
-    if entry.billable and billable_ref:
+    if entry.billable:
+        if not billable_ref:
+            raise HTTPException(400, "Choose a project or client before marking time billable.")
         payload["BillableStatus"] = "Billable"
-        if entry.hourly_rate:
+        if entry.hourly_rate is not None:
             payload["HourlyRate"] = entry.hourly_rate
     else:
         payload["BillableStatus"] = "NotBillable"
     return payload
+
+
+def _same_ref(ref, expected):
+    return str((ref or {}).get("value") or "") == str(expected or "")
+
+
+def _guard_new_time(entry: TimeEntry):
+    """Catch exact duplicates and impossible per-person day totals."""
+    day = entry.txn_date or _today().isoformat()
+    rows = qbo_query_all("TimeActivity", f"WHERE TxnDate = '{day}'")
+    expected_who = entry.vendor_id or entry.employee_id
+    expected_customer = entry.project_id or entry.customer_id
+    expected_status = "Billable" if entry.billable else "NotBillable"
+    same_person = [
+        row for row in rows
+        if _same_ref(row.get("VendorRef") if entry.vendor_id else row.get("EmployeeRef"), expected_who)
+    ]
+    duplicate = any(
+        _same_ref(row.get("ItemRef"), entry.item_id)
+        and _same_ref(row.get("CustomerRef"), expected_customer)
+        and int(row.get("Hours") or 0) == entry.hours
+        and int(row.get("Minutes") or 0) == entry.minutes
+        and (row.get("Description") or "").strip() == (entry.description or "").strip()
+        and (row.get("BillableStatus") or "NotBillable") == expected_status
+        for row in same_person
+    )
+    if duplicate and not entry.allow_duplicate:
+        raise HTTPException(
+            409,
+            {"message": "An identical entry already exists for this person and date.", "code": "DUPLICATE_ENTRY"},
+        )
+    existing_minutes = sum(
+        int(row.get("Hours") or 0) * 60 + int(row.get("Minutes") or 0)
+        for row in same_person
+    )
+    if existing_minutes + entry.hours * 60 + entry.minutes > 24 * 60 and not entry.allow_day_overflow:
+        raise HTTPException(
+            409,
+            {"message": "This would put the person over 24 logged hours for that date.", "code": "DAY_TOTAL"},
+        )
 
 
 def _post_timeactivity(payload, params=None):
@@ -673,34 +880,39 @@ def _read_timeactivity(entry_id):
 
 @app.post("/api/timeactivity")
 def create_time(entry: TimeEntry, request: Request):
-    if not (entry.employee_id or entry.vendor_id):
-        raise HTTPException(400, "Pick an employee or vendor.")
+    _validate_time_entry(entry)
+    _guard_new_time(entry)
     ta = _post_timeactivity(_timeactivity_payload(entry))
-    _audit("create", ta.get("Id"), ta, request)
+    if _audit("create", ta.get("Id"), ta, request) is False:
+        ta["appWarning"] = "Time was saved, but the local activity log could not be updated."
     return ta
 
 
 @app.put("/api/timeactivity/{entry_id}")
 def update_time(entry_id: str, entry: TimeEntry, request: Request):
-    if not (entry.employee_id or entry.vendor_id):
-        raise HTTPException(400, "Pick an employee or vendor.")
+    _validate_time_entry(entry)
     # Update needs the current SyncToken — read the entity first.
     before = _read_timeactivity(entry_id)
     # Already-invoiced (billed) time is locked: editing it here would desync the
     # books from the sent invoice. It can only be changed in QuickBooks.
     if before.get("BillableStatus") == "HasBeenBilled":
         raise HTTPException(409, "This entry was already invoiced (billed) in QuickBooks and can't be edited here.")
+    if entry.sync_token is None:
+        raise HTTPException(428, "Reload the entry before editing it so QuickBooks changes are protected.")
+    if str(before.get("SyncToken", "")) != str(entry.sync_token):
+        raise HTTPException(
+            409,
+            "This entry changed in QuickBooks after you opened it. Reload and review the latest version before editing.",
+        )
     payload = _timeactivity_payload(entry)
-    # QBO update is a FULL replace and the edit form doesn't resend HourlyRate —
-    # carry the prior rate so a routine edit (e.g. fixing a description) can't
-    # silently zero the entry's $ value.
-    if ("HourlyRate" not in payload and before.get("HourlyRate") is not None
-            and payload.get("BillableStatus") == "Billable"):
-        payload["HourlyRate"] = before["HourlyRate"]
+    # Sparse update: fields the app does not display remain untouched in QBO.
+    # This avoids clearing StartTime, ClassRef, or future fields on a routine edit.
+    payload["sparse"] = True
     payload["Id"] = entry_id
     payload["SyncToken"] = before["SyncToken"]
     result = _post_timeactivity(payload)
-    _audit("update", entry_id, result, request, before=before)
+    if _audit("update", entry_id, result, request, before=before) is False:
+        result["appWarning"] = "Time was updated, but the local activity log could not be updated."
     return result
 
 
@@ -728,6 +940,10 @@ def _resolve_range(days, start, end):
             date.fromisoformat(d)  # rejects both bad format and impossible dates (2026-13-99)
         except ValueError:
             raise HTTPException(400, "Dates must be valid YYYY-MM-DD.")
+    if days < 0 or days > 3650:
+        raise HTTPException(400, "Choose a range of 10 years or less.")
+    if start and end and end < start:
+        raise HTTPException(400, "End date must be on or after start date.")
     if not start:
         start = (_today() - timedelta(days=days)).isoformat()
     return start, end
@@ -749,6 +965,7 @@ def list_time(days: int = 14, start: str | None = None, end: str | None = None):
         entries.append(
             {
                 "id": t["Id"],
+                "syncToken": t.get("SyncToken"),
                 "date": t.get("TxnDate"),
                 "hours": t.get("Hours", 0),
                 "minutes": t.get("Minutes", 0),
@@ -815,6 +1032,7 @@ def list_bills(days: int = 14, start: str | None = None, end: str | None = None)
             "date": r.get("TxnDate"),
             "amount": _num(r.get("TotalAmt")),
             "vendor": (r.get("VendorRef") or {}).get("name"),
+            "vendorId": (r.get("VendorRef") or {}).get("value"),
             "kind": "bill",
         })
     for r in qbo_query_all("Purchase", where):
@@ -826,6 +1044,7 @@ def list_bills(days: int = 14, start: str | None = None, end: str | None = None)
             "date": r.get("TxnDate"),
             "amount": _num(r.get("TotalAmt")),
             "vendor": (r.get("EntityRef") or {}).get("name"),
+            "vendorId": (r.get("EntityRef") or {}).get("value"),
             "kind": "purchase",
         })
     return out
@@ -947,8 +1166,10 @@ def delete_time(entry_id: str, request: Request):
         {"Id": entry_id, "SyncToken": deleted["SyncToken"]},
         params={"operation": "delete"},
     )
-    _audit("delete", entry_id, deleted, request)
-    return {"deleted": entry_id}
+    out = {"deleted": entry_id}
+    if _audit("delete", entry_id, deleted, request) is False:
+        out["appWarning"] = "Time was deleted, but the local activity log could not be updated."
+    return out
 
 
 @app.get("/api/audit")
@@ -1146,10 +1367,10 @@ entries and reports which carry an hourly rate. Nothing is changed.</p>
 # Self-contained: VAPID keys are generated once and persisted with the push
 # blob, so no manual key setup is needed. Reminders only fire when at least
 # one device has subscribed. Config via env: REMINDER_HOUR (default 17),
-# REMINDER_TZ (default America/Los_Angeles), REMINDER_WEEKDAYS_ONLY (default 1).
+# REMINDER_TZ (default America/Chicago), REMINDER_WEEKDAYS_ONLY (default 1).
 # ---------------------------------------------------------------------------
 REMINDER_HOUR = int(os.environ.get("REMINDER_HOUR", "17"))
-REMINDER_TZ = os.environ.get("REMINDER_TZ", "America/Los_Angeles")
+REMINDER_TZ = os.environ.get("REMINDER_TZ", "America/Chicago")
 REMINDER_WEEKDAYS_ONLY = os.environ.get("REMINDER_WEEKDAYS_ONLY", "1") != "0"
 # Weekly review nudge (#6): weekday to prompt an end-of-week review on
 # (Mon=0 … Fri=4; -1 disables). Fires once that day past REMINDER_HOUR.

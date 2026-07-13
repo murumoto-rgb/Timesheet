@@ -33,3 +33,27 @@ test("a QBO 'Invalid Reference Id' fault shows an actionable message + reload, n
   assert.deepEqual(errors.filter((e) => !/Failed to load resource/.test(e)), []);
   await ctx.close();
 });
+
+test("an exact-duplicate warning requires explicit confirmation before retrying", async () => {
+  const { ctx, page } = await openApp(browser, base());
+  const bodies = [];
+  await page.route("**/api/timeactivity", (route) => {
+    const body = route.request().postDataJSON();
+    bodies.push(body);
+    if (!body.allow_duplicate) {
+      return route.fulfill({ status: 409, json: { detail: {
+        message: "An identical entry already exists for this person and date.", code: "DUPLICATE_ENTRY"
+      } } });
+    }
+    return route.fulfill({ json: { Id: "new1", SyncToken: "0" } });
+  });
+  await page.fill("#durh", "1");
+  await page.click("#submit");
+  await page.waitForSelector("#confirmDialog:not([hidden])");
+  assert.match(await page.textContent("#confirmText"), /identical entry/);
+  await page.click("#confirmGo");
+  await page.waitForSelector("#msg.good");
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[1].allow_duplicate, true);
+  await ctx.close();
+});

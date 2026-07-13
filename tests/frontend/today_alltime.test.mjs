@@ -49,7 +49,7 @@ test("#7 all-history search widens the fetch beyond the period", async () => {
   await page.fill("#repQ", "retaining");
   await page.waitForTimeout(200);
   assert.equal((await page.$$("#repEntries .entry")).length, 1);
-  assert.match(await page.textContent("#periodLabel"), /All history/);
+  assert.match(await page.textContent("#periodLabel"), /Last 5 years/);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

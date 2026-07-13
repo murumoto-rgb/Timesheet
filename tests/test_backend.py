@@ -32,11 +32,11 @@ def test_payload_vendor_and_nonbillable():
 
 
 def test_payload_billable_requires_a_customer_ref():
-    # billable=True but no project/customer → cannot be Billable (QBO rejects)
+    # billable=True but no project/customer must be rejected, never downgraded
     e = TimeEntry(item_id="5", employee_id="55", billable=True)
-    p = main._timeactivity_payload(e)
-    assert "CustomerRef" not in p
-    assert p["BillableStatus"] == "NotBillable"
+    with pytest.raises(HTTPException) as ei:
+        main._timeactivity_payload(e)
+    assert ei.value.status_code == 400
 
 
 def test_payload_hourly_rate_only_when_billable():
@@ -81,18 +81,77 @@ def test_update_honors_explicit_unbill(monkeypatch):
     # unchecking billable on a not-yet-billed entry → NotBillable
     before = {"Id": "77", "SyncToken": "3", "BillableStatus": "Billable", "HourlyRate": 250}
     sent = _mock_update(monkeypatch, before)
-    e = TimeEntry(item_id="5", employee_id="55", billable=False, customer_id="10", hours=2)
+    e = TimeEntry(item_id="5", employee_id="55", billable=False, customer_id="10", hours=2, sync_token="3")
     main.update_time("77", e, request=None)
     assert sent["BillableStatus"] == "NotBillable"
 
 
-def test_update_carries_rate_on_plain_billable_edit(monkeypatch):
+def test_update_is_sparse_and_preserves_unmentioned_rate(monkeypatch):
     before = {"Id": "77", "SyncToken": "3", "BillableStatus": "Billable", "HourlyRate": 180}
     sent = _mock_update(monkeypatch, before)
-    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10", hours=1)
+    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10", hours=1, sync_token="3")
     main.update_time("77", e, request=None)
     assert sent["BillableStatus"] == "Billable"
-    assert sent["HourlyRate"] == 180                    # not zeroed by the edit
+    assert sent["sparse"] is True
+    assert "HourlyRate" not in sent                     # sparse update leaves QBO rate untouched
+
+
+def test_update_rejects_stale_browser_version(monkeypatch):
+    before = {"Id": "77", "SyncToken": "4", "BillableStatus": "Billable"}
+    _mock_update(monkeypatch, before)
+    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10", hours=1, sync_token="3")
+    with pytest.raises(HTTPException) as ei:
+        main.update_time("77", e, request=None)
+    assert ei.value.status_code == 409
+
+
+@pytest.mark.parametrize("entry", [
+    TimeEntry(item_id="5", employee_id="55", vendor_id="9", hours=1),
+    TimeEntry(item_id="", employee_id="55", hours=1),
+    TimeEntry(item_id="5", employee_id="55", hours=0, minutes=0),
+    TimeEntry(item_id="5", employee_id="55", hours=1, minutes=60),
+    TimeEntry(item_id="5", employee_id="55", hours=25),
+    TimeEntry(item_id="5", employee_id="55", hours=1, txn_date="2026-99-99"),
+    TimeEntry(item_id="5", employee_id="55", hours=1, billable=True),
+])
+def test_time_entry_validation_rejects_ambiguous_or_impossible_data(entry):
+    with pytest.raises(HTTPException):
+        main._validate_time_entry(entry)
+
+
+def test_new_entry_guard_detects_duplicate_and_allows_explicit_override(monkeypatch):
+    rows = [{"Hours": 2, "Minutes": 0, "Description": "Review",
+             "EmployeeRef": {"value": "55"}, "ItemRef": {"value": "5"},
+             "CustomerRef": {"value": "10"}}]
+    monkeypatch.setattr(main, "qbo_query_all", lambda *a, **k: rows)
+    entry = TimeEntry(item_id="5", employee_id="55", customer_id="10", hours=2,
+                      description="Review", txn_date="2026-07-13")
+    with pytest.raises(HTTPException) as ei:
+        main._guard_new_time(entry)
+    assert ei.value.status_code == 409 and ei.value.detail["code"] == "DUPLICATE_ENTRY"
+    main._guard_new_time(entry.model_copy(update={"allow_duplicate": True}))
+
+
+def test_new_entry_guard_detects_day_over_24_hours(monkeypatch):
+    rows = [{"Hours": 23, "Minutes": 30, "EmployeeRef": {"value": "55"}}]
+    monkeypatch.setattr(main, "qbo_query_all", lambda *a, **k: rows)
+    entry = TimeEntry(item_id="5", employee_id="55", hours=1, txn_date="2026-07-13")
+    with pytest.raises(HTTPException) as ei:
+        main._guard_new_time(entry)
+    assert ei.value.detail["code"] == "DAY_TOTAL"
+
+
+def test_auth_cookie_expires_server_side(monkeypatch):
+    from starlette.requests import Request
+    monkeypatch.setattr(main, "APP_PASSWORD", "secret")
+    monkeypatch.setattr(main, "CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(main, "TOTP_SECRET", "")
+    token = main._auth_cookie_value(now=1000)
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"cookie", f"ts_auth={token}".encode())]})
+    monkeypatch.setattr(main.time, "time", lambda: 1000 + main.SESSION_MAX_AGE - 1)
+    assert main._is_authed(request)
+    monkeypatch.setattr(main.time, "time", lambda: 1000 + main.SESSION_MAX_AGE + 1)
+    assert not main._is_authed(request)
 
 
 # ── qbo_query_all: pagination past the 1000-row page cap ────────────────────

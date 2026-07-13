@@ -79,8 +79,13 @@ if ! command -v python3 >/dev/null 2>&1; then
   pause_exit 1
 fi
 [ -d .venv ] || { echo "Setting up (first run only)…"; python3 -m venv .venv; }
-./.venv/bin/pip install --quiet -r requirements.txt || {
-  echo "Dependency install failed — check your internet connection."; pause_exit 1; }
+REQ_HASH=$(shasum -a 256 requirements.txt | awk '{print $1}')
+INSTALLED_HASH=$([ -f .venv/.requirements-sha ] && head -1 .venv/.requirements-sha)
+if [ "$REQ_HASH" != "$INSTALLED_HASH" ]; then
+  ./.venv/bin/pip install --quiet -r requirements.txt || {
+    echo "Dependency install failed — check your internet connection."; pause_exit 1; }
+  printf '%s\n' "$REQ_HASH" > .venv/.requirements-sha
+fi
 
 # Open the browser once the server is up, then run the server in this window.
 ( for _ in $(seq 1 30); do

@@ -23,6 +23,8 @@ test("#4 multi-day logs one entry per day in the range", async () => {
   await page.fill("#date", "2026-03-02");        // Mon
   await page.fill("#dateEnd", "2026-03-05");      // Thu → 4 days
   await page.click("#submit");
+  await page.waitForSelector("#confirmDialog:not([hidden])");
+  await page.click("#confirmGo");
   await page.waitForTimeout(300);
   assert.equal(posts.length, 4, "one POST per day Mon–Thu");
   assert.deepEqual(posts.map((p) => p.txn_date), ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05"]);
