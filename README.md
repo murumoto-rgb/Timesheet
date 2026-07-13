@@ -68,8 +68,7 @@ access — check the current requirement in the portal.
 
 - Tokens are stored in `qbo_tokens.json`. **Keep it out of git** — the refresh
   token grants access to your books. (A `.gitignore` is included.)
-- The billable checkbox only applies when a project/client is selected. When
-  billable, QBO uses the service item's rate unless you extend the form to send
-  `hourly_rate`.
+- Billable time requires a project/client. The app stops and explains the issue
+  instead of silently saving the entry as non-billable.
 - To move token storage to Supabase/Postgres later, swap the two functions
   `_load_tokens` / `_save_tokens` in `main.py`.

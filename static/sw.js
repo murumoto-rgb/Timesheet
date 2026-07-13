@@ -2,7 +2,7 @@
 // shows the daily reminder, and focuses the app on tap.
 // Bump SW_VERSION on each deploy so this worker re-activates and purges any
 // stale app-shell cache left by an earlier build.
-const SW_VERSION = "2026.07.05.8";
+const SW_VERSION = "2026.07.13.1";
 
 self.addEventListener("install", () => self.skipWaiting());
 
@@ -20,7 +20,14 @@ self.addEventListener("activate", (event) => {
 // get stuck on a stale build. (Other requests pass straight through.)
 self.addEventListener("fetch", (event) => {
   if (event.request.mode === "navigate") {
-    event.respondWith(fetch(event.request));
+    event.respondWith(fetch(event.request).catch(() => new Response(
+      '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<body style="margin:0;background:#12161c;color:#e6ebf1;font:16px system-ui;padding:32px">' +
+      '<h1 style="font-size:24px">Timesheet is offline</h1>' +
+      '<p style="color:#aab4c0;line-height:1.5">Reconnect to the internet, then reopen or reload the app. No entry was submitted.</p>' +
+      '<a href="/" style="display:inline-block;padding:12px 18px;border-radius:10px;background:#4c9be8;color:#06121f;font-weight:650;text-decoration:none">Try again</a>',
+      { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }
+    )));
   }
 });
 

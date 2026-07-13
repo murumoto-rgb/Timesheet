@@ -59,8 +59,9 @@ apps go through.
      private app, your company website (baykalconsulting.com) is acceptable
      for both.
    - **Compliance questionnaire** — answer honestly; when asked, say it's a
-     **private app for your own business** with ~1 user. Data handling
-     questions: tokens and data stay on your own server; no third parties.
+     **private app for your own business** with ~1 user. Data is processed by
+     Intuit and your hosting provider (Render); Supabase also processes stored
+     tokens and audit data if you enable that optional storage mode.
 2. When approved, the **Production Client ID and Client Secret** appear on the
    Production side of Keys and credentials.
 3. Add the redirect URI on the **Production** side too:
@@ -92,5 +93,7 @@ apps go through.
   reconnect once via the Connect QuickBooks button.
 - Every write the app makes is a single TimeActivity you can see and delete.
   It never touches invoices, payments, or anything else.
+- A hosted deployment refuses to start without `APP_PASSWORD`; optional
+  two-factor authentication can be added from the app's setup link.
 - If you ever want to cut access: QuickBooks → ⚙ → Apps → your app →
   Disconnect (or rotate the client secret in the developer portal).

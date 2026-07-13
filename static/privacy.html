@@ -13,7 +13,7 @@
 </head>
 <body>
 <h1>Privacy Policy</h1>
-<p class="muted">QBO Timesheet · Last updated: July 4, 2026</p>
+<p class="muted">QBO Timesheet · Last updated: July 13, 2026</p>
 
 <p>QBO Timesheet (the "Application") is a private, internal tool operated by
 <strong>Baykal Consulting</strong> solely for our own business. It is not
@@ -30,32 +30,36 @@ Developer Terms of Service.</p>
 <h2>2. Data we access and store</h2>
 <ul>
   <li><strong>QuickBooks data</strong> — read and written only as needed to
-  display and record time entries. It remains in QuickBooks Online; the
-  Application does not maintain a separate copy of it.</li>
+  display and record time entries. The accounting record remains in QuickBooks
+  Online. The Application also keeps a limited activity log of timesheet
+  changes, including the entry date, duration, person, service, customer,
+  billable status, notes, source IP address, and prior values for edits.</li>
   <li><strong>OAuth tokens</strong> — the credentials Intuit issues when we
   authorize the Application are stored encrypted-in-transit and kept on our
-  own private server infrastructure, used only to communicate with Intuit's
-  APIs.</li>
+  private application storage (a private server disk, or Supabase when that
+  storage option is configured), used only to communicate with Intuit's APIs.</li>
 </ul>
 
 <h2>3. What we do not do</h2>
 <ul>
   <li>We do not sell, rent, share, or disclose QuickBooks data to third
-  parties for marketing or any other purpose. The only data transmission
-  that occurs is with Intuit itself, as inherently required for API
-  connectivity.</li>
+  parties for marketing. Data is processed by Intuit and by the infrastructure
+  providers used to host the private Application, such as Render and, when
+  configured, Supabase.</li>
   <li>We do not use data for advertising, profiling, or analytics.</li>
   <li>We do not collect data from anyone other than our own business.</li>
 </ul>
 
 <h2>4. Security</h2>
-<p>Access to the Application is password-protected and served exclusively
-over HTTPS. QuickBooks access can be revoked at any time from the QuickBooks
+<p>The hosted Application is password-protected and served over HTTPS. Optional
+two-factor authentication is available. QuickBooks access can be revoked at any time from the QuickBooks
 "Apps" settings or by rotating credentials in the Intuit Developer portal.</p>
 
 <h2>5. Data retention and deletion</h2>
-<p>Stored tokens are deleted when the QuickBooks connection is revoked.
-Time entries live in QuickBooks Online and follow its retention rules.</p>
+<p>Time entries live in QuickBooks Online and follow its retention rules. The
+Application retains up to 2,000 timesheet-change events. Revoking the connection
+makes stored OAuth tokens unusable; the server operator can also delete the token,
+push-subscription, and audit files or corresponding Supabase rows.</p>
 
 <h2>6. Relationship to Intuit</h2>
 <p>The Application is independent and is not developed by, endorsed by, or

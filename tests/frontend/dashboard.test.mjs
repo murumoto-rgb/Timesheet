@@ -18,7 +18,7 @@ let browser;
 before(async () => { browser = await launch(); });
 after(async () => { await browser.close(); });
 
-test("practice KPIs: utilization / realization / effective rate", async () => {
+test("practice KPIs: billable share / billed value share / billable value rate", async () => {
   const entries = [
     entry({ id: "1", hours: 10, billableStatus: "Billable" }),          // 10h billable, not invoiced
     entry({ id: "2", hours: 8, billableStatus: "HasBeenBilled" }),      // 8h billable, invoiced
@@ -28,9 +28,9 @@ test("practice KPIs: utilization / realization / effective rate", async () => {
   await page.waitForSelector(".money .mstat");
   const k = await moneyStats(page, "Practice");
   // billable 18h / total 20h = 90%; invoiced 2000 / billable-value 4500 = 44%; 4500 / 20h = $225
-  assert.equal(k["Utilization"], "90%");
-  assert.equal(k["Realization"], "44%");
-  assert.equal(k["Effective / hr"], "$225");
+  assert.equal(k["Billable hours share"], "90%");
+  assert.equal(k["Billed time-value share"], "44%");
+  assert.equal(k["Billable value / hr"], "$225");
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -44,8 +44,8 @@ test("mileage/expense lines are excluded from KPIs regardless of the hide toggle
   await page.waitForSelector(".money .mstat");
   const k = await moneyStats(page, "Practice");
   // mileage excluded → effective rate = 2500 / 10h = $250 (would be ~$51 if the 40h counted)
-  assert.equal(k["Effective / hr"], "$250");
-  assert.equal(k["Utilization"], "100%");
+  assert.equal(k["Billable value / hr"], "$250");
+  assert.equal(k["Billable hours share"], "100%");
   await ctx.close();
 });
 
@@ -76,12 +76,12 @@ test("subcontractor margin, incl. negative margin formatting/colour", async () =
   const data = baseData([
     entry({ id: "1", hours: 20, hourlyRate: 250 }),                                   // MB $5000
     { ...entry({ id: "2", hours: 40, hourlyRate: 150 }), employee: "Sub Co", employeeId: undefined, vendorId: "9", nameOf: "Vendor" }, // sub $6000 → revenue $11000
-  ], { vendors: [{ id: "9", name: "Sub Co" }], bills: [{ id: "b1", date: daysAgo(4), amount: 14000, vendor: "Sub Co", kind: "bill" }] });
+  ], { vendors: [{ id: "9", name: "Sub Co" }], bills: [{ id: "b1", date: daysAgo(4), amount: 14000, vendor: "Sub Co", vendorId: "9", kind: "bill" }] });
   const { ctx, page } = await openApp(browser, data, "dash");
   await page.waitForSelector("#dashMargin .mstat");
-  const m = await moneyStats(page, "Subcontractor");
-  assert.equal(m["Revenue (billable)"], "$11K");
-  assert.equal(m["Gross margin"], "-$3.0K");        // 11000 - 14000, formatted with leading minus
+  const m = await moneyStats(page, "Estimated time value");
+  assert.equal(m["Billable time value"], "$11K");
+  assert.equal(m["Estimated difference"], "-$3.0K");        // 11000 - 14000, formatted with leading minus
   const negRed = await page.$$eval("#dashMargin .mstat .mnum", (els) =>
     els.some((e) => e.textContent.includes("-$3.0K") && e.classList.contains("bad")));
   assert.ok(negRed, "negative gross margin should be red");
@@ -96,7 +96,7 @@ test("unbilled WIP is stable across the Day/Week/Month toggle", async () => {
   ];
   const { ctx, page } = await openApp(browser, baseData(entries), "dash");
   await page.waitForSelector(".money .mstat");
-  const wipOf = () => moneyStats(page, "Accounts receivable").then((s) => s["Unbilled WIP"]);
+  const wipOf = () => moneyStats(page, "Accounts receivable").then((s) => s["Unbilled WIP (2y)"]);
   const monthWip = await wipOf();
   await page.click("#dashSeg button[data-unit=day]");
   await page.waitForTimeout(400);
@@ -134,7 +134,7 @@ test("receivables card renders aging + who-owes from /api/receivables", async ()
   const s = await moneyStats(page, "Accounts receivable");
   assert.equal(s["Outstanding"], "$3.5K");
   assert.equal(s["Past due"], "$2.5K");
-  assert.equal(s["Days to pay (DSO)"], "36");
+  assert.equal(s["Approx. DSO"], "36");
   const owe = await page.$$eval(".money .owe-row .nm", (els) => els.map((e) => e.textContent.trim()));
   assert.deepEqual(owe, ["Beta$2,000", "Alpha$1,500"]);   // largest balance first
   await ctx.close();

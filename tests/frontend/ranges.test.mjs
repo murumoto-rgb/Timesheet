@@ -34,7 +34,6 @@ test("custom range drives the fetch and the period label", async () => {
 
 test("a saved view round-trips through localStorage", async () => {
   const { ctx, page } = await openApp(browser, data, "report");
-  page.on("dialog", (d) => d.accept("March sprint"));
   // set a custom range
   await page.click('#seg button[data-unit="custom"]');
   await page.fill("#repCStart", "2026-03-01");
@@ -43,6 +42,7 @@ test("a saved view round-trips through localStorage", async () => {
   await page.dispatchEvent("#repCEnd", "change");
   // save it (Save view lives in the filter panel)
   await page.click("#filterToggle");
+  await page.fill("#savedViewName", "March sprint");
   await page.click("#saveView");
   await page.waitForTimeout(150);
   const opts = await page.$$eval("#savedViews option", (o) => o.map((x) => x.textContent));

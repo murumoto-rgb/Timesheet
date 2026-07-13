@@ -31,4 +31,4 @@ services:
       - key: REMINDER_HOUR
         value: "17"             # local hour to nudge if nothing logged (24h)
       - key: REMINDER_TZ
-        value: America/Los_Angeles
+        value: America/Chicago

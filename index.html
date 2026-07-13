@@ -36,7 +36,10 @@
              calc(76px + env(safe-area-inset-bottom));
     max-width: 520px;
   }
-  .head { display: flex; align-items: baseline; justify-content: space-between; margin: 4px 2px 16px; }
+  .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 4px 2px 16px; }
+  .head-meta { text-align: right; min-width: 0; }
+  .company-name { display: block; color: var(--ink); font-size: 12px; max-width: 240px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
   .env {
     font-family: var(--mono); font-size: 11px; color: var(--muted);
@@ -55,7 +58,7 @@
     box-shadow: 0 0 0 1px var(--accent);
   }
   label {
-    display: block; font-family: var(--mono); font-size: 11px;
+    display: block; font-family: var(--mono); font-size: 12px;
     text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted);
     margin: 14px 0 6px;
   }
@@ -73,6 +76,9 @@
   }
   input:focus, select:focus, textarea:focus {
     outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(76,155,232,0.2);
+  }
+  button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 3px;
   }
   textarea { resize: vertical; min-height: 64px; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -147,7 +153,7 @@
   }
   .sub { color: var(--muted); font-size: 13px; margin: 0; }
   h2 {
-    font-size: 12px; font-family: var(--mono); text-transform: uppercase;
+    font-size: 13px; font-family: var(--mono); text-transform: uppercase;
     letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; font-weight: 500;
   }
   .entry {
@@ -544,12 +550,28 @@
     background: var(--accent); color: #06121f; border: none; border-radius: 999px;
     padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; min-height: 36px;
   }
+  .confirm-dialog {
+    position: fixed; inset: 0; z-index: 60; display: flex; align-items: center;
+    justify-content: center; padding: 20px; background: rgba(0,0,0,0.65);
+  }
+  .confirm-dialog[hidden] { display: none; }
+  .confirm-card {
+    width: min(100%, 420px); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 16px; padding: 20px; box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+  }
+  .confirm-card h2 { color: var(--ink); font-family: var(--sans); font-size: 18px;
+    text-transform: none; letter-spacing: 0; font-weight: 650; }
+  .confirm-card p { color: var(--muted); margin: 10px 0 18px; }
+  .confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .confirm-actions button { min-height: 46px; border-radius: 10px; font-size: 15px; cursor: pointer; }
+  .confirm-cancel { background: none; color: var(--ink); border: 1px solid var(--line); }
+  .confirm-go { background: var(--bad); color: #1b0806; border: none; font-weight: 650; }
 </style>
 </head>
 <body>
 <div class="head">
   <h1 id="title">Timesheet</h1>
-  <span class="env" id="env"></span>
+  <div class="head-meta"><span class="company-name" id="companyName"></span><span class="env" id="env"></span></div>
 </div>
 
 <div class="card connect" id="setup">
@@ -566,7 +588,7 @@
            maxlength="6" placeholder="6-digit code" />
   </div>
   <button class="primary" id="pwGo">Sign in</button>
-  <div class="msg" id="pwMsg"></div>
+  <div class="msg" id="pwMsg" role="alert" aria-live="assertive"></div>
 </div>
 
 <div class="card connect" id="connect">
@@ -619,8 +641,9 @@
           <label for="dateEnd">Through</label>
           <input type="date" id="dateEnd" />
         </div>
-        <div><label>&nbsp;</label><div class="sub" id="multiDayNote" style="padding-top:11px">Creates one entry per day in the range.</div></div>
+        <div><label>&nbsp;</label><div class="sub" id="multiDayNote" style="padding-top:11px">Creates one entry per weekday in the range.</div></div>
       </div>
+      <label class="optck" id="weekendToggle" style="display:none;margin-top:8px"><input type="checkbox" id="includeWeekends"> Include Saturdays and Sundays</label>
 
       <label for="desc">Notes</label>
       <select id="template" style="margin-bottom:8px"></select>
@@ -635,7 +658,7 @@
       <button class="secondary" id="cancelEdit" style="display:none">Cancel edit</button>
       <button class="secondary" id="cancelNew">Cancel</button>
       <button class="secondary" id="closeBilled" style="display:none">Close</button>
-      <div class="msg" id="msg"></div>
+      <div class="msg" id="msg" role="status" aria-live="polite"></div>
     </div>
 
     <div class="card">
@@ -681,7 +704,7 @@
         <button data-mode="hours" class="on">Hours</button>
         <button data-mode="dollars">$</button>
       </div>
-      <label class="optck"><input type="checkbox" class="hideExp"> Hide mileage &amp; expenses</label>
+      <label class="optck" title="Recognized from the QuickBooks service name"><input type="checkbox" class="hideExp"> Hide mileage/expense services</label>
     </div>
     <div id="repMain">
     <button class="filter-toggle" id="filterToggle" type="button">Filter &amp; search ▾</button>
@@ -697,11 +720,12 @@
         </select>
       </div>
       <label class="optck"><input type="checkbox" id="repNeeds"> Needs attention — missing client, notes, or rate</label>
-      <label class="optck"><input type="checkbox" id="repAllTime"> Search all history (ignore the period)</label>
+      <label class="optck"><input type="checkbox" id="repAllTime"> Search the last 5 years (ignore the period)</label>
       <div class="filter-row">
-        <select id="savedViews"><option value="">Saved views…</option></select>
-        <button class="ie-btn" id="saveView" type="button">Save view</button>
+        <input type="text" id="savedViewName" maxlength="50" placeholder="Name this view">
+        <button class="ie-btn" id="saveView" type="button">Save current view</button>
       </div>
+      <select id="savedViews"><option value="">Saved views…</option></select>
       <button class="ie-btn" id="repFilterClear" type="button">Clear filters</button>
     </div>
     <div class="chips" id="repPeople" style="margin:12px 0 14px"></div>
@@ -771,11 +795,11 @@
           <button data-mode="hours" class="on">Hours</button>
           <button data-mode="dollars">$</button>
         </div>
-        <label class="optck"><input type="checkbox" class="hideExp"> Hide mileage &amp; expenses</label>
+        <label class="optck" title="Recognized from the QuickBooks service name"><input type="checkbox" class="hideExp"> Hide mileage/expense services</label>
       </div>
       <div class="seg" id="dashMetric" style="display:none;margin-top:10px">
         <button data-metric="billed" class="on">Billed</button>
-        <button data-metric="received">Received</button>
+        <button data-metric="received">Company cash</button>
       </div>
     </div>
     <div id="dashBody"><div class="card"><div class="empty">Loading…</div></div></div>
@@ -785,9 +809,10 @@
     <a href="/mfa-setup">Set up two-factor</a> ·
     <a href="#" id="remindLink">Daily reminders</a> ·
     <a href="/audit">Activity log</a> ·
+    <a href="#" id="logoutLink" style="display:none">Sign out</a><span id="logoutSep" style="display:none"> ·</span>
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.09.5</div>
+  <div class="foot build" id="buildInfo">build 2026.07.13.1</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -799,9 +824,20 @@
   </div>
 </div>
 
-<div id="toast" class="toast" style="display:none">
+<div id="toast" class="toast" style="display:none" role="status" aria-live="polite">
   <span id="toastMsg"></span>
   <button id="toastAction" type="button"></button>
+</div>
+
+<div id="confirmDialog" class="confirm-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmText">
+  <div class="confirm-card">
+    <h2 id="confirmTitle">Please confirm</h2>
+    <p id="confirmText"></p>
+    <div class="confirm-actions">
+      <button id="confirmCancel" class="confirm-cancel" type="button">Cancel</button>
+      <button id="confirmGo" class="confirm-go" type="button">Confirm</button>
+    </div>
+  </div>
 </div>
 
 <div id="cellChooser" class="chooser" style="display:none">
@@ -853,6 +889,7 @@ function entryToBody(e) {
     txn_date: e.date,
     billable: e.billableStatus === "Billable",
     hourly_rate: e.hourlyRate,
+    sync_token: e.syncToken,
   };
   if (e.vendorId) body.vendor_id = e.vendorId;
   else if (e.employeeId) body.employee_id = e.employeeId;
@@ -1197,7 +1234,7 @@ async function enableReminders() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(sub.toJSON()),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw await apiError(res, "Reminders could not be enabled.");
     const h = cfg.reminderHour;
     const hr = ((h + 11) % 12 + 1) + (h < 12 ? " AM" : " PM");
     showToast(`Daily reminders on. You'll get a nudge around ${hr} if nothing's logged.`, "", null);
@@ -1214,7 +1251,15 @@ function showToast(text, actionLabel, onAction) {
   if (actionLabel && onAction) {
     btn.style.display = "";
     btn.textContent = actionLabel;
-    btn.onclick = () => { hideToast(); onAction(); };
+    btn.onclick = async () => {
+      hideToast();
+      try {
+        await onAction();
+        showToast("Undo completed.", "", null);
+      } catch (e) {
+        showToast(e.message || "Undo could not be completed.", "", null);
+      }
+    };
   } else {
     btn.style.display = "none";
   }
@@ -1222,6 +1267,29 @@ function showToast(text, actionLabel, onAction) {
   toastTimer = setTimeout(hideToast, 6000);
 }
 function hideToast() { $("toast").style.display = "none"; }
+
+let confirmResolve = null;
+function askConfirm(message, confirmLabel = "Confirm", title = "Please confirm") {
+  if (confirmResolve) confirmResolve(false);
+  $("confirmTitle").textContent = title;
+  $("confirmText").textContent = message;
+  $("confirmGo").textContent = confirmLabel;
+  $("confirmDialog").hidden = false;
+  $("confirmCancel").focus();
+  return new Promise((resolve) => { confirmResolve = resolve; });
+}
+function finishConfirm(answer) {
+  $("confirmDialog").hidden = true;
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  if (resolve) resolve(answer);
+}
+$("confirmCancel").onclick = () => finishConfirm(false);
+$("confirmGo").onclick = () => finishConfirm(true);
+$("confirmDialog").onclick = (e) => { if (e.target === $("confirmDialog")) finishConfirm(false); };
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("confirmDialog").hidden) finishConfirm(false);
+});
 
 function setProject(item, save = true, apply = true) {
   selProject = item;
@@ -1348,17 +1416,25 @@ function renderEntryRows(box, entries, { showDate = true, selectable = false, se
     del.textContent = "×";
     del.setAttribute("aria-label", "Delete entry");
     del.onclick = async () => {
+      const label = `${e.customer || "No client"} · ${fmtDur(e.hours, e.minutes)} · ${e.date || "no date"}`;
+      if (!await askConfirm(`Delete this time entry? ${label}`, "Delete", "Delete time entry")) return;
       del.disabled = true;
-      const res = await fetch("/api/timeactivity/" + e.id, { method: "DELETE" });
-      if (res.ok) {
+      try {
+        const res = await fetch("/api/timeactivity/" + e.id, { method: "DELETE" });
+        if (!res.ok) throw await apiError(res, "The entry could not be deleted.");
+        const deleted = await res.json();
         refreshData();
         // Undo a delete by re-creating the same entry (QBO assigns a fresh id).
-        showToast("Entry deleted", "Undo", async () => {
-          await fetch("/api/timeactivity", { method: "POST",
+        showToast(deleted.appWarning ? `Entry deleted. ${deleted.appWarning}` : "Entry deleted", "Undo", async () => {
+          const undoRes = await fetch("/api/timeactivity", { method: "POST",
             headers: { "Content-Type": "application/json" }, body: JSON.stringify(entryToBody(e)) });
+          if (!undoRes.ok) throw await apiError(undoRes, "Couldn't restore the deleted entry.");
           refreshData();
         });
-      } else { del.disabled = false; alert("Delete failed: " + (await res.text())); }
+      } catch (err) {
+        del.disabled = false;
+        showToast(err.message || "The entry could not be deleted.", "", null);
+      }
     };
     if (selBox) row.appendChild(selBox);
     if (showDate) {
@@ -1404,16 +1480,24 @@ function inlineEditRow(row, e) {
     save.disabled = true;
     const body = entryToBody(e);
     body.hours = Math.floor(m / 60); body.minutes = m % 60; body.description = notes.value;
-    const res = await fetch("/api/timeactivity/" + e.id, { method: "PUT",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/timeactivity/" + e.id, { method: "PUT",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) throw await apiError(res, "The entry could not be updated.");
+      const updated = await res.json();
       refreshData();
-      showToast("Entry updated", "Undo", async () => {
-        await fetch("/api/timeactivity/" + e.id, { method: "PUT",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify(entryToBody(e)) });
+      const undoBody = entryToBody(e);
+      undoBody.sync_token = updated.SyncToken;
+      showToast(updated.appWarning ? `Entry updated. ${updated.appWarning}` : "Entry updated", "Undo", async () => {
+        const undoRes = await fetch("/api/timeactivity/" + e.id, { method: "PUT",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify(undoBody) });
+        if (!undoRes.ok) throw await apiError(undoRes, "Couldn't undo the edit.");
         refreshData();
       });
-    } else { save.disabled = false; alert("Save failed: " + (await res.text())); }
+    } catch (err) {
+      save.disabled = false;
+      showToast(err.message || "The entry could not be updated.", "", null);
+    }
   };
   row.append(h, notes, save, cancel);
   h.focus(); h.select();
@@ -1436,15 +1520,15 @@ function renderTodayStrip(entries) {
 async function loadRecent() {
   const box = $("entries");
   try {
-    const entries = await (await fetch("/api/timeactivities?days=14")).json();
+    const entries = await getJSON("/api/timeactivities?days=14");
     renderTodayStrip(entries);
     if (!entries.length) {
       box.innerHTML = '<div class="empty">No entries in the last 14 days.</div>';
       return;
     }
     renderEntryRows(box, entries);
-  } catch {
-    box.innerHTML = '<div class="empty">Could not load entries.</div>';
+  } catch (e) {
+    box.innerHTML = '<div class="empty">Could not load entries: ' + escapeHtml(e.message || "Unknown error") + '</div>';
   }
 }
 
@@ -1511,7 +1595,11 @@ function setEditMode(on) {
   $("logForm").classList.toggle("editing", on);  // recolor the whole form while editing
   // multi-day is for new entries only — hide it (and reset) while editing
   $("multiDayToggle").style.display = on ? "none" : "flex";
-  if (on) { $("multiDay").checked = false; $("multiDayRow").style.display = "none"; }
+  if (on) {
+    $("multiDay").checked = false;
+    $("multiDayRow").style.display = "none";
+    $("weekendToggle").style.display = "none";
+  }
 }
 
 // Fields locked in the read-only "billed" view.
@@ -1689,7 +1777,7 @@ async function renderWeekGrid() {
   try {
     entries = await fetchRange(start, end);
   } catch (e) {
-    if (seq === wgSeq) $("wgGrid").innerHTML = '<div class="empty">Could not load: ' + e.message + "</div>";
+    if (seq === wgSeq) $("wgGrid").innerHTML = '<div class="empty">Could not load: ' + escapeHtml(e.message || "Unknown error") + "</div>";
     return;
   }
   if (seq !== wgSeq) return;
@@ -1943,7 +2031,7 @@ function compareWord() {
 
 async function fetchRange(start, end) {
   const res = await fetch(`/api/timeactivities?start=${ymd(start)}&end=${ymd(end)}`);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw await apiError(res, "Time entries could not be loaded.");
   return res.json();
 }
 
@@ -1965,7 +2053,7 @@ function totInitials(name) {
 function drillWindow() {
   if (rep.allTime) {
     const end = new Date(), start = addDays(end, -365 * 5);
-    return spanWindow(start, end, "All history");
+    return spanWindow(start, end, "Last 5 years");
   }
   const { start, end } = periodRange();
   const y = start.getFullYear(), title = periodLabel();
@@ -2385,7 +2473,7 @@ async function renderReport() {
   // no comparison/paging (label + nav reflect it).
   const wide = rep.allTime;
   const { start, end } = wide ? { start: addDays(new Date(), -365 * 5), end: new Date() } : periodRange();
-  $("periodLabel").textContent = wide ? "All history" : periodLabel();
+  $("periodLabel").textContent = wide ? "Last 5 years" : periodLabel();
   $("prev").disabled = wide;
   $("next").disabled = wide || (end >= new Date(new Date().setHours(0, 0, 0, 0)) && ymd(end) >= ymd(new Date()));
   const seq = ++repSeq;
@@ -2394,7 +2482,7 @@ async function renderReport() {
     repFetched = await fetchRange(start, end);
     repPrev = cr ? await fetchRange(cr.s, cr.e) : null;
   } catch (e) {
-    if (seq === repSeq) $("repEntries").innerHTML = '<div class="empty">Could not load: ' + e.message + "</div>";
+    if (seq === repSeq) $("repEntries").innerHTML = '<div class="empty">Could not load: ' + escapeHtml(e.message || "Unknown error") + "</div>";
     return;
   }
   if (seq !== repSeq) return;  // a newer render superseded this one
@@ -2539,8 +2627,12 @@ function fillBulkSvc() {   // populate the "Set service" picker from the form's 
 async function bulkApply(action, itemId) {
   const ids = [...bulkSel].filter((id) => repFetched.some((e) => e.id === id));
   if (!ids.length) return;
-  if (action === "delete" && !confirm(`Delete ${ids.length} ${ids.length === 1 ? "entry" : "entries"}? (no undo)`)) return;
-  let ok = 0, fail = 0;
+  if (action === "delete" && !await askConfirm(
+    `Delete ${ids.length} ${ids.length === 1 ? "time entry" : "time entries"}? Bulk deletion cannot be undone here.`,
+    "Delete", "Delete selected entries"
+  )) return;
+  let ok = 0;
+  const failures = [];
   for (const id of ids) {
     const e = repFetched.find((x) => x.id === id);
     let spec;
@@ -2553,11 +2645,18 @@ async function bulkApply(action, itemId) {
       else if (action === "service") body.item_id = itemId;
       spec = { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
     }
-    try { const res = await fetch("/api/timeactivity/" + id, spec); res.ok ? ok++ : fail++; }
-    catch { fail++; }
+    try {
+      const res = await fetch("/api/timeactivity/" + id, spec);
+      if (!res.ok) throw await apiError(res, `Entry ${id} could not be changed.`);
+      ok++;
+    } catch (e) { failures.push(`${id}: ${e.message || "failed"}`); }
   }
   bulkSel.clear(); rep.selecting = false;
-  showToast(`${action === "delete" ? "Deleted" : "Updated"} ${ok}${fail ? ` · ${fail} failed` : ""}`, "", null);
+  showToast(
+    `${action === "delete" ? "Deleted" : "Updated"} ${ok}`
+      + (failures.length ? ` · ${failures.length} failed: ${failures.slice(0, 2).join("; ")}` : ""),
+    "", null
+  );
   renderReport();   // refetch to reflect the changes
 }
 
@@ -2568,19 +2667,19 @@ const MB_RE = /murat\s*baykal/i;   // Murat Baykal, for the effective-rate stat
 
 async function fetchPayments(start, end) {
   const res = await fetch(`/api/payments?start=${ymd(start)}&end=${ymd(end)}`);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw await apiError(res, "Payments could not be loaded.");
   return res.json();
 }
 
 async function fetchReceivables() {
   const res = await fetch("/api/receivables");
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw await apiError(res, "Accounts receivable could not be loaded.");
   return res.json();
 }
 
 async function fetchBills(start, end) {
   const res = await fetch(`/api/bills?start=${ymd(start)}&end=${ymd(end)}`);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw await apiError(res, "Vendor costs could not be loaded.");
   return res.json();
 }
 
@@ -2634,8 +2733,8 @@ function renderMoney(rec, wip) {
 
   const stats = mstat(fmtK(outstanding), "Outstanding")
     + mstat(fmtK(rec.pastDue || 0), "Past due", rec.pastDue > 0 ? "bad" : "")
-    + mstat(rec.dso != null ? rec.dso : "—", "Days to pay (DSO)")
-    + mstat(wip == null ? "—" : fmtK(wip), "Unbilled WIP", wip > 0 ? "good" : "");
+    + mstat(rec.dso != null ? rec.dso : "—", "Approx. DSO")
+    + mstat(wip == null ? "—" : fmtK(wip), "Unbilled WIP (2y)", wip > 0 ? "good" : "");
 
   let body;
   if (outstanding > 0) {
@@ -2692,12 +2791,14 @@ let dashDefaultBig = "", dashDefaultCap = "";   // hero text to restore after sc
 function computeDashMetrics(entries, inWin) {
   let mbMin = 0, billedD = 0, totalMin = 0, billMin = 0, billValue = 0;
   const byCust = new Map();     // key → { id, name, v }  (billable value per customer id)
-  const subNames = new Set();   // vendors who log time = the subcontractors
+  const subVendors = new Set(); // stable QBO vendor id; name fallback for older/mock rows
   entries.forEach((e) => {
     if (!e.date || !inWin(e.date) || isExpense(e)) return;
     const m = mins(e);
     totalMin += m;
-    if ((e.vendorId || e.nameOf === "Vendor") && e.employee) subNames.add(e.employee.toLowerCase());
+    if ((e.vendorId || e.nameOf === "Vendor") && e.employee) {
+      subVendors.add(e.vendorId ? "id:" + e.vendorId : "n:" + e.employee.toLowerCase());
+    }
     if (MB_RE.test(e.employee || "")) mbMin += m;
     if (e.billable) {
       billMin += m;
@@ -2711,7 +2812,7 @@ function computeDashMetrics(entries, inWin) {
     if (e.billableStatus === "HasBeenBilled") billedD += fin(dollarsOf(e));
   });
   return {
-    totalMin, billMin, billValue, billedD, mbMin, byCust, subNames,
+    totalMin, billMin, billValue, billedD, mbMin, byCust, subVendors,
     utilPct: totalMin > 0 ? (billMin / totalMin) * 100 : null,          // billable ÷ total hrs
     realPct: billValue > 0 ? (billedD / billValue) * 100 : null,        // invoiced ÷ billable value
     effRate: totalMin > 0 ? billValue / (totalMin / 60) : null,         // billable value ÷ hrs worked
@@ -2720,9 +2821,10 @@ function computeDashMetrics(entries, inWin) {
 
 function renderPracticeCard(m, win) {
   return moneyCard("Practice metrics", `last ${win.buckets.length} ${win.unitNoun}s`,
-    mstat(m.utilPct != null ? Math.round(m.utilPct) + "%" : "—", "Utilization")
-    + mstat(m.realPct != null ? Math.round(m.realPct) + "%" : "—", "Realization")
-    + mstat(m.effRate != null ? fmtK(m.effRate) : "—", "Effective / hr"));
+    mstat(m.utilPct != null ? Math.round(m.utilPct) + "%" : "—", "Billable hours share")
+    + mstat(m.realPct != null ? Math.round(m.realPct) + "%" : "—", "Billed time-value share")
+    + mstat(m.effRate != null ? fmtK(m.effRate) : "—", "Billable value / hr"),
+    '<p class="sub" style="margin-top:10px">Time-value estimates use each Time Activity rate; they are not invoice totals. Services named mileage, expense, or reimbursement are excluded as non-labor.</p>');
 }
 
 // Group the per-customer billable map into a sorted concentration list — rolled
@@ -2770,12 +2872,12 @@ function renderConcentrationCard(byCust) {
 function renderMarginCard(revenue, subCost, subCount, win) {
   const margin = revenue - subCost;
   const marginPct = revenue > 0 ? (margin / revenue) * 100 : null;
-  const stats = mstat(fmtK(revenue), "Revenue (billable)")
-    + mstat(fmtK(subCost), "Sub cost", "bad")
-    + mstat(fmtK(margin), "Gross margin", margin >= 0 ? "good" : "bad")
-    + mstat(marginPct != null ? Math.round(marginPct) + "%" : "—", "Margin %", marginPct != null && marginPct < 0 ? "bad" : "");
-  const note = `<p class="sub" style="margin:10px 0 0">Cost = bills to the ${subCount} vendor${subCount > 1 ? "s" : ""} who logged time this window; enter subcontractor bills in QuickBooks for this to be complete.</p>`;
-  return moneyCard("Subcontractor cost &amp; margin", `last ${win.buckets.length} ${win.unitNoun}s`, stats, note);
+  const stats = mstat(fmtK(revenue), "Billable time value")
+    + mstat(fmtK(subCost), "Vendor costs", "bad")
+    + mstat(fmtK(margin), "Estimated difference", margin >= 0 ? "good" : "bad")
+    + mstat(marginPct != null ? Math.round(marginPct) + "%" : "—", "Difference %", marginPct != null && marginPct < 0 ? "bad" : "");
+  const note = `<p class="sub" style="margin:10px 0 0">Estimate only: time value minus QuickBooks bills/purchases for the ${subCount} vendor${subCount > 1 ? "s" : ""} who logged time. This is not invoice revenue or accounting gross margin.</p>`;
+  return moneyCard("Estimated time value vs vendor costs", `last ${win.buckets.length} ${win.unitNoun}s`, stats, note);
 }
 
 // #13 Billable mix: billable vs non-billable HOURS per bucket over the window
@@ -2812,8 +2914,8 @@ async function renderDash() {
   document.querySelectorAll("#dashSeg button").forEach((b) => b.classList.toggle("on", b.dataset.unit === dash.unit));
   // Billed/Received toggle only makes sense for money — show it in $ mode.
   const received = opts.dollars && dash.metric === "received";
-  const noun = received ? "received" : "invoiced";
-  const Noun = received ? "Received" : "Invoiced";
+  const noun = received ? "company cash received" : "billed time value (est.)";
+  const Noun = received ? "Company cash received" : "Billed time value (est.)";
   $("dashMetric").style.display = opts.dollars ? "flex" : "none";
   document.querySelectorAll("#dashMetric button").forEach((b) => b.classList.toggle("on", b.dataset.metric === (received ? "received" : "billed")));
 
@@ -2856,14 +2958,7 @@ async function renderDash() {
   const winStart = win.buckets[0].start.getTime(), winEnd = win.buckets[n - 1].end.getTime();
   const inWin = (ds) => { const t = new Date(ds + "T00:00").getTime(); return t >= winStart && t <= winEnd; };
   const M = computeDashMetrics(entries, inWin);
-  const { byCust, subNames, billValue, billedD, mbMin } = M;
-  // MB effective rate: billed (or received) $ over the window ÷ MB's hours.
-  let dollars = billedD;
-  if (received) { dollars = 0; pmts.forEach((p) => { if (p.date && inWin(p.date)) dollars += fin(Number(p.amount)); }); }
-  const mbRate = mbMin > 0 ? dollars / (mbMin / 60) : null;
-  const rateHtml = mbRate != null
-    ? `<div class="dash-rate">$${Math.round(mbRate).toLocaleString()}<span> / hr worked by MB · ${received ? "received" : "billed"}</span></div>`
-    : "";
+  const { byCust, subVendors, billValue } = M;
 
   // headline is a rounded approximation: hours → "~159hrs", dollars → "~$39K"
   const headline = opts.dollars
@@ -2874,7 +2969,7 @@ async function renderDash() {
   let html = '<div class="card"><div class="dash-hero">'
     + `<span class="big" id="dashBig">${headline}</span>`
     + `<span class="cap" id="dashCap">${dashDefaultCap}</span></div>`
-    + rateHtml
+    + (received ? '<p class="sub" style="margin:0 0 10px">Company-wide cash by payment date; not attributed to a person or this period\'s work.</p>' : '<p class="sub" style="margin:0 0 10px">Estimate from billed Time Activities, not QuickBooks invoice line totals.</p>')
     + '<div class="chart" id="dashChart"></div>'
     + `<div class="dash-legend"><span><span class="lg-bar"></span>${Noun} / ${win.unitNoun}</span>`
     + '<span><span class="lg-line"></span>12-mo trailing avg</span></div></div>';
@@ -2937,14 +3032,17 @@ async function renderDash() {
   // billable value generated in the window. Non-fatal; hidden entirely when the
   // practice uses no subs (nothing to show).
   const marginBox = $("dashMargin");
-  if (subNames.size === 0) {
+  if (subVendors.size === 0) {
     marginBox.innerHTML = "";
   } else {
     try {
       const bills = await fetchBills(win.buckets[0].start, win.buckets[n - 1].end);
       if (seq !== dashSeq) return;
-      const subCost = bills.reduce((s, b) => subNames.has((b.vendor || "").toLowerCase()) ? s + fin(Number(b.amount)) : s, 0);
-      marginBox.innerHTML = renderMarginCard(billValue, subCost, subNames.size, win);
+      const subCost = bills.reduce((s, b) => {
+        const key = b.vendorId ? "id:" + b.vendorId : "n:" + (b.vendor || "").toLowerCase();
+        return subVendors.has(key) ? s + fin(Number(b.amount)) : s;
+      }, 0);
+      marginBox.innerHTML = renderMarginCard(billValue, subCost, subVendors.size, win);
     } catch (e) {
       if (seq === dashSeq) marginBox.innerHTML = '<div class="card money"><div class="empty">Could not load bills: ' + escapeHtml(e.message) + "</div></div>";
     }
@@ -2957,7 +3055,7 @@ function drawDashChart(box, win, bMetric, trail) {
   const received = opts.dollars && dash.metric === "received";
   const maxV = Math.max(...bMetric, ...trail, 0);
   if (maxV <= 0) {
-    box.innerHTML = '<div class="empty">No ' + (received ? "payments" : opts.dollars ? "invoiced value" : "invoiced time") + ' in this window yet.</div>';
+    box.innerHTML = '<div class="empty">No ' + (received ? "company payments" : opts.dollars ? "billed time value" : "billed time") + ' in this window yet.</div>';
     return;
   }
   // payment amounts are already dollars; only time-based values convert min→h
@@ -3060,12 +3158,17 @@ function applyView(v) {
   renderReport();
 }
 function saveCurrentView() {
-  const name = prompt("Name this view:");
-  if (!name) return;
+  const name = $("savedViewName").value.trim();
+  if (!name) {
+    $("savedViewName").focus();
+    showToast("Enter a name for this view first.", "", null);
+    return;
+  }
   const views = loadViews().filter((v) => v.name !== name);
   views.push({ name, unit: rep.unit, cStart: rep.cStart, cEnd: rep.cEnd,
     q: rep.q, svc: rep.svc, status: rep.status, needs: rep.needs });
   localStorage.setItem("saved-views", JSON.stringify(views));
+  $("savedViewName").value = "";
   renderSavedViews();
 }
 
@@ -3194,7 +3297,15 @@ async function boot() {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
 
-  const status = await (await fetch("/api/status")).json();
+  let status;
+  try {
+    status = await getJSON("/api/status");
+  } catch (e) {
+    const setup = $("setup");
+    setup.style.display = "block";
+    setup.querySelector(".sub").textContent = "The app server could not be reached. Check your connection and reload. " + (e.message || "");
+    return;
+  }
   $("env").textContent = status.environment;
   $("env").classList.toggle("production", status.environment === "production");
   if (!status.configured) { $("setup").style.display = "block"; return; }
@@ -3202,14 +3313,16 @@ async function boot() {
     $("loginCard").style.display = "block";
     if (status.mfa_required) $("codeRow").style.display = "block";
     const go = async () => {
-      const res = await fetch("/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: $("pw").value, code: $("code").value }),
-      });
-      if (res.ok) location.reload();
-      else {
-        $("pwMsg").textContent = (await res.json()).detail || "Sign in failed.";
+      try {
+        const res = await fetch("/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: $("pw").value, code: $("code").value }),
+        });
+        if (!res.ok) throw await apiError(res, "Sign in failed.");
+        location.reload();
+      } catch (e) {
+        $("pwMsg").textContent = e.message || "Sign in failed. Check your connection and try again.";
         $("pwMsg").className = "msg bad";
       }
     };
@@ -3220,8 +3333,23 @@ async function boot() {
     return;
   }
   if (!status.connected) { $("connect").style.display = "block"; return; }
+  if (status.auth_required) {
+    $("logoutLink").style.display = "inline";
+    $("logoutSep").style.display = "inline";
+    $("logoutLink").onclick = async (e) => {
+      e.preventDefault();
+      try {
+        const res = await fetch("/logout", { method: "POST" });
+        if (!res.ok) throw await apiError(res, "Sign out failed.");
+        location.reload();
+      } catch (err) { showToast(err.message, "", null); }
+    };
+  }
   $("app").style.display = "block";
   $("tabbar").style.display = "flex";
+  getJSON("/api/company").then((company) => {
+    if (company?.name) $("companyName").textContent = company.name + (company.realmSuffix ? ` · …${company.realmSuffix}` : "");
+  }).catch(() => { $("companyName").textContent = "Company identity unavailable"; });
 
   let proj, emps, vends, items;
   try {
@@ -3286,13 +3414,22 @@ function restoreWho() {
   if (opt) opt.selected = true;
 }
 
+async function apiError(res, fallback = "The request could not be completed.") {
+  let payload = null;
+  try { payload = await res.json(); } catch { /* response was not JSON */ }
+  const detail = payload && payload.detail;
+  const structured = detail && typeof detail === "object" ? detail : null;
+  const message = structured?.message || (typeof detail === "string" ? detail : "") || fallback;
+  const err = new Error(message);
+  err.status = res.status;
+  err.code = structured?.code || "";
+  err.supportId = structured?.supportId || "";
+  return err;
+}
+
 async function getJSON(url) {
   const res = await fetch(url);
-  if (!res.ok) {
-    let detail = "";
-    try { detail = (await res.json()).detail || ""; } catch { detail = await res.text(); }
-    throw new Error(`${url} → ${res.status}${detail ? ": " + detail : ""}`);
-  }
+  if (!res.ok) throw await apiError(res, "QuickBooks data could not be loaded.");
   return res.json();
 }
 
@@ -3350,45 +3487,83 @@ async function submit() {
 
   const editing = editingId;
   const before = editing ? editingBefore : null;   // captured for Undo
+  if (editing && before) body.sync_token = before.syncToken;
 
   // #4 multi-day: create one entry per day across [date, dateEnd] (new entries only)
   if (!editing && $("multiDay").checked && $("dateEnd").value) {
     const startD = body.txn_date, endD = $("dateEnd").value;
     if (endD < startD) { msg.textContent = '"Through" date must be on or after the start date.'; msg.className = "msg bad"; $("submit").disabled = false; return; }
     const days = [];
-    for (let d = new Date(startD + "T00:00"), stop = new Date(endD + "T00:00"); d <= stop; d = addDays(d, 1)) days.push(ymd(d));
-    if (days.length > 31 && !confirm(`Create ${days.length} entries (one per day)?`)) { $("submit").disabled = false; return; }
-    let ok = 0, fail = 0;
+    const includeWeekends = $("includeWeekends").checked;
+    let calendarDays = 0;
+    for (let d = new Date(startD + "T00:00"), stop = new Date(endD + "T00:00"); d <= stop; d = addDays(d, 1)) {
+      calendarDays++;
+      if (calendarDays > 366) {
+        msg.textContent = "Choose a range of one year or less."; msg.className = "msg bad"; $("submit").disabled = false; return;
+      }
+      if (includeWeekends || (d.getDay() !== 0 && d.getDay() !== 6)) days.push(ymd(d));
+    }
+    if (!days.length) { msg.textContent = "This range contains no weekdays. Include weekends or change the dates."; msg.className = "msg bad"; $("submit").disabled = false; return; }
+    if (days.length > 1 && !await askConfirm(
+      `Create ${days.length} entries from ${startD} through ${endD}? ${includeWeekends ? "Weekends are included." : "Weekends are excluded."}`,
+      "Create entries", "Confirm multiple entries"
+    )) { $("submit").disabled = false; return; }
+    let ok = 0;
+    const failures = [];
     for (const day of days) {
       try {
         const r = await fetch("/api/timeactivity", { method: "POST",
           headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, txn_date: day }) });
-        r.ok ? ok++ : fail++;
-      } catch { fail++; }
+        if (!r.ok) throw await apiError(r, "QuickBooks rejected the entry.");
+        ok++;
+      } catch (e) { failures.push(`${day}: ${e.message || "failed"}`); }
     }
     localStorage.setItem("last-who-id", whoOpt.value);
     localStorage.setItem("last-who-type", whoOpt.dataset.type);
     $("durh").value = ""; $("desc").value = "";
-    $("multiDay").checked = false; $("multiDayRow").style.display = "none"; $("dateEnd").value = "";
+    $("multiDay").checked = false; $("multiDayRow").style.display = "none"; $("weekendToggle").style.display = "none"; $("includeWeekends").checked = false; $("dateEnd").value = "";
     document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
     $("billable").checked = true;
-    msg.textContent = `Logged ${ok} ${ok === 1 ? "entry" : "entries"} across ${days.length} days` + (fail ? ` · ${fail} failed` : "");
-    msg.className = fail ? "msg bad" : "msg good";
+    msg.textContent = `Logged ${ok} ${ok === 1 ? "entry" : "entries"} across ${days.length} days`
+      + (failures.length ? ` · ${failures.length} failed — ${failures.slice(0, 3).join("; ")}` : "");
+    msg.className = failures.length ? "msg bad" : "msg good";
     $("submit").disabled = false;
     refreshData();
     return;
   }
 
   try {
-    const res = await fetch(
-      editing ? "/api/timeactivity/" + editing : "/api/timeactivity",
-      {
-        method: editing ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+    const endpoint = editing ? "/api/timeactivity/" + editing : "/api/timeactivity";
+    const send = () => fetch(endpoint, {
+      method: editing ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    let res;
+    while (true) {
+      res = await send();
+      if (res.ok) break;
+      const firstError = await apiError(res, editing ? "The entry could not be updated." : "The entry could not be logged.");
+      const overridable = !editing
+        && ((firstError.code === "DUPLICATE_ENTRY" && !body.allow_duplicate)
+          || (firstError.code === "DAY_TOTAL" && !body.allow_day_overflow));
+      if (overridable) {
+        const proceed = await askConfirm(
+          firstError.message + " Do you want to log it anyway?",
+          "Log anyway", firstError.code === "DUPLICATE_ENTRY" ? "Possible duplicate" : "Daily total warning"
+        );
+        if (!proceed) {
+          msg.textContent = "Entry was not logged.";
+          msg.className = "msg";
+          return;
+        }
+        if (firstError.code === "DUPLICATE_ENTRY") body.allow_duplicate = true;
+        if (firstError.code === "DAY_TOTAL") body.allow_day_overflow = true;
+        continue;
+      } else {
+        throw firstError;
       }
-    );
-    if (!res.ok) throw new Error(await res.text());
+    }
     const data = await res.json();
     localStorage.setItem("last-who-id", whoOpt.value);
     localStorage.setItem("last-who-type", whoOpt.dataset.type);
@@ -3400,24 +3575,29 @@ async function submit() {
     $("billable").checked = true;  // every new entry defaults to billable
     msg.textContent =
       (editing ? "Updated ✓  entry #" : "Logged ✓  entry #") + (data.Id || "") +
-      (rounded ? `  · ${minsToHours(total)}h (rounded to ½ h)` : "");
+      (rounded ? `  · ${minsToHours(total)}h (rounded to ½ h)` : "") +
+      (data.appWarning ? ` · ${data.appWarning}` : "");
     msg.className = "msg good";
     // Undo: for a new entry delete it; for an edit re-PUT the prior values.
     if (editing && before) {
+      const undoBody = entryToBody(before);
+      undoBody.sync_token = data.SyncToken;
       showToast("Entry updated", "Undo", async () => {
-        await fetch("/api/timeactivity/" + editing, { method: "PUT",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify(entryToBody(before)) });
+        const undoRes = await fetch("/api/timeactivity/" + editing, { method: "PUT",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify(undoBody) });
+        if (!undoRes.ok) throw await apiError(undoRes, "Couldn't undo the edit.");
         refreshData();
       });
     } else if (!editing && data.Id) {
       showToast("Entry logged", "Undo", async () => {
-        await fetch("/api/timeactivity/" + data.Id, { method: "DELETE" });
+        const undoRes = await fetch("/api/timeactivity/" + data.Id, { method: "DELETE" });
+        if (!undoRes.ok) throw await apiError(undoRes, "Couldn't undo the new entry.");
         refreshData();
       });
     }
     refreshData();
   } catch (e) {
-    showSubmitError(msg, e.message || "");
+    showSubmitError(msg, e);
   } finally {
     $("submit").disabled = false;
   }
@@ -3428,9 +3608,10 @@ async function submit() {
 // entry (employee, service, or project) doesn't exist in the connected
 // QuickBooks company — usually because the app's open lists are stale (the
 // company changed, or that item was deactivated/merged in QBO). Offer a reload.
-function showSubmitError(msg, raw) {
+function showSubmitError(msg, err) {
   msg.className = "msg bad";
-  if (/Invalid Reference Id|"code\\?":\s*\\?"2500/.test(raw)) {
+  const raw = err?.message || String(err || "");
+  if (err?.code === "2500" || /Invalid Reference Id/.test(raw)) {
     const m = raw.match(/id (\d+) not found/i);
     msg.innerHTML =
       "QuickBooks didn't recognize one of this entry's references"
@@ -3443,7 +3624,8 @@ function showSubmitError(msg, raw) {
     const rb = $("reloadApp");
     if (rb) rb.onclick = () => location.reload();
   } else {
-    msg.textContent = "Failed: " + raw;
+    msg.textContent = raw || "The entry could not be saved. Check your connection and try again.";
+    if (err?.supportId) msg.textContent += ` Support ID: ${err.supportId}`;
   }
 }
 
@@ -3453,6 +3635,7 @@ $("closeBilled").addEventListener("click", () => { setBilledLock(false); clearFo
 $("multiDay").addEventListener("change", () => {
   const on = $("multiDay").checked;
   $("multiDayRow").style.display = on ? "flex" : "none";
+  $("weekendToggle").style.display = on ? "block" : "none";
   if (on && !$("dateEnd").value) $("dateEnd").value = $("date").value;   // seed with the start date
 });
 $("cellChooserClose").addEventListener("click", closeCellChooser);

@@ -20,7 +20,7 @@ touch **production financial data**, so a wrong number can't ship silently:
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q
+PYTHONPATH=. python -m pytest -q
 ```
 
 ## Frontend — Playwright + `node:test` (mocked `/api/*`, no build step)
