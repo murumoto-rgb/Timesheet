@@ -141,7 +141,12 @@ HOSTED = (
     or urllib.parse.urlparse(REDIRECT_URI).scheme == "https"
     or _redirect_host not in {"", "localhost", "127.0.0.1", "::1"}
 )
-SESSION_MAX_AGE = 12 * 3600
+# Sliding-window session: the cookie is valid for SESSION_MAX_AGE since it was
+# last issued, and any authenticated request past the halfway mark re-issues a
+# fresh one — so an actively-used session never expires, while an idle one lapses
+# after SESSION_MAX_AGE of inactivity.
+SESSION_MAX_AGE = 7 * 24 * 3600          # 7-day idle window
+SESSION_REFRESH_AFTER = SESSION_MAX_AGE // 2   # re-issue once past the halfway point
 # Optional TOTP two-factor. When TOTP_SECRET is set, login also requires the
 # current 6-digit code from an authenticator app (1Password, Google
 # Authenticator, etc). Unset = password-only.
@@ -187,19 +192,35 @@ def _auth_cookie_value(now=None):
     return f"{payload}.{_auth_signature(payload)}"
 
 
-def _is_authed(request: Request) -> bool:
-    if not APP_PASSWORD:
-        return not HOSTED
+def _auth_issued_at(request: Request):
+    """Return the issue timestamp of a valid session cookie, else None."""
     raw = request.cookies.get("ts_auth", "")
     try:
         issued_s, nonce, signature = raw.split(".", 2)
         issued = int(issued_s)
     except (ValueError, TypeError):
-        return False
+        return None
     if not nonce or issued > time.time() + 60 or time.time() - issued > SESSION_MAX_AGE:
-        return False
+        return None
     payload = f"{issued_s}.{nonce}"
-    return hmac.compare_digest(signature, _auth_signature(payload))
+    return issued if hmac.compare_digest(signature, _auth_signature(payload)) else None
+
+
+def _is_authed(request: Request) -> bool:
+    if not APP_PASSWORD:
+        return not HOSTED
+    return _auth_issued_at(request) is not None
+
+
+def _set_auth_cookie(resp, request, now=None):
+    resp.set_cookie(
+        "ts_auth",
+        _auth_cookie_value(now),
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+    )
 
 
 @app.middleware("http")
@@ -211,12 +232,19 @@ async def require_password(request: Request, call_next):
             status_code=503,
         )
     if APP_PASSWORD and path not in _PUBLIC_PATHS and not path.startswith("/static/"):
-        if not _is_authed(request):
+        issued = _auth_issued_at(request)
+        if issued is None:
             # Browser page navigations get sent to the sign-in screen; API
             # calls get a JSON 401 the frontend can handle.
             if request.method == "GET" and not path.startswith("/api/"):
                 return RedirectResponse("/")
             return JSONResponse({"detail": "Sign in required."}, status_code=401)
+        response = await call_next(request)
+        # Sliding window: any request past the halfway mark refreshes the cookie,
+        # so an actively-used session never lapses.
+        if time.time() - issued > SESSION_REFRESH_AFTER:
+            _set_auth_cookie(response, request)
+        return response
     return await call_next(request)
 
 
@@ -292,14 +320,7 @@ def login(body: Login, request: Request):
         _login_attempts.pop(_login_key(request), None)
     resp = JSONResponse({"ok": True})
     if APP_PASSWORD:
-        resp.set_cookie(
-            "ts_auth",
-            _auth_cookie_value(),
-            max_age=SESSION_MAX_AGE,
-            httponly=True,
-            samesite="lax",
-            secure=request.url.scheme == "https",
-        )
+        _set_auth_cookie(resp, request)
     return resp
 
 

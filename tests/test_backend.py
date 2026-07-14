@@ -154,6 +154,42 @@ def test_auth_cookie_expires_server_side(monkeypatch):
     assert not main._is_authed(request)
 
 
+def _run_gate(request):
+    """Drive require_password directly with a trivial downstream handler."""
+    import asyncio
+    from starlette.responses import JSONResponse as SResp
+
+    async def call_next(_req):
+        return SResp({"ok": True})
+    return asyncio.run(main.require_password(request, call_next))
+
+
+def _authed_request(cookie_value):
+    from starlette.requests import Request
+    return Request({"type": "http", "method": "GET", "path": "/api/employees",
+                    "headers": [(b"cookie", f"ts_auth={cookie_value}".encode())]})
+
+
+def test_session_slides_refreshing_the_cookie_past_the_halfway_mark(monkeypatch):
+    # a session used past the refresh threshold is re-issued, so active use never lapses
+    monkeypatch.setattr(main, "APP_PASSWORD", "secret")
+    monkeypatch.setattr(main, "CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(main, "TOTP_SECRET", "")
+    aged = int(main.time.time()) - (main.SESSION_REFRESH_AFTER + 100)
+    resp = _run_gate(_authed_request(main._auth_cookie_value(now=aged)))
+    assert resp.status_code == 200
+    assert "ts_auth=" in resp.headers.get("set-cookie", "")     # refreshed
+
+
+def test_session_not_refreshed_while_still_fresh(monkeypatch):
+    monkeypatch.setattr(main, "APP_PASSWORD", "secret")
+    monkeypatch.setattr(main, "CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(main, "TOTP_SECRET", "")
+    resp = _run_gate(_authed_request(main._auth_cookie_value()))   # issued just now
+    assert resp.status_code == 200
+    assert "ts_auth=" not in resp.headers.get("set-cookie", "")    # no churn on every call
+
+
 # ── qbo_query_all: pagination past the 1000-row page cap ────────────────────
 def test_qbo_query_all_paginates_past_1000(monkeypatch):
     import re
