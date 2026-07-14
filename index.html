@@ -812,7 +812,7 @@
     <a href="#" id="logoutLink" style="display:none">Sign out</a><span id="logoutSep" style="display:none"> ·</span>
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.13.1</div>
+  <div class="foot build" id="buildInfo">build 2026.07.13.2</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -2958,7 +2958,16 @@ async function renderDash() {
   const winStart = win.buckets[0].start.getTime(), winEnd = win.buckets[n - 1].end.getTime();
   const inWin = (ds) => { const t = new Date(ds + "T00:00").getTime(); return t >= winStart && t <= winEnd; };
   const M = computeDashMetrics(entries, inWin);
-  const { byCust, subVendors, billValue } = M;
+  const { byCust, subVendors, billValue, billedD, mbMin } = M;
+  // MB effective rate: billed (or, in Received mode, cash-in) $ over the window
+  // ÷ hours worked by Murat Baykal. Revenue includes vendor/leverage work; the
+  // denominator is MB's own hours only. Shown in $ mode (it is a rate in $).
+  let mbDollars = billedD;
+  if (received && pmts) { mbDollars = 0; pmts.forEach((p) => { if (p.date && inWin(p.date)) mbDollars += fin(Number(p.amount)); }); }
+  const mbRate = mbMin > 0 ? mbDollars / (mbMin / 60) : null;
+  const rateHtml = (opts.dollars && mbRate != null)
+    ? `<div class="dash-rate">$${Math.round(mbRate).toLocaleString()}<span> / hr worked by MB · ${received ? "received" : "billed"}</span></div>`
+    : "";
 
   // headline is a rounded approximation: hours → "~159hrs", dollars → "~$39K"
   const headline = opts.dollars
@@ -2970,6 +2979,7 @@ async function renderDash() {
     + `<span class="big" id="dashBig">${headline}</span>`
     + `<span class="cap" id="dashCap">${dashDefaultCap}</span></div>`
     + (received ? '<p class="sub" style="margin:0 0 10px">Company-wide cash by payment date; not attributed to a person or this period\'s work.</p>' : '<p class="sub" style="margin:0 0 10px">Estimate from billed Time Activities, not QuickBooks invoice line totals.</p>')
+    + rateHtml
     + '<div class="chart" id="dashChart"></div>'
     + `<div class="dash-legend"><span><span class="lg-bar"></span>${Noun} / ${win.unitNoun}</span>`
     + '<span><span class="lg-line"></span>12-mo trailing avg</span></div></div>';

@@ -49,6 +49,21 @@ test("mileage/expense lines are excluded from KPIs regardless of the hide toggle
   await ctx.close();
 });
 
+test("MB effective rate = billed $ ÷ MB hours, shown in $ mode", async () => {
+  // MB: 10 billed hours at $200 → $2000 billed ÷ 10h = $200/hr worked by MB
+  const entries = [entry({ id: "1", hours: 10, hourlyRate: 200, billableStatus: "HasBeenBilled" })];
+  const { ctx, page, errors } = await openApp(browser, baseData(entries), "dash");
+  await page.waitForSelector("#dashBody .card");
+  assert.equal((await page.$$("#dashView .dash-rate")).length, 0, "hidden in hours mode ($/hr is a dollar stat)");
+  await page.click('#dashView .modeseg button[data-mode="dollars"]');
+  await page.waitForSelector("#dashView .dash-rate");
+  const rate = await page.textContent("#dashView .dash-rate");
+  assert.match(rate, /\$200\b/);
+  assert.match(rate, /worked by MB/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test("client concentration rolls sub-clients/projects up to the main client, and splits by project", async () => {
   // Acme(1) → East Wing job(2) → Roof project(3); Beta(4) top-level
   const projects = { projects: [{ id: "3", name: "Acme:East Wing:Roof", parentId: "2" }],
@@ -64,7 +79,10 @@ test("client concentration rolls sub-clients/projects up to the main client, and
   const client = await moneyStats(page, "concentration");
   assert.equal(client["Top client"], "80%");        // Acme = 6000 + 2000 of 10000
   assert.equal(client["Clients billed"], "2");
-  await page.click("#concSeg button[data-concby=project]");
+  // dispatch the real click via the element: in the short test viewport the
+  // toggle can sit under the fixed tab bar / an adjacent card, which intercepts a
+  // synthetic pointer click. This still fires the button's onclick handler.
+  await page.$eval("#concSeg button[data-concby=project]", (el) => el.click());
   await page.waitForTimeout(200);
   const proj = await moneyStats(page, "concentration");
   assert.equal(proj["Top project"], "60%");         // Roof alone
