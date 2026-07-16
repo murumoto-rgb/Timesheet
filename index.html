@@ -211,14 +211,18 @@
   .picker[hidden] { display: none; }
   .picker-back { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
   .picker-sheet {
-    position: absolute; left: 0; right: 0; bottom: 0; max-height: 75vh;
+    /* Fixed tall height (not content-sized) so the search box stays pinned near
+       the top and results always fill DOWNWARD from just beneath it. A
+       content-sized sheet shrinks toward bottom:0 as results narrow, sliding the
+       matches down behind the on-screen keyboard — the opposite of what's wanted. */
+    position: absolute; left: 0; right: 0; bottom: 0; height: 82vh;
     background: var(--panel); border-top: 1px solid var(--line);
     border-radius: 16px 16px 0 0;
     padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
     display: flex; flex-direction: column; gap: 10px;
     max-width: 520px; margin: 0 auto;
   }
-  .picker-list { overflow-y: auto; overscroll-behavior: contain; }
+  .picker-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   .pick-group {
     font-family: var(--mono); font-size: 11px; text-transform: uppercase;
     letter-spacing: 0.07em; color: var(--muted); margin: 10px 0 2px;
@@ -812,7 +816,7 @@
     <a href="#" id="logoutLink" style="display:none">Sign out</a><span id="logoutSep" style="display:none"> ·</span>
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.13.2</div>
+  <div class="foot build" id="buildInfo">build 2026.07.13.3</div>
 </div>
 
 <div class="picker" id="picker" hidden>
