@@ -134,7 +134,17 @@ test("invalid local imports leave budgets, draft, categories and save IDs unchan
   try {
     const writes = trackWrites(page);
     await page.fill("#desc", "Existing draft must survive rejected import");
-    await page.waitForFunction(companyKey => !!localStorage.getItem(`timesheet:${companyKey}:draft`), company);
+    // Leaving the notes field emits change and schedules another autosave.
+    // Wait for that save before taking the byte-for-byte import baseline.
+    const draftBeforeBlur = await page.evaluate(companyKey => {
+      const previous = localStorage.getItem(`timesheet:${companyKey}:draft`);
+      document.querySelector("#desc").blur();
+      return previous;
+    }, company);
+    await page.waitForFunction(({ companyKey, previous }) => {
+      const current = localStorage.getItem(`timesheet:${companyKey}:draft`);
+      return current !== previous && JSON.parse(current || "null")?.notes === "Existing draft must survive rejected import";
+    }, { companyKey: company, previous: draftBeforeBlur });
     await drill(page);
     await page.fill("#budgetFee", "900");
     await page.click("#saveBudget");

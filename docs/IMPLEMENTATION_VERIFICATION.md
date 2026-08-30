@@ -1,7 +1,8 @@
-# Audit implementation — build 2026.08.30.2
+# Audit implementation — build 2026.08.30.3
 
-Verified locally on August 30, 2026. This release has not been published and no
-live QuickBooks records were created, edited or deleted during implementation.
+Verified locally on August 30, 2026 before publication. No live QuickBooks
+records were created, edited or deleted during implementation. Deployment status
+is tracked separately from this implementation verification record.
 
 ## Five improvements
 
