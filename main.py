@@ -20,6 +20,8 @@ import logging
 import math
 import secrets
 import threading
+import tempfile
+import uuid
 import urllib.parse
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -33,8 +35,11 @@ import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from dotenv import load_dotenv
+
+from write_journal import Journal, receipt_order
+from time_reconciliation import report as _reconciliation_report
 
 load_dotenv()
 
@@ -97,6 +102,12 @@ log = logging.getLogger("qbo-timesheet")
 
 @asynccontextmanager
 async def _lifespan(app):
+    try:
+        workers = int(os.environ.get("WEB_CONCURRENCY", "1"))
+    except ValueError:
+        workers = 0
+    if workers != 1:
+        raise RuntimeError("WEB_CONCURRENCY must be 1. Token refresh, OAuth, audit and reminder state require one application worker.")
     if HOSTED and not APP_PASSWORD:
         raise RuntimeError(
             "APP_PASSWORD is required when the Timesheet app is hosted or connected to production."
@@ -363,14 +374,22 @@ def _load_blob(path, sb_id):
         )
         resp.raise_for_status()
         rows = resp.json()
+        if (not isinstance(rows, list) or len(rows) > 1
+                or (rows and (not isinstance(rows[0], dict) or not isinstance(rows[0].get("data"), dict)))):
+            raise HTTPException(503, "Stored app data could not be verified. Preserve it and review recovery before continuing.")
         return rows[0]["data"] if rows else None
     if not os.path.exists(path):
         return None
     try:
         with open(path) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, ValueError):
-        return None  # empty/corrupt file — treat as absent
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("expected an app data object")
+        return data
+    except (json.JSONDecodeError, ValueError) as exc:
+        # Existing unreadable data is not an empty store. In particular, audit
+        # and push callers must not replace corrupted history/keys with defaults.
+        raise HTTPException(503, "Stored app data is unreadable. Keep the existing files and review recovery before continuing.") from exc
 
 
 def _save_blob(path, sb_id, data):
@@ -386,14 +405,23 @@ def _save_blob(path, sb_id, data):
     # Write to a temp file then atomically replace, so a crash mid-write can't
     # corrupt the blob (a corrupt qbo_tokens.json would drop the rotating
     # refresh token and force a full re-OAuth).
-    tmp = f"{path}.tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
-    os.chmod(path, 0o600)
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    descriptor, tmp = tempfile.mkstemp(prefix=".timesheet-", dir=directory)
+    try:
+        with os.fdopen(descriptor, "w") as f:
+            json.dump(data, f, indent=2, allow_nan=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        directory_fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def _load_tokens():
@@ -401,7 +429,10 @@ def _load_tokens():
 
 
 def _save_tokens(data):
-    _save_blob(TOKENS_FILE, 1, data)
+    # Also used by OAuth callback: a company cannot change while a time write
+    # is validating its browser identity, preflighting, or reaching QBO.
+    with _token_lock:
+        _save_blob(TOKENS_FILE, 1, data)
 
 
 def _load_push():
@@ -449,7 +480,7 @@ def _ta_summary(ta):
     }
 
 
-def _audit(action, entry_id, ta, request=None, before=None):
+def _audit(action, entry_id, ta, request=None, before=None, scope=None):
     """Append one audit event. Never raises — auditing must not break a write."""
     try:
         rec = {
@@ -457,7 +488,10 @@ def _audit(action, entry_id, ta, request=None, before=None):
             "action": action,
             "entryId": str(entry_id) if entry_id is not None else None,
             "summary": _ta_summary(ta),
+            "scope": scope or _write_scope(),
         }
+        if (ta or {}).get("operationId"):
+            rec["operationId"] = ta["operationId"]
         if before is not None:
             rec["before"] = _ta_summary(before)
         if request is not None and request.client:
@@ -500,7 +534,7 @@ def _token_request(payload):
     return resp.json()
 
 
-_token_lock = threading.Lock()   # serialize refresh (request thread vs reminder thread)
+_token_lock = threading.RLock()  # token refresh, OAuth replacement, and time-write company fence
 
 
 def get_access_token():
@@ -579,13 +613,17 @@ def privacy():
 
 @app.get("/api/status")
 def status(request: Request):
+    tokens = _load_tokens() or {}
+    realm = str(tokens.get("realm_id") or "")
+    company_key = _company_key(realm) if realm else None
     return {
-        "connected": _load_tokens() is not None,
+        "connected": bool(tokens),
         "environment": ENVIRONMENT,
         "configured": bool(CLIENT_ID and CLIENT_SECRET),
         "auth_required": bool(APP_PASSWORD) or HOSTED,
         "mfa_required": bool(TOTP_SECRET),
         "authed": _is_authed(request),
+        "companyKey": company_key,
     }
 
 
@@ -762,6 +800,12 @@ class TimeEntry(BaseModel):
     sync_token: str | None = None
     allow_duplicate: bool = False
     allow_day_overflow: bool = False
+    # Stable client supplied id for safe replay after a timeout. It is never
+    # used as a QBO entity id; it identifies this intended operation only.
+    operation_id: str | None = None
+    # The company identity actually displayed by this browser, never inferred
+    # from whichever company another tab may have connected since it loaded.
+    company_key: str | None = None
 
 
 def _validate_time_entry(entry: TimeEntry, *, updating=False):
@@ -829,16 +873,105 @@ def _same_ref(ref, expected):
     return str((ref or {}).get("value") or "") == str(expected or "")
 
 
+def _time_guard_snapshot(record):
+    snapshot = {**(record.get("before") or {}), **record["payload"], **record["result"]}
+    # Sparse employee -> vendor edits must not carry the old person's reference
+    # forward from `before` when QBO omits it from the acknowledgment.
+    if snapshot.get("NameOf") == "Vendor":
+        snapshot.pop("EmployeeRef", None)
+    elif snapshot.get("NameOf") == "Employee":
+        snapshot.pop("VendorRef", None)
+    return snapshot
+
+
+def _time_guard_fields(row, day):
+    """Only the fields that affect duplicate/day-limit decisions."""
+    kind = row.get("NameOf") or ("Vendor" if row.get("VendorRef") else "Employee")
+    return (row.get("TxnDate", day), kind,
+            str((row.get(kind + "Ref") or {}).get("value") or ""),
+            str((row.get("ItemRef") or {}).get("value") or ""),
+            str((row.get("CustomerRef") or {}).get("value") or ""),
+            int(row.get("Hours") or 0), int(row.get("Minutes") or 0),
+            (row.get("Description") or "").strip(),
+            row.get("BillableStatus") or "NotBillable")
+
+
+def _time_guard_version(token):
+    # QBO documents SyncToken as an incrementing version, represented as a
+    # string. Unknown/compound formats are opaque, never sorted lexically or
+    # compared by an assumed numeric prefix.
+    value = str(token) if token is not None else ""
+    return int(value) if value.isascii() and value.isdecimal() else None
+
+
+def _time_guard_current(row, record, day):
+    """Reconcile a query row with its last acknowledged local write once."""
+    snapshot = _time_guard_snapshot(record)
+    deleted = record["action"] == "delete"
+    # An update payload contains the PRE-write token. Only its acknowledgment
+    # can establish the updated version. A confirmed delete also proves that
+    # its pre-delete version no longer exists, even if the reply lacks a token.
+    committed_token = record["result"].get("SyncToken")
+    if deleted and committed_token is None:
+        committed_token = record["payload"].get("SyncToken")
+    query_token = row.get("SyncToken")
+    query_version, committed_version = map(_time_guard_version, (query_token, committed_token))
+    if query_version is not None and committed_version is not None:
+        if query_version > committed_version:
+            return row  # A newer external QBO edit outranks a local receipt.
+        if query_version < committed_version:
+            return None if deleted else snapshot
+    if deleted:
+        if query_token is not None and str(query_token) == str(committed_token):
+            return None
+    elif _time_guard_fields(row, day) == _time_guard_fields(snapshot, day):
+        # Identical guard inputs are safe even for old receipts without tokens.
+        return row
+    raise HTTPException(503, {
+        "code": "DAY_STATE_UNCERTAIN", "entryId": str(row.get("Id") or ""),
+        "message": "QuickBooks time for this date conflicts with a confirmed save, and its newer version cannot be verified. "
+                   "No new time was sent. Reload and review QuickBooks and Reconciliation, then retry this original save ID.",
+    })
+
+
 def _guard_new_time(entry: TimeEntry):
     """Catch exact duplicates and impossible per-person day totals."""
     day = entry.txn_date or _today().isoformat()
-    rows = qbo_query_all("TimeActivity", f"WHERE TxnDate = '{day}'")
+    rows = list(qbo_query_all("TimeActivity", f"WHERE TxnDate = '{day}'"))
     expected_who = entry.vendor_id or entry.employee_id
     expected_customer = entry.project_id or entry.customer_id
     expected_status = "Billable" if entry.billable else "NotBillable"
+    # Query visibility may lag a completed write even when the same ID is
+    # present. Reconcile by entity version, then reapply date/person scope.
+    # A later local update/delete supersedes the earlier create snapshot.
+    latest = {}
+    scope = _write_scope()
+    for rec in _load_operations()["operations"]:
+        if rec["scope"] != scope or rec["status"] != "completed":
+            continue
+        result = rec["result"]
+        entry_id = str(result.get("Id") or rec["payload"].get("Id") or "")
+        if not entry_id:
+            continue
+        if entry_id not in latest or receipt_order(rec) > receipt_order(latest[entry_id]):
+            latest[entry_id] = rec
+    visible = {str(row.get("Id")) for row in rows if row.get("Id") is not None}
+    reconciled = []
+    for row in rows:
+        rec = latest.get(str(row.get("Id")))
+        current = _time_guard_current(row, rec, day) if rec else row
+        if current is not None and current.get("TxnDate", day) == day:
+            reconciled.append(current)
+    for entry_id, rec in latest.items():
+        snapshot = _time_guard_snapshot(rec)
+        # Absence alone cannot prove a later external move/delete. Retain the
+        # confirmed contribution conservatively until QBO supplies that state.
+        if entry_id not in visible and rec["action"] != "delete" and snapshot.get("TxnDate") == day:
+            reconciled.append(snapshot)
     same_person = [
-        row for row in rows
-        if _same_ref(row.get("VendorRef") if entry.vendor_id else row.get("EmployeeRef"), expected_who)
+        row for row in reconciled
+        if row.get("NameOf", "Vendor" if entry.vendor_id else "Employee") == ("Vendor" if entry.vendor_id else "Employee")
+        and _same_ref(row.get("VendorRef") if entry.vendor_id else row.get("EmployeeRef"), expected_who)
     ]
     duplicate = any(
         _same_ref(row.get("ItemRef"), entry.item_id)
@@ -867,6 +1000,10 @@ def _guard_new_time(entry: TimeEntry):
 
 def _post_timeactivity(payload, params=None):
     access_token, realm_id = get_access_token()
+    params = dict(params or {})
+    expected_scope = params.pop("_expected_scope", None)
+    if expected_scope is not None and expected_scope != f"{API_BASE}|{realm_id}":
+        raise _company_changed()
     resp = requests.post(
         f"{API_BASE}/v3/company/{realm_id}/timeactivity",
         headers={
@@ -882,6 +1019,128 @@ def _post_timeactivity(payload, params=None):
         # Surface QBO's fault message so validation errors are readable.
         raise _qbo_error(resp)
     return resp.json().get("TimeActivity", resp.json())
+
+
+# ---------------------------------------------------------------------------
+# Durable write journal. All transitions use flock or Supabase revision CAS.
+# QBO writes are sent only after their immutable identity is persisted.
+# ---------------------------------------------------------------------------
+OP_FILE = os.path.join(os.path.dirname(TOKENS_FILE) or BASE_DIR, "qbo_operations.json")
+
+
+def _journal():
+    return Journal(OP_FILE, url=SUPABASE_URL if SUPABASE_KEY else "", headers=_sb_headers())
+
+
+def _operation_id(value):
+    if not value:
+        raise HTTPException(428, "operation_id is required for safe retries.")
+    try:
+        return str(uuid.UUID(str(value)))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(400, "operation_id must be a UUID.")
+
+
+def _write_scope():
+    tokens = _load_tokens() or {}
+    realm = tokens.get("realm_id")
+    if not realm:
+        raise HTTPException(401, "Connect QuickBooks before saving time.")
+    return f"{API_BASE}|{realm}"
+
+
+def _company_key(realm):
+    return hashlib.sha256(f"{ENVIRONMENT}:{realm}".encode()).hexdigest()[:24]
+
+
+def _company_changed():
+    return HTTPException(409, {"code": "COMPANY_CHANGED", "message":
+        "The connected QuickBooks company differs from this screen. No new time write was sent. "
+        "Reload and review the company before saving; retain any original uncertain save ID."})
+
+
+def _browser_write(company_key, operation_id, action, payload, prepare):
+    # The single-process deployment constraint makes this the same lock used
+    # by token refresh and OAuth replacement, including reentrant refreshes.
+    with _token_lock:
+        if not isinstance(company_key, str) or not company_key:
+            raise HTTPException(428, {"code": "COMPANY_REQUIRED", "message":
+                "Reload the app before saving so its QuickBooks company can be verified."})
+        tokens = _load_tokens() or {}
+        realm = tokens.get("realm_id")
+        if not realm:
+            raise HTTPException(401, "Connect QuickBooks before saving time.")
+        if not hmac.compare_digest(company_key.encode(), _company_key(realm).encode()):
+            raise _company_changed()
+        scope = f"{API_BASE}|{realm}"
+        return _journaled_qbo_write(operation_id, action, payload, scope=scope, prepare=prepare), scope
+
+
+def _failed_operation_error(operation_id, status, detail):
+    # A browser may forget a retry identity only after an acknowledged terminal
+    # journal state, not merely an auth/company/validation response before lookup.
+    detail = dict(detail) if isinstance(detail, dict) else {"message": str(detail)}
+    return HTTPException(status, {**detail, "operationId": operation_id, "operationStatus": "failed"})
+
+
+def _load_operations():
+    return _journal().read()
+
+
+def _journaled_qbo_write(operation_id, action, payload, *, prepare=None, scope=None):
+    """Retry the original request, never reconstruct it from changed QBO data.
+
+    A durable person/day reservation serializes new creates across hosts. A
+    lease permits recovery after a process dies, but only for the same UUID.
+    QBO requestid provides replay if its response was lost after the write.
+    """
+    scope = scope or _write_scope()
+    journal = _journal()
+    record = journal.claim(operation_id, action, payload, scope)
+    if record["status"] == "completed":
+        return {**record["result"], "_journalReplay": True}
+    if record["status"] == "failed":
+        raise _failed_operation_error(operation_id, record["errorStatus"], record["error"])
+    owner = record["owner"]
+    if not record["retryDispatched"]:
+        try:
+            before = prepare() if prepare else None
+        except Exception as exc:
+            # No QBO write was dispatched. A failed preflight releases its
+            # reservation, while the immutable operation identity is retained.
+            status = exc.status_code if isinstance(exc, HTTPException) else 502
+            error = exc.detail if isinstance(exc, HTTPException) else "QuickBooks preflight failed; no time was written."
+            journal.transition(operation_id, owner, "reserved" if status >= 500 else "failed",
+                               leaseUntil=0, errorStatus=status, error=error)
+            if status < 500:
+                raise _failed_operation_error(operation_id, status, error)
+            raise HTTPException(status, error)
+        journal.transition(operation_id, owner, "in_flight", before=before)
+    else:
+        # Fence expired owners immediately before the outbound call as well.
+        journal.transition(operation_id, owner, "in_flight")
+    try:
+        params = {"requestid": operation_id, "_expected_scope": scope}
+        if action == "delete":
+            params["operation"] = "delete"
+        result = _post_timeactivity(record["payload"], params=params)
+        if not isinstance(result, dict) or not result.get("Id"):
+            raise ValueError("QuickBooks did not return an entry identity")
+        result = {**result, "operationId": operation_id}
+    except Exception as exc:
+        code = exc.status_code if isinstance(exc, HTTPException) else 502
+        error = exc.detail if isinstance(exc, HTTPException) else "QuickBooks write outcome is uncertain. Retry the unchanged request with its original save ID."
+        uncertain = record["retryDispatched"] or code >= 500 or code in {408, 429}
+        journal.transition(operation_id, owner, "uncertain" if uncertain else "failed", errorStatus=code, error=error)
+        if uncertain:
+            raise HTTPException(502, {"code": "OPERATION_UNCERTAIN", "operationId": operation_id,
+                "message": "QuickBooks has not confirmed this save. Retry the unchanged request with its original save ID.",
+                "cause": error})
+        raise _failed_operation_error(operation_id, code, error)
+    # If this commit fails, the durable in-flight reservation remains. Retrying
+    # it safely replays QBO's original result with the same requestid.
+    journal.transition(operation_id, owner, "completed", result=result)
+    return result
 
 
 def _read_timeactivity(entry_id):
@@ -902,9 +1161,13 @@ def _read_timeactivity(entry_id):
 @app.post("/api/timeactivity")
 def create_time(entry: TimeEntry, request: Request):
     _validate_time_entry(entry)
-    _guard_new_time(entry)
-    ta = _post_timeactivity(_timeactivity_payload(entry))
-    if _audit("create", ta.get("Id"), ta, request) is False:
+    operation_id = _operation_id(entry.operation_id)
+    payload = _timeactivity_payload(entry)
+    ta, scope = _browser_write(entry.company_key, operation_id, "create", payload,
+                               prepare=lambda: _guard_new_time(entry))
+    if ta.pop("_journalReplay", False):
+        return ta
+    if _audit("create", ta.get("Id"), ta, request, scope=scope) is False:
         ta["appWarning"] = "Time was saved, but the local activity log could not be updated."
     return ta
 
@@ -912,27 +1175,24 @@ def create_time(entry: TimeEntry, request: Request):
 @app.put("/api/timeactivity/{entry_id}")
 def update_time(entry_id: str, entry: TimeEntry, request: Request):
     _validate_time_entry(entry)
-    # Update needs the current SyncToken — read the entity first.
-    before = _read_timeactivity(entry_id)
-    # Already-invoiced (billed) time is locked: editing it here would desync the
-    # books from the sent invoice. It can only be changed in QuickBooks.
-    if before.get("BillableStatus") == "HasBeenBilled":
-        raise HTTPException(409, "This entry was already invoiced (billed) in QuickBooks and can't be edited here.")
-    if entry.sync_token is None:
-        raise HTTPException(428, "Reload the entry before editing it so QuickBooks changes are protected.")
-    if str(before.get("SyncToken", "")) != str(entry.sync_token):
-        raise HTTPException(
-            409,
-            "This entry changed in QuickBooks after you opened it. Reload and review the latest version before editing.",
-        )
+    operation_id = _operation_id(entry.operation_id)
     payload = _timeactivity_payload(entry)
-    # Sparse update: fields the app does not display remain untouched in QBO.
-    # This avoids clearing StartTime, ClassRef, or future fields on a routine edit.
-    payload["sparse"] = True
-    payload["Id"] = entry_id
-    payload["SyncToken"] = before["SyncToken"]
-    result = _post_timeactivity(payload)
-    if _audit("update", entry_id, result, request, before=before) is False:
+    payload.update({"sparse": True, "Id": entry_id, "SyncToken": entry.sync_token})
+    before = None
+    def prepare():
+        nonlocal before
+        before = _read_timeactivity(entry_id)
+        if before.get("BillableStatus") == "HasBeenBilled":
+            raise HTTPException(409, "This entry was already invoiced (billed) in QuickBooks and can't be edited here.")
+        if entry.sync_token is None:
+            raise HTTPException(428, "Reload the entry before editing it so QuickBooks changes are protected.")
+        if str(before.get("SyncToken", "")) != str(entry.sync_token):
+            raise HTTPException(409, "This entry changed in QuickBooks after you opened it. Reload and review the latest version before editing.")
+        return before
+    result, scope = _browser_write(entry.company_key, operation_id, "update", payload, prepare=prepare)
+    if result.pop("_journalReplay", False):
+        return result
+    if _audit("update", entry_id, result, request, before=before, scope=scope) is False:
         result["appWarning"] = "Time was updated, but the local activity log could not be updated."
     return result
 
@@ -967,6 +1227,8 @@ def _resolve_range(days, start, end):
         raise HTTPException(400, "End date must be on or after start date.")
     if not start:
         start = (_today() - timedelta(days=days)).isoformat()
+    if end is None:
+        end = _today().isoformat()
     return start, end
 
 
@@ -1165,30 +1427,130 @@ def list_receivables():
     """Open accounts receivable as of today: total outstanding, aging buckets,
     past-due, per-client balances, and an approximate DSO. Reads QBO Invoice
     (Balance / TxnDate / DueDate / CustomerRef)."""
-    open_invoices = qbo_query_all("Invoice", "WHERE Balance > '0'")
     today = _today()
+    today_s = today.isoformat()
+    open_invoices = qbo_query_all("Invoice", f"WHERE Balance > '0' AND TxnDate <= '{today_s}'")
     year_ago = (today - timedelta(days=365)).isoformat()
     billed_365 = sum(
         _num(i.get("TotalAmt"))
-        for i in qbo_query_all("Invoice", f"WHERE TxnDate >= '{year_ago}'")
+        for i in qbo_query_all("Invoice", f"WHERE TxnDate >= '{year_ago}' AND TxnDate <= '{today_s}'")
+        if not i.get("TxnDate") or i.get("TxnDate") <= today_s
     )
     return _receivables_summary(open_invoices, billed_365, today)
 
 
+def _project_range(start, end):
+    start, end = _resolve_range(3650, start, end)
+    if not start or not end:
+        raise HTTPException(400, "A bounded start and end date are required.")
+    return start, end
+
+
+def _known_financial_amount(value):
+    """Keep an absent or invalid accounting amount distinct from a real zero."""
+    if value is None or isinstance(value, bool) or value == "":
+        return None
+    try:
+        amount = float(value)
+        return amount if math.isfinite(amount) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+@app.get("/api/project-financials")
+def project_financials(project_id: str, start: str | None = None, end: str | None = None):
+    """Read-only financials attributed only to invoices whose CustomerRef is
+    this exact QBO project. Payments count only when a Payment line explicitly
+    links to one of those invoices and supplies an amount."""
+    start, end = _project_range(start, end)
+    invoices = qbo_query_all("Invoice", f"WHERE TxnDate >= '{start}' AND TxnDate <= '{end}'")
+    if not project_id.strip():
+        raise HTTPException(400, "Choose a project.")
+    matched = [i for i in invoices if _same_ref(i.get("CustomerRef"), project_id)
+               and start <= (i.get("TxnDate") or "") <= end]
+    invoice_ids = {str(i["Id"]) for i in matched if i.get("Id") is not None}
+    payments = []
+    currencies = set()
+    skipped_ambiguous = skipped_invalid = 0
+    for p in qbo_query_all("Payment", f"WHERE TxnDate >= '{start}' AND TxnDate <= '{end}'"):
+        if not start <= (p.get("TxnDate") or "") <= end:
+            continue
+        for line_number, line in enumerate(p.get("Line") or []):
+            links = line.get("LinkedTxn") or []
+            if not any(str(x.get("TxnId")) in invoice_ids and x.get("TxnType") == "Invoice" for x in links):
+                continue
+            # One aggregate line amount cannot be apportioned across multiple
+            # links (even multiple project invoices), credits, or other projects.
+            if len(links) != 1 or links[0].get("TxnType") != "Invoice":
+                skipped_ambiguous += 1
+                continue
+            try:
+                raw_amount = line.get("Amount")
+                if isinstance(raw_amount, bool) or raw_amount in (None, ""):
+                    raise ValueError()
+                amount = float(raw_amount)
+                if not math.isfinite(amount) or amount < 0:
+                    raise ValueError()
+            except (TypeError, ValueError, OverflowError):
+                skipped_invalid += 1
+                continue
+            currency = (p.get("CurrencyRef") or {}).get("value") or "home"
+            currencies.add(currency)
+            payments.append({"id": p.get("Id"), "lineId": line.get("Id", str(line_number)), "date": p.get("TxnDate"),
+                             "invoiceIds": [str(links[0]["TxnId"])], "amount": amount, "currency": currency})
+    invoice_rows = [{"id": i.get("Id"), "date": i.get("TxnDate"), "docNumber": i.get("DocNumber"),
+                     "amount": _known_financial_amount(i.get("TotalAmt")), "balance": _known_financial_amount(i.get("Balance")),
+                     "currency": (i.get("CurrencyRef") or {}).get("value") or "home"} for i in matched]
+    currencies.update(r["currency"] for r in invoice_rows)
+    return {"projectId": project_id, "start": start, "end": end,
+            "scope": "Invoices dated in this range whose CustomerRef exactly equals this project; payments dated in this range explicitly linked to those invoices.",
+            "currencies": sorted(currencies), "mixedCurrency": len(currencies) > 1,
+            "invoices": invoice_rows, "payments": payments,
+            "skippedAmbiguousPaymentLines": skipped_ambiguous, "skippedInvalidPaymentLines": skipped_invalid,
+            "caveats": ["Parent-client invoices and ProjectRef/line-level associations are not assumed to belong to this project.",
+                        "Payments against invoices outside the selected invoice date range are not included; this is not complete project payment history.",
+                        "Missing or invalid invoice amounts and balances are shown as unknown, not zero.",
+                        "Only nonnegative finite amounts with exactly one Invoice link are attributed. Ambiguous or invalid payment lines are excluded."]}
+
+
+@app.get("/api/reconciliation")
+def reconciliation(start: str | None = None, end: str | None = None):
+    """Fresh scoped QBO data versus durable receipts; never repairs or writes."""
+    start, end = _project_range(start, end)
+    scope = _write_scope()
+    rows = qbo_query_all("TimeActivity", f"WHERE TxnDate >= '{start}' AND TxnDate <= '{end}'")
+    journal = _load_operations()
+    audit = _load_audit()
+    return _reconciliation_report(rows, journal["operations"], audit.get("events", []), start, end, scope)
+
+
 @app.delete("/api/timeactivity/{entry_id}")
-def delete_time(entry_id: str, request: Request):
-    # Delete requires the current SyncToken, so read the entity first.
-    deleted = _read_timeactivity(entry_id)
-    # Already-invoiced (billed) time is locked — deleting it here would desync
-    # the books from the sent invoice. It can only be removed in QuickBooks.
-    if deleted.get("BillableStatus") == "HasBeenBilled":
-        raise HTTPException(409, "This entry was already invoiced (billed) in QuickBooks and can't be deleted here.")
-    _post_timeactivity(
-        {"Id": entry_id, "SyncToken": deleted["SyncToken"]},
-        params={"operation": "delete"},
-    )
-    out = {"deleted": entry_id}
-    if _audit("delete", entry_id, deleted, request) is False:
+async def delete_time(entry_id: str, request: Request):
+    try:
+        body = await request.json() if request is not None else {}
+    except Exception:
+        raise HTTPException(400, "Supply the original save ID and entry version as JSON.")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Supply the original save ID and entry version as JSON.")
+    operation_id = _operation_id(body.get("operation_id") or body.get("operationId"))
+    supplied_token = body.get("sync_token", body.get("syncToken"))
+    deleted = None
+    def prepare():
+        nonlocal deleted
+        deleted = _read_timeactivity(entry_id)
+        if deleted.get("BillableStatus") == "HasBeenBilled":
+            raise HTTPException(409, "This entry was already invoiced (billed) in QuickBooks and can't be deleted here.")
+        if supplied_token is None:
+            raise HTTPException(428, "Reload the entry before deleting it so QuickBooks changes are protected.")
+        if str(deleted.get("SyncToken", "")) != str(supplied_token):
+            raise HTTPException(409, "This entry changed in QuickBooks after you opened it. Reload and review the latest version before deleting.")
+        return deleted
+    result, scope = _browser_write(body.get("company_key"), operation_id, "delete",
+                                   {"Id": entry_id, "SyncToken": supplied_token}, prepare=prepare)
+    out = {"deleted": entry_id, "operationId": operation_id}
+    if result.pop("_journalReplay", False):
+        return out
+    if _audit("delete", entry_id, deleted, request, scope=scope) is False:
         out["appWarning"] = "Time was deleted, but the local activity log could not be updated."
     return out
 
@@ -1286,7 +1648,7 @@ font-weight:700;padding:2px 8px;border-radius:6px}}
 def _ratecheck(days=365):
     start = (_today() - timedelta(days=days)).isoformat()
     rows = qbo_query_all("TimeActivity", f"WHERE TxnDate >= '{start}' ORDERBY TxnDate DESC")
-    total = with_rate = 0
+    total = with_rate = known_rate = 0
     combos = {}  # (person, service) -> {"n":int, "withrate":int, "rates":set}
     for t in rows:
         who = (t.get("EmployeeRef") or t.get("VendorRef") or {}).get("name") or "(none)"
@@ -1296,9 +1658,11 @@ def _ratecheck(days=365):
             rate = float(rate) if rate not in (None, "") else 0.0
         except (TypeError, ValueError):
             rate = 0.0
-        has = rate > 0
+        # A present zero is a known rate and must not be reported as missing.
+        has = t.get("HourlyRate") not in (None, "") and math.isfinite(rate)
         total += 1
         with_rate += 1 if has else 0
+        known_rate += 1 if has else 0
         c = combos.setdefault((who, svc), {"n": 0, "withrate": 0, "rates": set()})
         c["n"] += 1
         if has:
@@ -1309,12 +1673,14 @@ def _ratecheck(days=365):
         table.append({
             "person": who, "service": svc, "entries": c["n"],
             "withRate": c["withrate"],
+            "knownRate": c["withrate"],
             "rates": sorted(c["rates"]),
         })
     return {
         "days": days,
         "examined": total,
         "withRate": with_rate,
+        "knownRate": known_rate,
         "withoutRate": total - with_rate,
         "coveragePct": round(100 * with_rate / total, 1) if total else 0,
         "distinctRates": sorted({r for row in table for r in row["rates"]}),
@@ -1460,9 +1826,12 @@ def _vapid_jwt(endpoint):
 def _send_push(sub):
     """POST a payloadless push to one subscription. Returns False if the
     subscription is gone (404/410) so the caller can prune it."""
-    endpoint = sub.get("endpoint")
-    if not endpoint:
-        return True
+    try:
+        # Stored endpoints may have been accepted by an older build.
+        endpoint = _validated_push_endpoint(sub.get("endpoint"))
+    except (ValueError, TypeError, AttributeError):
+        log.warning("discarding push subscription with an unsupported endpoint")
+        return False
     try:
         resp = requests.post(
             endpoint,
@@ -1471,7 +1840,11 @@ def _send_push(sub):
                 "TTL": "86400",
             },
             timeout=15,
+            allow_redirects=False,
         )
+        if 300 <= resp.status_code < 400:
+            log.warning("push service redirected; subscription must be renewed")
+            return False
         if resp.status_code in (404, 410):
             return False
         if resp.status_code >= 400:
@@ -1547,9 +1920,26 @@ def _reminder_loop():
         time.sleep(900)  # every 15 min
 
 
+def _validated_push_endpoint(value):
+    if not isinstance(value, str) or value != value.strip() or any(ord(char) < 32 or ord(char) == 127 for char in value) or "\\" in value:
+        raise ValueError("Use a supported browser push service over HTTPS.")
+    parsed = urllib.parse.urlsplit(value)
+    host = (parsed.hostname or "").lower()
+    allowed = host in {"fcm.googleapis.com", "web.push.apple.com", "push.services.mozilla.com"} or host.endswith(".push.services.mozilla.com")
+    if (parsed.scheme != "https" or not allowed or parsed.username is not None or parsed.password is not None
+            or parsed.port is not None or parsed.fragment or "#" in value):
+        raise ValueError("Use a supported browser push service over HTTPS without credentials, ports, or fragments.")
+    return value
+
+
 class PushSub(BaseModel):
     endpoint: str
     keys: dict | None = None
+
+    @field_validator("endpoint")
+    @classmethod
+    def https_endpoint(cls, value):
+        return _validated_push_endpoint(value)
 
 
 @app.get("/api/push/config")

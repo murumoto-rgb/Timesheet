@@ -31,8 +31,17 @@ fi
 if [ -d "$APP_DIR/.git" ]; then
   echo "Checking for updates…"
   if git -C "$APP_DIR" fetch --quiet origin "$BRANCH"; then
-    git -C "$APP_DIR" reset --hard --quiet "origin/$BRANCH"
-    echo "Up to date: $(git -C "$APP_DIR" log -1 --format='%s')"
+    if [ "$(git -C "$APP_DIR" branch --show-current)" != "$BRANCH" ]; then
+      echo "This copy is on another branch — preserving it and skipping update."
+    elif [ -z "$(git -C "$APP_DIR" status --porcelain)" ]; then
+      if git -C "$APP_DIR" merge --ff-only --quiet "origin/$BRANCH"; then
+        echo "Up to date: $(git -C "$APP_DIR" log -1 --format='%s')"
+      else
+        echo "Local branch needs review — update was not applied; starting the existing copy."
+      fi
+    else
+      echo "Local edits detected — preserving them and skipping update."
+    fi
   else
     echo "(Couldn't reach GitHub — starting the copy you already have.)"
   fi
@@ -51,17 +60,22 @@ if [ -f "$APP_DIR/Timesheet.command" ] && ! cmp -s "$APP_DIR/Timesheet.command" 
   exec /bin/bash "$SELF"
 fi
 
-# One-time: adopt an .env (and QuickBooks connection) from an older download.
+# Never move an old connection without its matching save journal. A silent
+# first-match copy can also select the wrong company when old copies coexist.
 if [ ! -f .env ]; then
   for d in "$HOME/Desktop" "$HOME/Downloads" "$HOME"; do
     old=$(find "$d" -maxdepth 3 -name ".env" -path "*Timesheet*" ! -path "$APP_DIR/*" 2>/dev/null | head -1)
     [ -n "$old" ] && break
   done
   if [ -n "$old" ]; then
-    cp "$old" .env
     olddir=$(dirname "$old")
-    [ -f "$olddir/qbo_tokens.json" ] && cp "$olddir/qbo_tokens.json" qbo_tokens.json
-    echo "Copied your settings from $olddir"
+    echo "An older Timesheet installation was found at:"
+    echo "$olddir"
+    echo "No settings or accounting data have been copied, and the app has not started."
+    echo "Keep using your existing copy until its connection and save history can"
+    echo "be moved together with both copies stopped. Do not reconnect this empty copy."
+    echo "In Codex, ask: Move my old Timesheet installation safely to $APP_DIR."
+    pause_exit 1
   else
     cp .env.example .env
     echo "One-time setup: paste your Intuit Client ID and Secret into the file"
@@ -72,17 +86,28 @@ if [ ! -f .env ]; then
   fi
 fi
 
-# Python check + private virtualenv for dependencies.
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "Python 3 is missing. Install it from https://www.python.org/downloads/"
-  echo "then double-click Timesheet again."
+# Use the tested Python minor version (a newer security patch is also accepted).
+TIMESHEET_REQUIRED_PYTHON=$(cat .python-version)
+TIMESHEET_PYTHON=$(command -v python3.13 || command -v python3 || true)
+timesheet_python_compatible() {
+  "$1" -c 'import sys; required=tuple(map(int,sys.argv[1].split("."))); sys.exit(not (sys.version_info[:2] == required[:2] and sys.version_info[:3] >= required))' "$TIMESHEET_REQUIRED_PYTHON" >/dev/null 2>&1
+}
+if [ -z "$TIMESHEET_PYTHON" ] || ! timesheet_python_compatible "$TIMESHEET_PYTHON"; then
+  echo "Timesheet needs Python $TIMESHEET_REQUIRED_PYTHON or a newer Python 3.13 patch."
+  echo "Install Python 3.13 from https://www.python.org/downloads/macos/"
+  echo "then close this window and double-click Timesheet again."
   pause_exit 1
 fi
-[ -d .venv ] || { echo "Setting up (first run only)…"; python3 -m venv .venv; }
-REQ_HASH=$(shasum -a 256 requirements.txt | awk '{print $1}')
+if [ -d .venv ] && ! timesheet_python_compatible ./.venv/bin/python; then
+  TIMESHEET_OLD_VENV=$(mktemp -d "$APP_DIR/.venv.previous.XXXXXX") || pause_exit 1
+  mv .venv "$TIMESHEET_OLD_VENV/venv" || pause_exit 1
+  echo "Preserved the old Python environment in $TIMESHEET_OLD_VENV; rebuilding it."
+fi
+[ -d .venv ] || { echo "Setting up the private Python environment…"; "$TIMESHEET_PYTHON" -m venv .venv || pause_exit 1; }
+REQ_HASH=$(cat requirements.txt requirements.lock .python-version | shasum -a 256 | awk '{print $1}')
 INSTALLED_HASH=$([ -f .venv/.requirements-sha ] && head -1 .venv/.requirements-sha)
 if [ "$REQ_HASH" != "$INSTALLED_HASH" ]; then
-  ./.venv/bin/pip install --quiet -r requirements.txt || {
+  ./.venv/bin/pip install --quiet -r requirements.txt -c requirements.lock || {
     echo "Dependency install failed — check your internet connection."; pause_exit 1; }
   printf '%s\n' "$REQ_HASH" > .venv/.requirements-sha
 fi
@@ -98,4 +123,4 @@ echo
 echo "Timesheet is running. KEEP THIS WINDOW OPEN while you use the app."
 echo "Close the window (or press Ctrl+C) to stop it."
 echo "───────────────────────────────────────────────"
-exec ./.venv/bin/python -m uvicorn main:app --port "$PORT"
+exec ./.venv/bin/python -m uvicorn main:app --port "$PORT" --workers 1

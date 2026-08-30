@@ -8,7 +8,7 @@ const today = () => ymd(new Date());
 
 const MB = { employee: "Murat Baykal", employeeId: "55", nameOf: "Employee" };
 const e = (o) => ({ ...MB, date: today(), hours: 1, minutes: 0, itemId: "5", service: "PR",
-  customer: "Acme", customerId: "10", billable: true, billableStatus: "Billable", hourlyRate: 250, ...o });
+  customer: "Acme", customerId: "10", billable: true, billableStatus: "Billable", hourlyRate: 250, syncToken: "7", ...o });
 const data = {
   employees: [{ id: "55", name: "Murat Baykal" }], items: [{ id: "5", name: "PR" }, { id: "6", name: "MTG" }],
   projects: { projects: [], clients: [{ id: "10", name: "Acme" }] },
@@ -25,7 +25,7 @@ test("bulk select → set non-billable PUTs each selected entry; billed rows can
   await page.route("**/api/timeactivity/*", (route) => {
     const r = route.request();
     if (r.method() === "PUT") puts.push(r.postDataJSON());
-    return route.fulfill({ json: { Id: "x" } });
+    const body = r.postDataJSON(); return route.fulfill({ json: { Id: "x", SyncToken: "8", operationId: body.operation_id } });
   });
   await page.waitForSelector("#repEntries .entry");
   await page.click("#repSelectToggle");
@@ -37,6 +37,9 @@ test("bulk select → set non-billable PUTs each selected entry; billed rows can
   await boxes[1].check();
   assert.equal((await page.textContent("#bulkCount")).trim(), "2 selected");
   await page.click('#bulkBar button[data-bulk="nonbillable"]');
+  await page.waitForSelector("#confirmDialog:not([hidden])");
+  assert.equal(puts.length, 0, "bulk changes must wait for review");
+  await page.click("#confirmGo");
   await page.waitForTimeout(300);
   assert.equal(puts.length, 2, "one PUT per selected entry");
   assert.ok(puts.every((b) => b.billable === false), "each PUT flips billable off");

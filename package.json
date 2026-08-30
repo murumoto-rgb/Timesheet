@@ -1,0 +1,10 @@
+{
+  "name": "qbo-timesheet-test-runtime",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

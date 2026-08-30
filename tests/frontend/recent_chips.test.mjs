@@ -20,7 +20,7 @@ async function capturePost(page) {
   const posts = [];
   await page.route("**/api/timeactivity", (route) =>
     route.request().method() === "POST"
-      ? (posts.push(route.request().postDataJSON()), route.fulfill({ json: { Id: "new1" } }))
+      ? (posts.push(route.request().postDataJSON()), route.fulfill({ json: { Id: "new1", SyncToken: "1", operationId: route.request().postDataJSON().operation_id } }))
       : route.fulfill({ json: {} }));
   return posts;
 }

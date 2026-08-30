@@ -1,5 +1,7 @@
 """Backend unit tests. QBO HTTP is never hit — the query layer is monkeypatched.
 Run: pytest -q  (from the repo root)."""
+import asyncio
+import uuid
 import pytest
 from fastapi import HTTPException
 
@@ -33,14 +35,14 @@ def test_payload_vendor_and_nonbillable():
 
 def test_payload_billable_requires_a_customer_ref():
     # billable=True but no project/customer must be rejected, never downgraded
-    e = TimeEntry(item_id="5", employee_id="55", billable=True)
+    e = TimeEntry(company_key=main._company_key("test-realm"), operation_id=str(uuid.uuid4()), item_id="5", employee_id="55", billable=True)
     with pytest.raises(HTTPException) as ei:
         main._timeactivity_payload(e)
     assert ei.value.status_code == 400
 
 
 def test_payload_hourly_rate_only_when_billable():
-    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10", hourly_rate=250)
+    e = TimeEntry(company_key=main._company_key("test-realm"), operation_id=str(uuid.uuid4()), item_id="5", employee_id="55", billable=True, customer_id="10", hourly_rate=250)
     p = main._timeactivity_payload(e)
     assert p["HourlyRate"] == 250
 
@@ -61,7 +63,7 @@ def test_update_blocks_billed_entry(monkeypatch):
     # already-invoiced (billed) time is locked — the update must be refused (409)
     before = {"Id": "77", "SyncToken": "3", "BillableStatus": "HasBeenBilled", "HourlyRate": 250}
     _mock_update(monkeypatch, before)
-    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10", hours=2)
+    e = TimeEntry(company_key=main._company_key("test-realm"), operation_id=str(uuid.uuid4()), item_id="5", employee_id="55", billable=True, customer_id="10", hours=2)
     with pytest.raises(HTTPException) as ei:
         main.update_time("77", e, request=None)
     assert ei.value.status_code == 409
@@ -72,8 +74,11 @@ def test_delete_blocks_billed_entry(monkeypatch):
     monkeypatch.setattr(main, "_read_timeactivity", lambda _id: before)
     monkeypatch.setattr(main, "_post_timeactivity", lambda *a, **k: pytest.fail("delete must not reach QBO"))
     monkeypatch.setattr(main, "_audit", lambda *a, **k: None)
+    class Request:
+        async def json(self):
+            return {"operation_id": str(uuid.uuid4()), "sync_token": "3", "company_key": main._company_key("test-realm")}
     with pytest.raises(HTTPException) as ei:
-        main.delete_time("77", request=None)
+        asyncio.run(main.delete_time("77", request=Request()))
     assert ei.value.status_code == 409
 
 
@@ -81,7 +86,7 @@ def test_update_honors_explicit_unbill(monkeypatch):
     # unchecking billable on a not-yet-billed entry → NotBillable
     before = {"Id": "77", "SyncToken": "3", "BillableStatus": "Billable", "HourlyRate": 250}
     sent = _mock_update(monkeypatch, before)
-    e = TimeEntry(item_id="5", employee_id="55", billable=False, customer_id="10", hours=2, sync_token="3")
+    e = TimeEntry(company_key=main._company_key("test-realm"), operation_id=str(uuid.uuid4()), item_id="5", employee_id="55", billable=False, customer_id="10", hours=2, sync_token="3")
     main.update_time("77", e, request=None)
     assert sent["BillableStatus"] == "NotBillable"
 
@@ -89,7 +94,7 @@ def test_update_honors_explicit_unbill(monkeypatch):
 def test_update_is_sparse_and_preserves_unmentioned_rate(monkeypatch):
     before = {"Id": "77", "SyncToken": "3", "BillableStatus": "Billable", "HourlyRate": 180}
     sent = _mock_update(monkeypatch, before)
-    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10", hours=1, sync_token="3")
+    e = TimeEntry(company_key=main._company_key("test-realm"), operation_id=str(uuid.uuid4()), item_id="5", employee_id="55", billable=True, customer_id="10", hours=1, sync_token="3")
     main.update_time("77", e, request=None)
     assert sent["BillableStatus"] == "Billable"
     assert sent["sparse"] is True
@@ -99,7 +104,7 @@ def test_update_is_sparse_and_preserves_unmentioned_rate(monkeypatch):
 def test_update_rejects_stale_browser_version(monkeypatch):
     before = {"Id": "77", "SyncToken": "4", "BillableStatus": "Billable"}
     _mock_update(monkeypatch, before)
-    e = TimeEntry(item_id="5", employee_id="55", billable=True, customer_id="10", hours=1, sync_token="3")
+    e = TimeEntry(company_key=main._company_key("test-realm"), operation_id=str(uuid.uuid4()), item_id="5", employee_id="55", billable=True, customer_id="10", hours=1, sync_token="3")
     with pytest.raises(HTTPException) as ei:
         main.update_time("77", e, request=None)
     assert ei.value.status_code == 409

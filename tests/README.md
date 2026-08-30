@@ -17,9 +17,15 @@ touch **production financial data**, so a wrong number can't ship silently:
 - `list_payments` + `list_bills` entity merges (credits excluded)
 - `list_projects` exposes `parentId` for the client roll-up
 - `_ta_summary`, `_audit`, `_ratecheck`, date-range validation
+- Durable request IDs, lost responses, version conflicts, company changes and
+  simultaneous creates; the daily guard includes confirmed writes still absent
+  from a query. Storage concurrency tests use isolated files and mocked Supabase.
+- Scoped reconciliation, explicit invoice/payment attribution, corrupt storage,
+  push endpoint restrictions and offline backup/restore integrity.
+- First-run launcher behavior when one or several older installations exist.
 
 ```bash
-pip install -r requirements-dev.txt
+python -m pip install -r requirements.lock -r requirements-dev.txt
 PYTHONPATH=. python -m pytest -q
 ```
 
@@ -48,15 +54,26 @@ Project deep-dive regressions in `project_deep_dive.test.mjs` additionally cover
 directory search and pins, separate same-name IDs, exact time/value totals,
 explicit zero versus unknown rates, mileage exclusion, read-only entry filters,
 bookmarked dates and browser history, failed-load retry, and late-response races.
+Workspace regressions cover exact-minute writes, retry recovery across tabs,
+partial batches, newer-draft preservation, budgets, invoice scope, CSV and print,
+invalid backup imports and layouts at 320, 390 and 1280 pixels.
 
 ```bash
+npm ci
+npx playwright install chromium
 tests/frontend/run.sh
 # or, equivalently:
-NODE_PATH="$(npm root -g)" node --test tests/frontend/*.test.mjs
+node --test --test-concurrency=2 tests/frontend/*.test.mjs
 ```
 
-Playwright is used from the global install via `NODE_PATH` (no local
-`npm install` needed here). Chromium is at `/opt/pw-browsers/chromium`; override
-with `PLAYWRIGHT_CHROMIUM`. `tests/frontend/harness.mjs` holds the shared
+Playwright comes from the local lockfile, with its matching installed Chromium.
+Override the browser with `PLAYWRIGHT_CHROMIUM` only when needed. The harness
+blocks service workers so all accounting requests stay in the mocked API layer.
+`tests/frontend/harness.mjs` holds the shared
 `openApp(browser, data, view)` fixture and `moneyStats()` reader — add new tests
 by importing those.
+
+Use the Python version in `.python-version`. See
+[release and recovery](../docs/RELEASE_AND_RECOVERY.md) for the complete clean
+environment, vulnerability-scan and backup commands. These tests do not prove
+that production settings or a live Supabase installation match the fixtures.

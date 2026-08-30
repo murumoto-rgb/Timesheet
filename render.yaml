@@ -5,15 +5,20 @@ services:
     name: qbo-timesheet
     runtime: python
     plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips '*'
-    autoDeploy: true
-    healthCheckPath: /api/status   # lets Render do zero-downtime deploys
+    buildCommand: pip install -r requirements.txt -c requirements.lock
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --forwarded-allow-ips '*'
+    numInstances: 1
+    autoDeployTrigger: checksPass
+    healthCheckPath: /api/status
     disk:
       name: qbo-data
       mountPath: /data
       sizeGB: 1
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.7
+      - key: WEB_CONCURRENCY
+        value: "1"
       - key: QBO_TOKENS_FILE
         value: /data/qbo_tokens.json
       - key: QBO_ENVIRONMENT

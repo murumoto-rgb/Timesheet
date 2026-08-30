@@ -45,7 +45,7 @@ test("an exact-duplicate warning requires explicit confirmation before retrying"
         message: "An identical entry already exists for this person and date.", code: "DUPLICATE_ENTRY"
       } } });
     }
-    return route.fulfill({ json: { Id: "new1", SyncToken: "0" } });
+    return route.fulfill({ json: { Id: "new1", SyncToken: "0", operationId: body.operation_id } });
   });
   await page.fill("#durh", "1");
   await page.click("#submit");

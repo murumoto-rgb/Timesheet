@@ -1,9 +1,8 @@
 # QBO Timesheet
 
-A tiny single-user mobile web app: pick a project/client, enter hours + minutes,
-and the entry is written straight into QuickBooks Online as a Time Activity with
-the right employee and service item. It also shows your recent entries (with
-delete) and a this-week total per client.
+A single-user timesheet and project workspace. Log exact minutes to QuickBooks
+Online, review time by project, and keep local plans and drafts alongside
+read-only accounting history.
 
 On a phone, open the app in the browser and use **Add to Home Screen** — it
 installs as a standalone app with its own icon.
@@ -36,6 +35,30 @@ These figures are not invoice totals, cash receipts, or profit. The mileage and
 expense filter applies to every deep-dive total and entry. Browsing a deep dive
 does not create, edit, delete, or mark any QuickBooks entry as billed.
 
+## Workspace tools
+
+- **Projects → a project → Plan & billing:** keep a dated hours budget or fee,
+  review explicitly linked invoices and allocated payments, and download CSV or
+  use Print / save PDF. Budgets and expense-category overrides stay on this device.
+- **Log:** unfinished work is saved locally. Restore it explicitly after a reload,
+  or start a timer and review its duration before posting. Nothing posts in the background.
+- **Tools & settings → Reconcile time:** compare an app time snapshot with a fresh
+  QuickBooks read and review duplicate candidates, changed records and uncertain saves.
+- **Tools & settings → Back up plans & drafts / Restore plans & drafts:** back up this browser's plans,
+  categories and draft. The file is private and company-specific; it does not contain
+  credentials or change QuickBooks records.
+
+See [the workspace guide](docs/WORKSPACE_GUIDE.md) for navigation and limitations,
+[the implementation verification](docs/IMPLEMENTATION_VERIFICATION.md) for the
+audit changes and test results, and [release and recovery](docs/RELEASE_AND_RECOVERY.md)
+for testing and safe backups.
+
+All accounting changes carry the displayed company, an original save UUID and,
+for edits/deletes, the entry version you reviewed. Stale versions and old-company
+tabs are rejected. If a save result is uncertain, retry the original request
+instead of creating a replacement. Multi-day and bulk actions show confirmed
+and unconfirmed outcomes and retry only unconfirmed work.
+
 ## 1. Create the app in Intuit's portal (one-time, manual)
 
 1. Go to **developer.intuit.com** → sign in → **Create an app** → choose
@@ -67,8 +90,9 @@ curl -fsSL https://raw.githubusercontent.com/murumoto-rgb/Timesheet/main/Timeshe
 **Manual:**
 
 ```bash
-pip install -r requirements.txt
-uvicorn main:app --reload
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt -c requirements.lock
+.venv/bin/python -m uvicorn main:app --workers 1
 ```
 
 Open <http://localhost:8000>, click **Connect QuickBooks**, and authorize. You'll
@@ -98,5 +122,9 @@ access — check the current requirement in the portal.
   token grants access to your books. (A `.gitignore` is included.)
 - Billable time requires a project/client. The app stops and explains the issue
   instead of silently saving the entry as non-billable.
-- To move token storage to Supabase/Postgres later, swap the two functions
-  `_load_tokens` / `_save_tokens` in `main.py`.
+- When `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are configured, server state uses
+  the private `qbo_tokens` table instead of local files. Never expose its service
+  key in browser code. See the recovery guide before changing storage.
+- Run one application instance and one worker. The operation journal supports
+  atomic concurrency, but token refresh, reminders and legacy audit/push storage
+  still require the single-instance deployment described in the recovery guide.

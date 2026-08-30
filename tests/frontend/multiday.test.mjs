@@ -15,7 +15,7 @@ test("#4 multi-day logs one entry per day in the range", async () => {
   await page.route("**/api/timeactivity", (route) => {
     const r = route.request();
     if (r.method() === "POST") posts.push(r.postDataJSON());
-    return route.fulfill({ json: { Id: "x" + posts.length } });
+    const body = r.postDataJSON(); return route.fulfill({ json: { Id: "x" + posts.length, SyncToken: "1", operationId: body.operation_id } });
   });
   await page.fill("#durh", "8");
   await page.check("#multiDay");

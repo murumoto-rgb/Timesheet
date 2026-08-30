@@ -114,7 +114,7 @@ test("entry search and status filters are read-only and do not alter the summary
 
 test("deep link restores project and dates; five-year range says Last 5 years", async () => {
   const { ctx, page } = await openApp(browser, base([entry({ id: "1" })]), "projects");
-  await page.goto("http://app.test/#project=p1&start=2026-02-01&end=2026-08-20");
+  await page.goto("https://app.test/#project=p1&start=2026-02-01&end=2026-08-20");
   await page.waitForSelector("#projectSummary");
   assert.match(await page.textContent("#projectTitle"), /Shared Name/);
   assert.equal(await page.inputValue("#repCStart"), "2026-02-01");
@@ -126,7 +126,7 @@ test("deep link restores project and dates; five-year range says Last 5 years", 
   await page.goBack();
   await page.waitForSelector("#projectsView", { state: "visible" });
   assert.equal(await page.locator("#projectSummary:visible").count(), 0);
-  await page.goto("http://app.test/#project=p1&start=2026-08-20&end=2026-02-01");
+  await page.goto("https://app.test/#project=p1&start=2026-08-20&end=2026-02-01");
   await page.waitForSelector("#projectsView", { state: "visible" });
   assert.equal(await page.locator("#projectSummary:visible").count(), 0);
   await ctx.close();

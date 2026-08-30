@@ -3,23 +3,19 @@
 // the dashboard/report/week views actually render. Behaviour-level (not
 // internal) so it survives refactors — the whole point of a regression net.
 //
-// Run:  NODE_PATH="$(npm root -g)" node --test tests/frontend/
-//   or: tests/frontend/run.sh
+// Setup: npm ci && npx playwright install chromium
+// Run: tests/frontend/run.sh
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { createRequire } from "node:module";
-// ESM `import` ignores NODE_PATH, but CJS require honours it — so a globally
-// installed playwright (NODE_PATH="$(npm root -g)") resolves without a local
-// install. run.sh sets NODE_PATH for you.
-const { chromium, devices } = createRequire(import.meta.url)("playwright");
+import { chromium, devices } from "playwright";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HTML = readFileSync(join(HERE, "../../index.html"), "utf8");
-const EXEC = process.env.PLAYWRIGHT_CHROMIUM || "/opt/pw-browsers/chromium";
+const EXEC = process.env.PLAYWRIGHT_CHROMIUM;
 
 export function launch() {
-  return chromium.launch({ executablePath: EXEC });
+  return chromium.launch(EXEC ? { executablePath: EXEC } : {});
 }
 
 export function emptyReceivables(asOf = "2026-07-05") {
@@ -28,13 +24,15 @@ export function emptyReceivables(asOf = "2026-07-05") {
 }
 
 const DEFAULT_STATUS = { connected: true, environment: "production", configured: true,
-                         auth_required: false, mfa_required: false, authed: true };
+                         auth_required: false, mfa_required: false, authed: true, companyKey: "fixture-company" };
 
 // Open the app with mocked APIs. `data` fields: status, projects ({projects,clients}),
 // employees, vendors, items, entries, payments, bills, receivables. Returns
 // { ctx, page, errors } — caller closes ctx. `view` optionally clicks a bottom tab.
 export async function openApp(browser, data = {}, view) {
-  const ctx = await browser.newContext({ ...devices["iPhone 13"] });
+  // Service-worker script requests bypass page routes. Disable registration in
+  // this fully mocked harness so no background request reaches the real network.
+  const ctx = await browser.newContext({ ...devices["iPhone 13"], serviceWorkers: "block" });
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -49,8 +47,13 @@ export async function openApp(browser, data = {}, view) {
   // catch-all FIRST (lowest priority) so any unmocked /api/* returns {} instead
   // of hitting the network and hanging; specifics registered after win.
   await page.route("**/api/**", json({}));
-  await page.route("http://app.test/", (r) => r.fulfill({ contentType: "text/html", body: HTML }));
+  await page.route("https://app.test/", (r) => r.fulfill({ contentType: "text/html", body: HTML }));
   await page.route("**/static/**", (r) => r.fulfill({ status: 204, body: "" }));
+  await page.route("**/static/workspace.*", (r) => {
+    const file = new URL(r.request().url()).pathname.split("/").pop();
+    if (!["workspace.js", "workspace.css"].includes(file)) return r.abort();
+    return r.fulfill({ contentType: file.endsWith(".js") ? "text/javascript" : "text/css", body: readFileSync(join(HERE, "../../static", file), "utf8") });
+  });
   await page.route("**/sw.js", (r) => r.fulfill({ contentType: "text/javascript", body: "" }));
   await page.route("**/api/status", json(data.status || DEFAULT_STATUS));
   await page.route("**/api/projects", json(data.projects || { projects: [], clients: [] }));
@@ -62,7 +65,7 @@ export async function openApp(browser, data = {}, view) {
   await page.route("**/api/payments*", (r) => r.fulfill({ json: inRange(data.payments || [], r.request().url()) }));
   await page.route("**/api/bills*", (r) => r.fulfill({ json: inRange(data.bills || [], r.request().url()) }));
 
-  await page.goto("http://app.test/");
+  await page.goto("https://app.test/");
   await page.waitForSelector("#app", { state: "visible" });
   await page.waitForTimeout(200);
   if (view) { await page.click(`#tabbar button[data-view=${view}]`); await page.waitForTimeout(300); }

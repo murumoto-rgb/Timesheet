@@ -625,11 +625,12 @@
   .confirm-cancel { background: none; color: var(--ink); border: 1px solid var(--line); }
   .confirm-go { background: var(--bad); color: #1b0806; border: none; font-weight: 650; }
 </style>
+<link rel="stylesheet" href="/static/workspace.css">
 </head>
 <body>
 <div class="head">
   <h1 id="title">Timesheet</h1>
-  <div class="head-meta"><span class="company-name" id="companyName"></span><span class="env" id="env"></span></div>
+  <div class="head-meta"><span class="company-name" id="companyName"></span><span class="env" id="env"></span><button type="button" id="workspaceMenuButton" class="ie-btn" hidden aria-expanded="false" aria-controls="workspaceMenu">Tools &amp; settings</button></div>
 </div>
 
 <div class="card connect" id="setup">
@@ -655,7 +656,18 @@
 </div>
 
 <div id="app">
+  <div id="workspaceMenu" class="card workspace-menu" hidden>
+    <button type="button" id="openReconciliation" class="ie-btn">Reconcile time</button>
+    <button type="button" id="exportWorkspace" class="ie-btn">Back up plans &amp; drafts</button>
+    <button type="button" id="importWorkspace" class="ie-btn">Restore plans &amp; drafts</button>
+    <input type="file" id="workspaceImportFile" accept="application/json,.json" hidden>
+    <a href="/audit">Activity log</a><a href="/mfa-setup">Two-factor security</a>
+    <button type="button" id="workspaceReminders" class="ie-btn">Daily reminders</button>
+    <button type="button" id="manageExpenseServices" class="ie-btn">Service categories</button>
+  </div>
+  <div id="writeWarning" class="project-alert" role="status" hidden></div>
   <div id="logView">
+    <div id="draftNotice" class="card" hidden></div>
     <div class="today-strip" id="todayStrip">—</div>
     <div class="card" id="recentCard" style="display:none">
       <h2>Recent projects</h2>
@@ -693,6 +705,8 @@
         </div>
       </div>
       <div class="chips" id="chips"></div>
+      <p class="sub duration-help">Exact minutes · no automatic half-hour rounding.</p>
+      <div class="timer-tools"><button type="button" id="timerStart" class="ie-btn">Start timer</button><button type="button" id="timerStop" class="ie-btn" hidden>Stop &amp; use time</button><span id="timerReadout" role="timer" aria-live="off"></span></div>
       <label class="optck" id="multiDayToggle" style="margin-top:12px"><input type="checkbox" id="multiDay"> Log across multiple days</label>
       <div class="row" id="multiDayRow" style="display:none">
         <div>
@@ -717,10 +731,15 @@
       <button class="secondary" id="cancelNew">Cancel</button>
       <button class="secondary" id="closeBilled" style="display:none">Close</button>
       <div class="msg" id="msg" role="status" aria-live="polite"></div>
+      <p class="sub" id="draftStatus" role="status">Unfinished work stays on this device; nothing posts automatically.</p>
     </div>
 
+    <div id="batchResults" class="card" hidden></div>
+
     <div class="card">
-      <h2>Recent entries</h2>
+      <div class="entries-head"><h2>Recent entries · last 14 days</h2><button type="button" class="ie-btn" id="refreshRecent">Refresh</button></div>
+      <p class="sub" id="recentFreshness" role="status">Loading…</p>
+      <p class="sub">Includes every service, including mileage/expense quantities.</p>
       <div id="entries"><div class="empty">Loading…</div></div>
     </div>
   </div>
@@ -739,9 +758,9 @@
         <span><i class="lg-billed"></i>Billed (locked)</span>
         <span><i class="lg-gap"></i>Under-logged day</span>
       </div>
-      <div class="sub wg-gaps" id="wgGaps" style="display:none"></div>
+      <button type="button" class="sub wg-gaps" id="wgGaps" style="display:none"></button>
       <p class="sub" style="margin-top:10px">Tap a cell to log time for that
-      project and day.</p>
+      project and day. Includes every service, including mileage/expense quantities.</p>
     </div>
   </div>
 
@@ -761,6 +780,8 @@
   </div>
 
   <div id="reportView">
+    <div id="projectContext" hidden></div>
+    <details id="reportScope" class="scope-controls" open><summary id="reportScopeLabel">Dates &amp; display</summary>
     <div class="seg" id="seg">
       <button data-unit="day">Day</button>
       <button data-unit="week" class="on">Week</button>
@@ -779,6 +800,8 @@
       </div>
       <label class="optck" title="Recognized from the QuickBooks service name"><input type="checkbox" class="hideExp"> Hide mileage/expense services</label>
     </div>
+    </details>
+    <p class="sub" id="reportFreshness" role="status"></p>
     <div id="repMain">
     <button class="filter-toggle" id="filterToggle" type="button">Filter &amp; search ▾</button>
     <div id="repFilter" class="rep-filter" style="display:none">
@@ -854,6 +877,15 @@
     </div>
     </div><!-- /#repMain -->
     <div id="repDrill" style="display:none"></div>
+    <div id="bulkResults" class="card" hidden></div>
+  </div>
+
+  <div id="reconcileView" hidden class="card">
+    <button type="button" id="reconcileBack" class="tot-back">‹ Back</button>
+    <h2>Reconcile time</h2><p class="sub">A fresh QuickBooks read compared with the displayed entries and retained save receipts. Checks are read-only. Retrying an uncertain save requires your review and confirmation.</p>
+    <div class="row"><div><label for="reconcileStart">From</label><input type="date" id="reconcileStart"></div><div><label for="reconcileEnd">Through</label><input type="date" id="reconcileEnd"></div></div>
+    <button type="button" id="reconcileRun" class="primary">Check this period</button>
+    <div id="reconcileResults" aria-live="polite"></div>
   </div>
 
   <div id="dashView">
@@ -885,12 +917,13 @@
     <a href="#" id="logoutLink" style="display:none">Sign out</a><span id="logoutSep" style="display:none"> ·</span>
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.08.30.1</div>
+  <div class="foot build" id="buildInfo">build 2026.08.30.2</div>
 </div>
 
-<div class="picker" id="picker" hidden>
+<div class="picker" id="picker" hidden role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
   <div class="picker-back" id="pickerBack"></div>
   <div class="picker-sheet">
+    <div class="entries-head"><h2 id="pickerTitle">Choose a project or client</h2><button type="button" id="pickerClose" class="ie-btn">Close</button></div>
     <input type="search" id="pickerSearch" placeholder="Search projects & clients…"
            autocomplete="off" autocorrect="off" autocapitalize="off" />
     <div class="picker-list" id="pickerList"></div>
@@ -913,9 +946,9 @@
   </div>
 </div>
 
-<div id="cellChooser" class="chooser" style="display:none">
+<div id="cellChooser" class="chooser" style="display:none" role="dialog" aria-modal="true" aria-labelledby="cellChooserTitle">
   <div class="chooser-sheet">
-    <div class="chooser-head"><span>Which entry?</span><button type="button" id="cellChooserClose" aria-label="Close">✕</button></div>
+    <div class="chooser-head"><span id="cellChooserTitle">Which entry?</span><button type="button" id="cellChooserClose" aria-label="Close">✕</button></div>
     <div id="cellChooserList"></div>
   </div>
 </div>
@@ -931,7 +964,7 @@
   </button>
   <button data-view="report" aria-label="Reports">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>
-    Report
+    Reports
   </button>
   <button data-view="projects" aria-label="Project deep dives">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M7 16v-3m5 3V9m5 7v-5" stroke-linecap="round"/></svg>
@@ -939,10 +972,11 @@
   </button>
   <button data-view="dash" aria-label="Dashboard">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/><rect x="3" y="14" width="8" height="7" rx="1.5"/></svg>
-    Dash
+    Overview
   </button>
 </nav>
 
+<script src="/static/workspace.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const PRESETS = [0.25, 0.5, 1, 1.5, 2, 2.5, 3];  // decimal hours (one row of quick picks)
@@ -950,10 +984,12 @@ const PRESETS = [0.25, 0.5, 1, 1.5, 2, 2.5, 3];  // decimal hours (one row of qu
 const hoursToMins = (h) => Math.round((parseFloat(h) || 0) * 60);
 const minsToHours = (m) => parseFloat((m / 60).toFixed(2));
 const REMEMBER = ["item"];   // "who" and "project" are remembered separately
-const ROUND_MINUTES = 30;    // durations round to the NEAREST this at save (0 = off)
+const ROUND_MINUTES = 0;     // preserve exact minutes; never round an unrelated edit
 const GAP_TARGET_MIN = 360;  // a weekday under this (6h) is flagged as an under-logged gap (#6)
 let editingId = null;        // id of the entry being edited, or null
 let editingBefore = null;    // pre-edit snapshot of that entry, for Undo
+let appCompanyKey = "";      // authenticated company namespace for local plans/drafts
+const writeTime = (method, endpoint, body) => ProjectWorkspace.write(method, endpoint, body);
 
 // Map a fetched entry back to the create/update API body — used to Undo an edit
 // (re-PUT the old values) or Undo a delete (re-POST the same entry).
@@ -1085,8 +1121,9 @@ const fin = (x) => Number.isFinite(x) ? x : 0;   // never let a bad value poison
 // average). Expense/mileage lines are matched by service name; edit the
 // pattern if your items are named differently.
 const EXPENSE_RE = /mileage|expense|reimburs/i;
-const isExpense = (e) => EXPENSE_RE.test(e.service || "");
-const rateOf = (e) => Number(e.hourlyRate) || 0;
+const isExpense = (e) => ProjectWorkspace.isExpense(e, EXPENSE_RE);
+const hasRecordedRate = (e) => e.hourlyRate != null && e.hourlyRate !== "" && Number.isFinite(Number(e.hourlyRate)) && Number(e.hourlyRate) >= 0;
+const rateOf = (e) => hasRecordedRate(e) ? Number(e.hourlyRate) : 0;
 const dollarsOf = (e) => (mins(e) / 60) * rateOf(e);   // = the entry's QBO line amount
 const opts = {
   dollars: localStorage.getItem("opt-dollars") === "1",
@@ -1099,7 +1136,7 @@ const val = (e) => opts.dollars ? (e.billable ? dollarsOf(e) : 0) : mins(e);
 const fmtUSD = (d) => "$" + Math.round(d).toLocaleString();
 const fmtVal = (v) => opts.dollars ? fmtUSD(v) : fmtMins(v);
 // entries with billable work but no rate — excluded from $ sums, surfaced as a note
-const noRateCount = (entries) => entries.filter((e) => e.billable && rateOf(e) === 0).length;
+const noRateCount = (entries) => entries.filter((e) => e.billable && !hasRecordedRate(e)).length;
 
 function restoreSelection(sel) {
   const saved = localStorage.getItem("last-" + sel.id);
@@ -1116,6 +1153,7 @@ function buildChips() {
     b.onclick = () => {
       $("durh").value = h;
       [...box.children].forEach((c) => c.classList.toggle("on", c === b));
+      ProjectWorkspace.scheduleDraft();
     };
     box.appendChild(b);
   });
@@ -1353,11 +1391,12 @@ function askConfirm(message, confirmLabel = "Confirm", title = "Please confirm")
   $("confirmText").textContent = message;
   $("confirmGo").textContent = confirmLabel;
   $("confirmDialog").hidden = false;
-  $("confirmCancel").focus();
+  ProjectWorkspace.openModal($("confirmDialog"), $("confirmCancel"));
   return new Promise((resolve) => { confirmResolve = resolve; });
 }
 function finishConfirm(answer) {
   $("confirmDialog").hidden = true;
+  ProjectWorkspace.closeModal($("confirmDialog"));
   const resolve = confirmResolve;
   confirmResolve = null;
   if (resolve) resolve(answer);
@@ -1376,6 +1415,7 @@ function setProject(item, save = true, apply = true) {
   if (apply) applyRules();
   buildTemplates(item ? item.id : null);   // #2 surface this project's frequent notes
   markRecentChips();
+  ProjectWorkspace.scheduleDraft();
 }
 
 function renderPickerList(q) {
@@ -1415,13 +1455,14 @@ function openPicker() {
   $("picker").hidden = false;
   $("pickerSearch").value = "";
   renderPickerList("");
-  setTimeout(() => $("pickerSearch").focus(), 50);
+  ProjectWorkspace.openModal($("picker"), $("pickerSearch"));
 }
-function closePicker() { $("picker").hidden = true; }
+function closePicker() { $("picker").hidden = true; ProjectWorkspace.closeModal($("picker")); }
 
 function initPicker() {
   $("projectBtn").onclick = openPicker;
   $("pickerBack").onclick = closePicker;
+  $("pickerClose").onclick = closePicker;
   $("pickerSearch").addEventListener("input", (e) => renderPickerList(e.target.value));
   $("pickerSearch").addEventListener("keydown", (e) => {
     if (e.key === "Escape") closePicker();
@@ -1498,14 +1539,13 @@ function renderEntryRows(box, entries, { showDate = true, selectable = false, se
       if (!await askConfirm(`Delete this time entry? ${label}`, "Delete", "Delete time entry")) return;
       del.disabled = true;
       try {
-        const res = await fetch("/api/timeactivity/" + e.id, { method: "DELETE" });
+        const res = await writeTime("DELETE", "/api/timeactivity/" + e.id, { sync_token: e.syncToken });
         if (!res.ok) throw await apiError(res, "The entry could not be deleted.");
         const deleted = await res.json();
         refreshData();
         // Undo a delete by re-creating the same entry (QBO assigns a fresh id).
         showToast(deleted.appWarning ? `Entry deleted. ${deleted.appWarning}` : "Entry deleted", "Undo", async () => {
-          const undoRes = await fetch("/api/timeactivity", { method: "POST",
-            headers: { "Content-Type": "application/json" }, body: JSON.stringify(entryToBody(e)) });
+          const undoRes = await writeTime("POST", "/api/timeactivity", entryToBody(e));
           if (!undoRes.ok) throw await apiError(undoRes, "Couldn't restore the deleted entry.");
           refreshData();
         });
@@ -1539,15 +1579,17 @@ function renderEntryRows(box, entries, { showDate = true, selectable = false, se
 }
 
 // Quick-edit a row in place (hours + notes) without opening the full form.
-// Save PUTs the changed values (rounded like the form); Cancel just re-renders.
+// Save PUTs exact minute values; an unrelated notes edit preserves duration.
 function inlineEditRow(row, e) {
   row.innerHTML = "";
   row.classList.add("ie");
   const h = document.createElement("input");
   h.type = "number"; h.step = "0.25"; h.min = "0"; h.className = "ie-dur";
+  h.setAttribute("aria-label", "Entry duration in hours");
   h.value = minsToHours(mins(e));
   const notes = document.createElement("input");
   notes.type = "text"; notes.className = "ie-notes"; notes.placeholder = "Notes"; notes.value = e.description || "";
+  notes.setAttribute("aria-label", "Entry notes");
   const save = document.createElement("button"); save.className = "ie-btn save"; save.textContent = "Save";
   const cancel = document.createElement("button"); cancel.className = "ie-btn"; cancel.textContent = "Cancel";
   cancel.onclick = () => refreshData();
@@ -1559,16 +1601,14 @@ function inlineEditRow(row, e) {
     const body = entryToBody(e);
     body.hours = Math.floor(m / 60); body.minutes = m % 60; body.description = notes.value;
     try {
-      const res = await fetch("/api/timeactivity/" + e.id, { method: "PUT",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res = await writeTime("PUT", "/api/timeactivity/" + e.id, body);
       if (!res.ok) throw await apiError(res, "The entry could not be updated.");
       const updated = await res.json();
       refreshData();
       const undoBody = entryToBody(e);
       undoBody.sync_token = updated.SyncToken;
       showToast(updated.appWarning ? `Entry updated. ${updated.appWarning}` : "Entry updated", "Undo", async () => {
-        const undoRes = await fetch("/api/timeactivity/" + e.id, { method: "PUT",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify(undoBody) });
+        const undoRes = await writeTime("PUT", "/api/timeactivity/" + e.id, undoBody);
         if (!undoRes.ok) throw await apiError(undoRes, "Couldn't undo the edit.");
         refreshData();
       });
@@ -1595,10 +1635,17 @@ function renderTodayStrip(entries) {
     + (bill && bill !== total ? ` · <span class="g">${fmtMins(bill)} billable</span>` : "");
 }
 
+let recentSequence = 0;
 async function loadRecent() {
+  const sequence = ++recentSequence;
   const box = $("entries");
+  $("recentFreshness").textContent = "Refreshing…";
+  box.setAttribute("aria-busy", "true");
   try {
     const entries = await getJSON("/api/timeactivities?days=14");
+    if (sequence !== recentSequence) return;
+    if (!Array.isArray(entries)) throw new Error("Unreadable time data. Please refresh.");
+    $("recentFreshness").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     renderTodayStrip(entries);
     if (!entries.length) {
       box.innerHTML = '<div class="empty">No entries in the last 14 days.</div>';
@@ -1606,8 +1653,11 @@ async function loadRecent() {
     }
     renderEntryRows(box, entries);
   } catch (e) {
+    if (sequence !== recentSequence) return;
+    $("recentFreshness").textContent = "Refresh failed; no current totals available.";
+    $("todayStrip").textContent = "Today's time is unavailable until refresh succeeds.";
     box.innerHTML = '<div class="empty">Could not load entries: ' + escapeHtml(e.message || "Unknown error") + '</div>';
-  }
+  } finally { if (sequence === recentSequence) box.setAttribute("aria-busy", "false"); }
 }
 
 // ── Edit / repeat an existing entry ─────────────────────────────────
@@ -1630,7 +1680,8 @@ function fillFormFromEntry(e, dateOverride) {
   }
   // stale id (customer merged/renamed → new id): recover the live entity by the
   // entry's stored qualified name so repeat/edit re-selects the correct project.
-  const resolved = sel ? { ...sel, type: selType } : nameToItem(e.customer);
+  const resolved = sel ? { ...sel, type: selType }
+    : editingId && (e.projectId || e.customerId) ? { id: e.projectId || e.customerId, name: e.customer || "Archived client", type: "client" } : nameToItem(e.customer);
   // don't let smart-default rules overwrite the entry's own values
   setProject(resolved || null, false, false);
   // who
@@ -1640,14 +1691,24 @@ function fillFormFromEntry(e, dateOverride) {
     (o) => o.value === wantId && o.dataset.type === wantType
   );
   if (opt) opt.selected = true;
+  else if (wantId) {
+    const archived = document.createElement("option"); archived.value = wantId; archived.dataset.type = wantType;
+    archived.textContent = (e.employee || wantId) + " (not in current list)"; $("employee").appendChild(archived); archived.selected = true;
+  }
   // service, date, duration, notes, billable
-  if (e.itemId) $("item").value = e.itemId;
+  if (e.itemId) {
+    if (![...$("item").options].some((item) => item.value === e.itemId)) {
+      const archived = document.createElement("option"); archived.value = e.itemId; archived.textContent = (e.service || e.itemId) + " (not in current list)"; $("item").appendChild(archived);
+    }
+    $("item").value = e.itemId;
+  }
   $("date").value = dateOverride || e.date || ymd(new Date());
   const totalMins = (e.hours || 0) * 60 + (e.minutes || 0);
   $("durh").value = totalMins ? minsToHours(totalMins) : "";
   $("desc").value = e.description || "";
   $("billable").checked = !!e.billable;
   document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+  ProjectWorkspace.scheduleDraft();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1662,6 +1723,8 @@ function clearFormFields() {
   $("billable").checked = true;       // billable is the default for new entries
   document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
   $("multiDay").checked = false; $("multiDayRow").style.display = "none"; $("dateEnd").value = "";  // #4
+  $("includeWeekends").checked = false; $("weekendToggle").style.display = "none";
+  ProjectWorkspace.clearDraft();
 }
 
 // Show the right buttons for new-entry vs editing mode.
@@ -1732,6 +1795,12 @@ function cancelEdit() {
 
 // ── Week grid (projects × Mon–Sun) ──────────────────────────────────
 const wg = { anchor: new Date(), person: "" };  // person "" = All
+const personKey = (e) => e.vendorId ? "vendor:" + e.vendorId : e.employeeId ? "employee:" + e.employeeId : "name:" + (e.employee || "Unassigned person");
+function peopleFor(entries) {
+  const people = [...new Map(entries.map((e) => [personKey(e), { key: personKey(e), name: e.employee || "Unassigned person" }])).values()];
+  people.forEach((p) => { p.label = p.name + (people.filter((other) => other.name === p.name).length > 1 ? " · " + p.key : ""); });
+  return people.sort((a, b) => a.label.localeCompare(b.label));
+}
 
 // People-filter chips for the week grid (employees + vendors with time
 // that week). Only shown when more than one person contributed.
@@ -1748,7 +1817,7 @@ function renderWgPeople(people) {
     box.appendChild(b);
   };
   mk("All", "");
-  people.forEach((p) => mk(p, p));
+  people.forEach((p) => mk(p.label, p.key));
 }
 
 function wgEl(tag, cls, text) {
@@ -1774,7 +1843,7 @@ function resolveWhoOption() {
 function personWhoOption() {
   // when the week is filtered to a person, log/prefill as that person
   if (!wg.person) return null;
-  return [...$("employee").options].find((o) => o.textContent === wg.person) || null;
+  return [...$("employee").options].find((o) => `${o.dataset.type}:${o.value}` === wg.person) || null;
 }
 
 // Tap a blank cell → open the Log form pre-filled as a NEW entry for that
@@ -1835,8 +1904,9 @@ function openCellChooser(entries) {
     list.appendChild(b);
   });
   $("cellChooser").style.display = "flex";
+  ProjectWorkspace.openModal($("cellChooser"), $("cellChooserClose"));
 }
-function closeCellChooser() { $("cellChooser").style.display = "none"; }
+function closeCellChooser() { $("cellChooser").style.display = "none"; ProjectWorkspace.closeModal($("cellChooser")); }
 
 let wgSeq = 0;
 async function renderWeekGrid() {
@@ -1861,10 +1931,10 @@ async function renderWeekGrid() {
   if (seq !== wgSeq) return;
 
   // people who logged time this week → filter chips; then scope the grid
-  const people = [...new Set(entries.map((e) => e.employee).filter(Boolean))].sort();
-  if (wg.person && !people.includes(wg.person)) wg.person = "";  // reset if gone
+  const people = peopleFor(entries);
+  if (wg.person && !people.some((p) => p.key === wg.person)) wg.person = "";
   renderWgPeople(people);
-  if (wg.person) entries = entries.filter((e) => e.employee === wg.person);
+  if (wg.person) entries = entries.filter((e) => personKey(e) === wg.person);
 
   // ── Gap detector (#6): weekdays (today or past) with less than the target
   //    logged. Weekends and future days are never flagged. ──
@@ -1929,7 +1999,9 @@ async function renderWeekGrid() {
   head.appendChild(wgEl("span", "wg-name", ""));
   "MTWTFSS".split("").forEach((ch, i) => {
     const isGap = gaps.includes(i);
-    const cell = wgEl("span", "wg-cell" + (i === todayI ? " today" : "") + (isGap ? " gap" : ""), "");
+    const cell = wgEl(isGap ? "button" : "span", "wg-cell" + (i === todayI ? " today" : "") + (isGap ? " gap" : ""), "");
+    cell.setAttribute("aria-label", ymd(addDays(start, i)) + (isGap ? ": under-logged, add time" : ""));
+    if (isGap) cell.type = "button";
     cell.appendChild(wgEl("span", "wg-dom", String(addDays(start, i).getDate())));
     cell.appendChild(wgEl("span", "wg-dow", ch));
     if (isGap) { cell.style.cursor = "pointer"; cell.title = "Log time for this day"; cell.onclick = () => logForDay(addDays(start, i)); }  // #5
@@ -1954,6 +2026,7 @@ async function renderWeekGrid() {
       b.className = cls;
       if (billedMin > 0) b.title = "Includes billed (invoiced) time — locked";
       b.textContent = m ? fmtCell(m) : "·";
+      b.setAttribute("aria-label", `${r.fullName} · ${ymd(addDays(start, i))} · ${m ? fmtMins(m) + " hours" : "No time, add entry"}${billedMin ? " · includes billed, locked time" : ""}`);
       b.onclick = () => weekCellTap(r, i, start);
       div.appendChild(b);
     });
@@ -2138,7 +2211,7 @@ function renderRepPeople(people) {
     box.appendChild(b);
   };
   mk("All", "");
-  people.forEach((p) => mk(p, p));
+  people.forEach((p) => mk(p.label, p.key));
 }
 
 function mondayOf(d) {
@@ -2335,8 +2408,7 @@ function closeProjectDrill() {
   showView(source === "projects" ? "projects" : source === "dash" ? "dash" : "report");
 }
 
-const projectHasRate = (e) => e.hourlyRate != null && e.hourlyRate !== ""
-  && Number.isFinite(Number(e.hourlyRate)) && Number(e.hourlyRate) >= 0;
+const projectHasRate = hasRecordedRate;
 const projectMoney = (amount) => amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
 function projectMetrics(entries) {
   const sumMinutes = (rows) => rows.reduce((s, e) => s + mins(e), 0);
@@ -2363,20 +2435,14 @@ function projectSummaryHtml(entries, win) {
   const knownMins = m.billable - m.missingRates.reduce((s, e) => s + mins(e), 0);
   const coverage = m.billable ? Math.round(100 * knownMins / m.billable) + "% of billable time has a recorded rate. " : "";
   const expenseCount = repFetched.filter((e) => projectIdOf(e) === rep.projectId && isExpense(e)).length;
-  return '<div class="card" id="projectSummary">'
-    + '<h2>Project deep dive</h2><h3 id="projectTitle">' + escapeHtml(rep.projectName) + '</h3>'
-    + `<p class="project-note">${escapeHtml(ymd(win.start))} – ${escapeHtml(ymd(win.end))} · This project / client only; child projects are separate.</p>`
+  return '<div class="card" id="projectSummary" tabindex="-1">'
+    + '<h2>Time summary</h2>'
+    + `<p class="project-note">${escapeHtml(ymd(win.start))} – ${escapeHtml(ymd(win.end))} · ${opts.hideExpenses ? "Mileage/expense services hidden" : "All services included"}</p>`
+    + '<div class="project-kpis">' + kpi(m.total, "Total time") + kpi(m.billable, "Billable time", "good")
+    + kpi(m.unbilled, "To-invoice time", "accent") + kpi(m.billed, "Billed time", "billed") + '</div>'
     + '<div class="project-tools"><button class="ie-btn" type="button" id="projectPin" aria-pressed="false">☆ Pin project</button>'
     + '<button class="ie-btn" type="button" id="projectCopyLink">Copy link</button></div>'
     + '<input id="projectLinkBox" aria-label="Project link to copy" readonly style="display:none">'
-    + '<div class="nav"><button type="button" id="projectPrev" aria-label="Previous project period">‹</button>'
-    + `<span class="label" id="projectPeriod">${escapeHtml(win.title)}</span>`
-    + '<button type="button" id="projectNext" aria-label="Next project period">›</button></div>'
-    + '<div class="project-tools"><button type="button" class="ie-btn" id="projectRangeYear">Year to date</button>'
-    + '<button type="button" class="ie-btn" id="projectRangeTwelveMonths">Last 12 months</button>'
-    + '<button type="button" class="ie-btn" id="projectRangeFiveYears">Last 5 years</button></div>'
-    + '<div class="project-kpis">' + kpi(m.total, "Total time") + kpi(m.billable, "Billable time", "good")
-    + kpi(m.unbilled, "To-invoice time", "accent") + kpi(m.billed, "Billed time", "billed") + '</div>'
     + `<div class="project-value-row"><span>Recorded billable time value</span><strong>${money(m.value)}</strong></div>`
     + `<div class="project-value-row"><span>To-invoice time value</span><strong>${money(m.unbilledValue)}</strong></div>`
     + `<div class="project-value-row"><span>Billed time value</span><strong>${money(m.billedValue)}</strong></div>`
@@ -2403,10 +2469,13 @@ function bindProjectSummary() {
       showToast("Select and copy the project link shown above.", "", null);
     }
   };
-  $("projectPrev").disabled = rep.allTime;
-  $("projectNext").disabled = rep.allTime || ymd(drillWindow().end) >= ymd(new Date());
-  $("projectPrev").onclick = () => shiftPeriod(-1);
-  $("projectNext").onclick = () => shiftPeriod(1);
+  let presets = $("projectDatePresets");
+  if (!presets) {
+    presets = document.createElement("div"); presets.id = "projectDatePresets"; presets.className = "project-tools";
+    presets.innerHTML = '<button type="button" class="ie-btn" id="projectRangeYear">Year to date</button><button type="button" class="ie-btn" id="projectRangeTwelveMonths">Last 12 months</button><button type="button" class="ie-btn" id="projectRangeFiveYears">Last 5 years</button>';
+    $("reportScope").appendChild(presets);
+  }
+  presets.hidden = false;
   const range = (kind) => {
     const end = new Date(); end.setHours(0, 0, 0, 0);
     const start = kind === "year" ? new Date(end.getFullYear(), 0, 1) : addDays(end, kind === "five" ? -365 * 5 : -364);
@@ -2417,7 +2486,7 @@ function bindProjectSummary() {
   $("projectRangeFiveYears").onclick = () => range("five");
 }
 function projectEntryControlsHtml() {
-  return '<div class="card"><h2>Work &amp; notes</h2><p class="project-note">Read-only entries, newest first. Filters below do not change the project totals.</p>'
+  return '<div class="card" id="projectNotes" tabindex="-1"><h2>Work &amp; notes</h2><p class="project-note">Read-only entries, newest first. Filters below do not change the project totals.</p>'
     + '<div class="project-entry-controls"><input type="search" id="projectEntrySearch" aria-label="Search project entries" placeholder="Search notes, person or service…">'
     + '<select id="projectEntryFilter" aria-label="Filter project entries"><option value="all">All entries</option><option value="unbilled">To invoice</option>'
     + '<option value="billed">Billed</option><option value="nonbillable">Non-billable</option><option value="missingrate">Missing rate</option>'
@@ -2488,11 +2557,11 @@ function renderDrill(entries) {
   rows.forEach((p, i) => { p.color = TOT_COLORS[i % TOT_COLORS.length]; });
   const grand = rows.reduce((s, p) => s + p.total, 0);
 
-  const back = projectBackHtml() + projectSummaryHtml(scoped, win);
+  const back = projectSummaryHtml(scoped, win);
   if (!rows.length) {
     $("repDrill").innerHTML = back + '<div class="card"><div class="empty">No ' + (opts.dollars ? "billable value with recorded rates" : "time")
-      + ' on this project in ' + escapeHtml(win.title) + '. Choose a wider range to look further back.</div></div>' + projectEntryControlsHtml();
-    bindProjectSummary(); bindProjectEntries(scoped);
+      + ' on this project in ' + escapeHtml(win.title) + '. Choose a wider range to look further back.</div></div>' + projectEntryControlsHtml() + ProjectWorkspace.projectPanels();
+    bindProjectSummary(); bindProjectEntries(scoped); ProjectWorkspace.bindPanels(scoped, win);
     return;
   }
 
@@ -2548,9 +2617,10 @@ function renderDrill(entries) {
         + `<i style="height:${Math.max(trend[i] > 0 ? 3 : 0, trend[i] / peak * 94)}px;opacity:${trend[i] ? 1 : 0.15}"></i>`
         + `<span>${i % every === 0 || i === trend.length - 1 ? escapeHtml(b.label) : ""}</span></div>`;
     }).join("") + '</div></div>';
-  html += '<div class="card"><h2>Services</h2><div class="proj" id="projectServices"></div></div>' + projectEntryControlsHtml();
+  html += '<div class="card"><h2>Services</h2><div class="proj" id="projectServices"></div></div>' + projectEntryControlsHtml() + ProjectWorkspace.projectPanels();
   $("repDrill").innerHTML = html;
   bindProjectSummary(); bindProjectEntries(scoped);
+  ProjectWorkspace.bindPanels(scoped, win);
   renderBreakdown($("projectServices"), scoped, (e) => e.service || "No service");
   $("totToggle").onclick = () => { rep.drillExpanded = !rep.drillExpanded; renderReportView(); };
 }
@@ -2807,11 +2877,11 @@ function reviewFilter(entries) {
   else if (rep.status === "unbilled") out = out.filter((e) => e.billableStatus === "Billable");
   else if (rep.status === "nonbillable") out = out.filter((e) => !e.billable);
   // "Needs attention": missing client, missing notes, or billable with no rate
-  if (rep.needs) out = out.filter((e) => !e.customer || !e.description || (e.billable && rateOf(e) === 0));
+  if (rep.needs) out = out.filter((e) => !e.customer || !(e.description || "").trim() || (e.billable && !hasRecordedRate(e)));
   return out;
 }
 
-let repSeq = 0, repFetched = [], repPrev = null, repLoading = false, repLoadError = "", repController = null;
+let repSeq = 0, repFetched = [], repPrev = null, repLoading = false, repLoadError = "", repController = null, repLoadedRange = null;
 // Fetch the period (and, for month/quarter, the prior year for the vs-last-year
 // line) once; then render. Search/filter changes call renderReportView directly
 // so typing never refetches.
@@ -2829,7 +2899,8 @@ async function renderReport() {
   const cr = wide || rep.projectId ? null : compareRange(start, end);
   // Clear previous figures before changing scope. Publish results only after
   // the request is still current, so late responses cannot replace another project.
-  repLoading = true; repLoadError = ""; repFetched = []; repPrev = null;
+  repLoading = true; repLoadError = ""; repFetched = []; repPrev = null; repLoadedRange = null;
+  $("reportFreshness").textContent = "Refreshing this period…";
   if (rep.projectId) setViewLocation(projectLocationHash());
   renderReportView();
   try {
@@ -2839,6 +2910,7 @@ async function renderReport() {
     if (seq !== repSeq) return;
     if (!Array.isArray(current) || (previous !== null && !Array.isArray(previous))) throw new Error("QuickBooks returned unreadable time data. Please retry.");
     repFetched = current; repPrev = previous;
+    repLoadedRange = { start: ymd(start), end: ymd(end) };
     rememberProjectHistory(current);
   } catch (e) {
     if (seq !== repSeq) return;
@@ -2846,10 +2918,12 @@ async function renderReport() {
   }
   if (seq !== repSeq) return;  // a newer render superseded this one
   repLoading = false;
+  $("reportFreshness").textContent = repLoadError ? "This period could not be refreshed." : "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   renderReportView();
 }
 
 function renderReportView() {
+  ProjectWorkspace.context();
   let entries = applyOpts(repFetched);  // drop mileage/expense lines when toggled
 
   // Per-project drill-down replaces the normal report body (period seg + opts
@@ -2859,12 +2933,12 @@ function renderReportView() {
   if (repLoading || repLoadError) {
     $("repMain").style.display = "none";
     $("repDrill").style.display = "block";
-    $("repDrill").innerHTML = (drilling ? projectBackHtml() : "") + '<div class="card">'
+    $("repDrill").innerHTML = '<div class="card">'
       + (drilling ? `<h2>${escapeHtml(rep.projectName)}</h2>` : "")
       + (repLoading ? '<div class="empty" role="status">Loading time for this period…</div>'
         : `<p role="alert">Could not load this period: ${escapeHtml(repLoadError)}</p><button type="button" class="tot-toggle" id="projectRetry">Retry</button>`)
       + '</div>';
-    if (drilling) $("repDrillBack").onclick = closeProjectDrill;
+    if (drilling && $("repDrillBack")) $("repDrillBack").onclick = closeProjectDrill;
     if ($("projectRetry")) $("projectRetry").onclick = renderReport;
     return;
   }
@@ -2875,10 +2949,10 @@ function renderReportView() {
   populateSvcFilter(entries);
 
   // people with time in this period → filter chips; then scope the report
-  const people = [...new Set(entries.map((e) => e.employee).filter(Boolean))].sort();
-  if (rep.person && !people.includes(rep.person)) rep.person = "";
+  const people = peopleFor(entries);
+  if (rep.person && !people.some((p) => p.key === rep.person)) rep.person = "";
   renderRepPeople(people);
-  if (rep.person) entries = entries.filter((e) => e.employee === rep.person);
+  if (rep.person) entries = entries.filter((e) => personKey(e) === rep.person);
   entries = reviewFilter(entries);   // #7 search / #8 cleanup
   syncFilterUI();
 
@@ -2932,7 +3006,7 @@ function renderReportView() {
   if (repPrev && rep.compare !== "off" && rep.unit !== "day") {
     const word = compareWord();
     let prev = applyOpts(repPrev);
-    if (rep.person) prev = prev.filter((e) => e.employee === rep.person);
+    if (rep.person) prev = prev.filter((e) => personKey(e) === rep.person);
     prev = reviewFilter(prev);
     let ptot = 0;
     prev.forEach((e) => { ptot += val(e); });
@@ -2998,39 +3072,20 @@ function fillBulkSvc() {   // populate the "Set service" picker from the form's 
     [...src.options].map((o) => `<option value="${o.value}">${escapeHtml(o.textContent)}</option>`).join("");
 }
 async function bulkApply(action, itemId) {
-  const ids = [...bulkSel].filter((id) => repFetched.some((e) => e.id === id));
-  if (!ids.length) return;
-  if (action === "delete" && !await askConfirm(
-    `Delete ${ids.length} ${ids.length === 1 ? "time entry" : "time entries"}? Bulk deletion cannot be undone here.`,
-    "Delete", "Delete selected entries"
-  )) return;
-  let ok = 0;
-  const failures = [];
-  for (const id of ids) {
-    const e = repFetched.find((x) => x.id === id);
-    let spec;
-    if (action === "delete") {
-      spec = { method: "DELETE" };
-    } else {
-      const body = entryToBody(e);
-      if (action === "billable") body.billable = true;
-      else if (action === "nonbillable") body.billable = false;
-      else if (action === "service") body.item_id = itemId;
-      spec = { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
-    }
-    try {
-      const res = await fetch("/api/timeactivity/" + id, spec);
-      if (!res.ok) throw await apiError(res, `Entry ${id} could not be changed.`);
-      ok++;
-    } catch (e) { failures.push(`${id}: ${e.message || "failed"}`); }
-  }
-  bulkSel.clear(); rep.selecting = false;
-  showToast(
-    `${action === "delete" ? "Deleted" : "Updated"} ${ok}`
-      + (failures.length ? ` · ${failures.length} failed: ${failures.slice(0, 2).join("; ")}` : ""),
-    "", null
-  );
-  renderReport();   // refetch to reflect the changes
+  const entries = [...bulkSel].map((id) => repFetched.find((e) => e.id === id)).filter((e) => e && e.billableStatus !== "HasBeenBilled");
+  if (!entries.length) return;
+  const actionLabel = action === "delete" ? "Delete" : action === "service" ? "Change service" : action === "billable" ? "Mark billable" : "Mark non-billable";
+  const detail = entries.map((e) => `${e.date} · ${e.customer || "No client"} · ${fmtMins(mins(e))} · ${e.description || "No notes"}`).join("\n");
+  if (!await askConfirm(`${actionLabel} for ${entries.length} selected ${entries.length === 1 ? "entry" : "entries"}?${action === "delete" ? " Deletion cannot be undone here." : ""}\n\n${detail}`, actionLabel, "Review selected entries")) return;
+  const jobs = entries.map((e) => {
+    const body = action === "delete" ? { sync_token: e.syncToken } : entryToBody(e);
+    if (action === "billable") body.billable = true;
+    if (action === "nonbillable") body.billable = false;
+    if (action === "service") body.item_id = itemId;
+    return { method: action === "delete" ? "DELETE" : "PUT", endpoint: "/api/timeactivity/" + e.id, body,
+      label: `${e.date} · ${e.customer || "No client"} · ${fmtMins(mins(e))} · ${actionLabel}` };
+  });
+  await ProjectWorkspace.runBatch("bulk", jobs);
 }
 
 // ── Dashboard: billed (invoiced) or received (payments) trend + 12-mo avg ──
@@ -3295,8 +3350,8 @@ async function renderDash() {
   document.querySelectorAll("#dashSeg button").forEach((b) => b.classList.toggle("on", b.dataset.unit === dash.unit));
   // Billed/Received toggle only makes sense for money — show it in $ mode.
   const received = opts.dollars && dash.metric === "received";
-  const noun = received ? "company cash received" : "billed time value (est.)";
-  const Noun = received ? "Company cash received" : "Billed time value (est.)";
+  const noun = received ? "gross company receipts" : opts.dollars ? "billed time value (est.)" : "billed time";
+  const Noun = received ? "Gross company receipts" : opts.dollars ? "Billed time value (est.)" : "Billed time";
   $("dashMetric").style.display = opts.dollars ? "flex" : "none";
   document.querySelectorAll("#dashMetric button").forEach((b) => b.classList.toggle("on", b.dataset.metric === (received ? "received" : "billed")));
 
@@ -3585,6 +3640,8 @@ function rerenderActive() {
 
 // ── Tabs ────────────────────────────────────────────────────────────
 function showView(view, o = {}) {
+  document.body.dataset.view = view;
+  $("reconcileView").hidden = view !== "reconcile";
   if (view !== "report") {
     ++repSeq; repController?.abort(); repLoading = false; repLoadError = "";
     rep.projectId = null; rep.projectName = ""; rep.drillExpanded = false;
@@ -3597,7 +3654,7 @@ function showView(view, o = {}) {
   $("projectsView").style.display = view === "projects" ? "block" : "none";
   $("title").textContent =
     view === "report" ? (o.keepDrill ? "Project" : "Report") : view === "week" ? "Week" : view === "projects" ? "Projects"
-    : view === "dash" ? "Dashboard" : "Timesheet";
+    : view === "dash" ? "Overview" : view === "reconcile" ? "Reconcile" : "Timesheet";
   const activeTab = view === "report" && o.keepDrill && rep.drillSource === "projects" ? "projects" : view;
   document.querySelectorAll("#tabbar button").forEach((b) => {
     b.classList.toggle("on", b.dataset.view === activeTab);
@@ -3749,6 +3806,7 @@ async function boot() {
     return;
   }
   if (!status.connected) { $("connect").style.display = "block"; return; }
+  appCompanyKey = status.companyKey || "";
   if (status.auth_required) {
     $("logoutLink").style.display = "inline";
     $("logoutSep").style.display = "inline";
@@ -3812,6 +3870,9 @@ async function boot() {
   applyRules();          // apply smart defaults for the restored selections
   buildTemplates();
 
+  ProjectWorkspace.init();
+  document.body.dataset.view = "log";
+
   loadRecent();
   loadFrequents();
   window.addEventListener("popstate", restoreProjectLocation);
@@ -3865,13 +3926,14 @@ function showLoadError(msg) {
 async function submit() {
   const msg = $("msg");
   msg.className = "msg";
+  if (ProjectWorkspace.timerRunning()) { msg.textContent = "Stop the timer and review its duration before saving."; msg.className = "msg bad"; return; }
   let total = hoursToMins($("durh").value);
   if (total <= 0) {
     msg.textContent = "Enter the hours first (e.g. 1.5).";
     msg.className = "msg bad";
     return;
   }
-  // round to the nearest half hour (never down to zero for a logged entry)
+  // Exact minute values are preserved; no unrelated field edit changes time.
   let rounded = false;
   if (ROUND_MINUTES > 0) {
     const r = Math.max(Math.round(total / ROUND_MINUTES) * ROUND_MINUTES, ROUND_MINUTES);
@@ -3886,6 +3948,8 @@ async function submit() {
     return;
   }
   $("submit").disabled = true;
+  const submittedDraft = ProjectWorkspace.draftSignature();
+  ProjectWorkspace.saveDraft();
 
   const body = {
     item_id: $("item").value,
@@ -3926,37 +3990,14 @@ async function submit() {
       `Create ${days.length} entries from ${startD} through ${endD}? ${includeWeekends ? "Weekends are included." : "Weekends are excluded."}`,
       "Create entries", "Confirm multiple entries"
     )) { $("submit").disabled = false; return; }
-    let ok = 0;
-    const failures = [];
-    for (const day of days) {
-      try {
-        const r = await fetch("/api/timeactivity", { method: "POST",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, txn_date: day }) });
-        if (!r.ok) throw await apiError(r, "QuickBooks rejected the entry.");
-        ok++;
-      } catch (e) { failures.push(`${day}: ${e.message || "failed"}`); }
-    }
-    localStorage.setItem("last-who-id", whoOpt.value);
-    localStorage.setItem("last-who-type", whoOpt.dataset.type);
-    $("durh").value = ""; $("desc").value = "";
-    $("multiDay").checked = false; $("multiDayRow").style.display = "none"; $("weekendToggle").style.display = "none"; $("includeWeekends").checked = false; $("dateEnd").value = "";
-    document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
-    $("billable").checked = true;
-    msg.textContent = `Logged ${ok} ${ok === 1 ? "entry" : "entries"} across ${days.length} days`
-      + (failures.length ? ` · ${failures.length} failed — ${failures.slice(0, 3).join("; ")}` : "");
-    msg.className = failures.length ? "msg bad" : "msg good";
-    $("submit").disabled = false;
-    refreshData();
+    await ProjectWorkspace.runBatch("multi", days.map((day) => ({ method: "POST", endpoint: "/api/timeactivity",
+      body: { ...body, txn_date: day }, label: `${day} · ${selProject?.name || "No client"} · ${fmtMins(total)} · ${body.description || "No notes"}` })));
     return;
   }
 
   try {
     const endpoint = editing ? "/api/timeactivity/" + editing : "/api/timeactivity";
-    const send = () => fetch(endpoint, {
-      method: editing ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const send = () => writeTime(editing ? "PUT" : "POST", endpoint, body);
     let res;
     while (true) {
       res = await send();
@@ -3983,32 +4024,36 @@ async function submit() {
       }
     }
     const data = await res.json();
+    const unchangedDraft = ProjectWorkspace.draftMatches(submittedDraft);
     localStorage.setItem("last-who-id", whoOpt.value);
     localStorage.setItem("last-who-type", whoOpt.dataset.type);
     REMEMBER.forEach((id) => localStorage.setItem("last-" + id, $(id).value));
-    if (editing) cancelEdit();       // resets button + clears fields
-    $("durh").value = "";
-    $("desc").value = "";
-    document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
-    $("billable").checked = true;  // every new entry defaults to billable
+    if (unchangedDraft) {
+      ProjectWorkspace.clearDraft();
+      if (editing) cancelEdit();       // resets button + clears fields
+      $("durh").value = "";
+      $("desc").value = "";
+      document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+      $("billable").checked = true;  // every new entry defaults to billable
+    } else ProjectWorkspace.saveDraft();
     msg.textContent =
       (editing ? "Updated ✓  entry #" : "Logged ✓  entry #") + (data.Id || "") +
       (rounded ? `  · ${minsToHours(total)}h (rounded to ½ h)` : "") +
-      (data.appWarning ? ` · ${data.appWarning}` : "");
+      (data.appWarning ? ` · ${data.appWarning}` : "") +
+      (unchangedDraft ? "" : " · Your newer draft has been kept.");
     msg.className = "msg good";
     // Undo: for a new entry delete it; for an edit re-PUT the prior values.
     if (editing && before) {
       const undoBody = entryToBody(before);
       undoBody.sync_token = data.SyncToken;
       showToast("Entry updated", "Undo", async () => {
-        const undoRes = await fetch("/api/timeactivity/" + editing, { method: "PUT",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify(undoBody) });
+        const undoRes = await writeTime("PUT", "/api/timeactivity/" + editing, undoBody);
         if (!undoRes.ok) throw await apiError(undoRes, "Couldn't undo the edit.");
         refreshData();
       });
     } else if (!editing && data.Id) {
       showToast("Entry logged", "Undo", async () => {
-        const undoRes = await fetch("/api/timeactivity/" + data.Id, { method: "DELETE" });
+        const undoRes = await writeTime("DELETE", "/api/timeactivity/" + data.Id, { sync_token: data.SyncToken });
         if (!undoRes.ok) throw await apiError(undoRes, "Couldn't undo the new entry.");
         refreshData();
       });

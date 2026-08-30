@@ -14,13 +14,13 @@ async function recordMutations(page) {
   const calls = [];
   await page.route("**/api/timeactivity", (route) => {
     const r = route.request();
-    if (r.method() === "POST") { calls.push({ m: "POST", body: r.postDataJSON() }); return route.fulfill({ json: { Id: "new99" } }); }
+    if (r.method() === "POST") { const body = r.postDataJSON(); calls.push({ m: "POST", body }); return route.fulfill({ json: { Id: "new99", SyncToken: "0", operationId: body.operation_id } }); }
     return route.fulfill({ json: {} });
   });
   await page.route("**/api/timeactivity/*", (route) => {
     const r = route.request();
-    calls.push({ m: r.method(), url: r.url() });
-    return route.fulfill({ json: { Id: "x" } });
+    calls.push({ m: r.method(), url: r.url(), body: r.postDataJSON() });
+    const body = r.postDataJSON(); return route.fulfill({ json: { deleted: r.url().split("/").pop(), operationId: body?.operation_id } });
   });
   return calls;
 }
@@ -40,6 +40,7 @@ test("logging shows an Undo toast that deletes the new entry", async () => {
   await page.click("#toastAction");
   await page.waitForTimeout(200);
   assert.ok(calls.some((c) => c.m === "DELETE" && c.url.endsWith("/new99")), "Undo should DELETE the new id");
+  assert.equal(calls.find((c) => c.m === "DELETE").body.sync_token, "0");
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -47,7 +48,7 @@ test("logging shows an Undo toast that deletes the new entry", async () => {
 test("deleting shows an Undo toast that re-creates the entry", async () => {
   const entries = [{ id: "E1", date: today(), hours: 3, minutes: 0, employee: "Murat Baykal",
     employeeId: "55", nameOf: "Employee", itemId: "5", service: "PR", customer: "Acme",
-    customerId: "10", billable: true, billableStatus: "Billable", hourlyRate: 250 }];
+    customerId: "10", billable: true, billableStatus: "Billable", hourlyRate: 250, syncToken: "7" }];
   const { ctx, page, errors } = await openApp(browser, base(entries));
   const calls = await recordMutations(page);
   await page.waitForSelector("#entries .entry");

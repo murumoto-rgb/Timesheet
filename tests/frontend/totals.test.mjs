@@ -35,7 +35,7 @@ test("Report drill: tap a project → per-person leaderboard → back", async ()
   assert.equal(await page.isVisible("#repMain"), false, "normal report body is hidden while drilled");
   assert.equal(await page.isVisible("#repDrill"), true);
   const drillText = await page.textContent("#repDrill");
-  assert.match(drillText, /Acme/);
+  assert.match(await page.textContent("#projectContext"), /Acme/);
   assert.match(drillText, /Murat Baykal/);
   // back → the report overview is shown again with the breakdown intact
   await page.click("#repDrillBack");

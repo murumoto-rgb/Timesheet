@@ -9,21 +9,23 @@ The user picks a project (or client), an employee, and a service item, enters a
 duration, and submits — the app creates a QBO `TimeActivity`. Built to replace
 manual timesheet entry for a solo consulting practice.
 
-Stack: **FastAPI** (Python) backend + a **single static `index.html`** frontend
+Stack: **FastAPI** (Python) backend + a **static `index.html`** frontend
 (no build step). Requests via `requests`. Tokens persisted to a local JSON file.
 
 ## Files
 
 - `main.py` — FastAPI app: OAuth, read endpoints, and the create endpoint.
-- `index.html` — the entire frontend (form + vanilla JS), served by FastAPI at `/`.
+- `index.html` — form, reports and vanilla JS, served by FastAPI at `/`.
+- `static/workspace.js` / `workspace.css` — browser workspace tools and responsive layout.
+- `write_journal.py` / `time_reconciliation.py` — durable save protocol and read-only checks.
 - `.env` — secrets (gitignored). Template in `.env.example`.
 - `qbo_tokens.json` — created at runtime after connecting (gitignored).
 
 ## Run
 
 ```bash
-pip install -r requirements.txt
-uvicorn main:app --reload      # http://localhost:8000
+pip install -r requirements.txt -c requirements.lock
+uvicorn main:app --workers 1   # http://localhost:8000
 ```
 
 Open `/`, click Connect QuickBooks, authorize. Start in the **sandbox**
@@ -123,7 +125,7 @@ Field rules that trip people up:
 - Token persistence is isolated to `_load_tokens` / `_save_tokens` in `main.py`:
   local JSON file by default, Supabase table (`qbo_tokens`) when
   `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` are set (diskless Render free tier).
-- Surface QBO fault responses verbatim (they contain the real validation error).
+- Surface useful QBO validation messages and support IDs without exposing tokens.
 - Never commit `.env` or `qbo_tokens.json`.
 - **Build number**: `#buildInfo` in `index.html`'s footer shows `build
   YYYY.MM.DD.N` (single source of truth — one string in the HTML). BUMP it
@@ -134,8 +136,16 @@ Field rules that trip people up:
 ## Built so far (beyond the original scaffold)
 
 - Recent-entries list (`GET /api/timeactivities?days=N` or `?start=&end=`)
-  with delete (`DELETE /api/timeactivity/{id}` — reads the entity for its
-  `SyncToken`, then posts `?operation=delete`).
+  with delete (`DELETE /api/timeactivity/{id}` requires the displayed
+  `sync_token`, `company_key` and `operation_id`; checks the current entity
+  before posting `?operation=delete`). Never replace a supplied stale version
+  with a newer one to force a write through.
+- **Durable saves:** all POST/PUT/DELETE time operations require the browser's
+  company key and a UUID. Keep the original UUID, payload and version on retries.
+  The unpruned journal reserves uncertain creates and binds receipts to company,
+  API environment and payload. Local transactions use flock; Supabase uses
+  checked revision CAS. Billed entries remain immutable. Deployment remains one
+  instance/worker because legacy token/audit/push state has a narrower contract.
 - **Audit trail**: every create/update/delete appends an event to an
   append-only store (`_load_audit`/`_save_audit`, blob id=3 — local
   `qbo_audit.json` or Supabase, capped to `AUDIT_MAX`=2000). Each record has
@@ -203,9 +213,9 @@ Field rules that trip people up:
   invoiced). This app only ever writes `Billable`/`NotBillable`.
 - **Repeat entry**: ⟳ on every entry row copies it into the form as a new
   entry dated today.
-- **Duration rounding**: durations round to the NEAREST 30 min (half hour)
-  at save, floored so a logged entry never rounds to 0 (`ROUND_MINUTES` in
-  `index.html`; the success message notes the rounding).
+- **Exact duration**: the approved audit corrections removed half-hour rounding.
+  Preserve exact whole minutes, including notes-only edits of existing 15-minute
+  entries. Decimal input is converted to the nearest minute, never a half hour.
 - **Billable by default** for all new entries (boot, post-submit reset,
   cancel-edit).
 - **Blank project by default**: the form boots with no project selected

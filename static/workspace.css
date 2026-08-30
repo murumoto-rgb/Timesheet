@@ -1,0 +1,88 @@
+.ie-btn, .project-jumps button { border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--ink); padding: 9px 12px; min-height: 42px; font: inherit; font-size: 14px; cursor: pointer; }
+[hidden] { display: none !important; }
+.head-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+#workspaceMenuButton { margin-top: 6px; }
+.workspace-menu { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.workspace-menu a { padding: 10px; color: var(--accent); }
+.workspace-menu > div { flex: 1 0 100%; }
+#serviceCategories .optck { display: flex; padding: 10px 0; white-space: normal; }
+.timer-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.duration-help, #draftStatus, #recentFreshness { margin-top: 8px; }
+#timerReadout { font: 13px var(--mono); color: var(--accent); }
+.scope-controls { margin-bottom: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.scope-controls summary { cursor: pointer; min-height: 32px; color: var(--ink); font-size: 14px; font-weight: 600; }
+.scope-controls:not([open]) summary { min-height: 24px; }
+.scope-controls .seg { margin: 8px 0; }
+#customRange { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+#customRange input { min-width: 0; }
+#projectContext { margin-bottom: 14px; }
+#projectContext h2 { font: 650 24px/1.2 var(--sans); color: var(--ink); text-transform: none; letter-spacing: -.02em; margin-bottom: 8px; overflow-wrap: anywhere; }
+.project-jumps { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+.project-jumps button { flex: 1 1 auto; padding: 8px; }
+#projectSummary, #projectNotes, #projectPlanning { scroll-margin-top: 20px; outline-offset: 4px; }
+.project-kpi .label { font-size: 12px; }
+.project-note { font-size: 13px; line-height: 1.55; }
+.project-entry { overflow-wrap: anywhere; }
+.billing-row { display: flex; flex-direction: column; gap: 3px; padding: 12px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.billing-row span { font-size: 13px; color: var(--muted); }
+.billing-row button { align-self: flex-start; }
+#projectBillingResults h3, #reconcileResults h3 { margin: 20px 0 8px; font-size: 16px; }
+.export-tools button { margin: 4px 6px 0 0; }
+.good-text { color: var(--good); }
+#reconcileResults { margin-top: 18px; overflow-wrap: anywhere; }
+#writeWarning { margin: 10px 0 16px; }
+#wgGaps { background: none; border: 1px solid #d9a441; border-radius: 8px; padding: 10px; text-align: left; min-height: 44px; width: 100%; font: inherit; }
+.wg-head button { font: inherit; color: inherit; background: none; border: none; }
+.entry.ie input { min-height: 44px; }
+.entry .del { min-height: 44px; min-width: 34px; }
+.entry .rep { margin-right: -8px; }
+.filter-row, .row { min-width: 0; }
+.row > *, .filter-row > * { min-width: 0; }
+.optck { white-space: normal; }
+.opts { align-items: flex-start; flex-wrap: wrap; }
+.modeseg button { min-height: 36px; }
+.sortbtn { min-height: 34px; }
+#confirmText { white-space: pre-wrap; max-height: 50vh; overflow-y: auto; }
+#pickerClose { flex-shrink: 0; }
+#projectPrintReport { display: none; }
+@media (min-width: 880px) {
+  body[data-view="report"], body[data-view="projects"], body[data-view="dash"], body[data-view="reconcile"], body[data-view="week"] { max-width: 1120px; padding-left: 28px; padding-right: 28px; }
+  #repDrill, #repMain, #dashBody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+  #repDrill:not([style*="none"]) { display: grid !important; }
+  #repDrill > .card, #repMain > .card, #dashBody > .card { min-width: 0; }
+  #projectSummary, #projectNotes, #repMain > :not(.card), #repMain > .card:first-of-type, #repMain > .card:last-of-type, #dashMoney, #dashMargin, #dashPractice, #dashConc { grid-column: 1 / -1; }
+  #projectSummary .project-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #projectList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+  .project-jumps { max-width: 520px; }
+  #reportScope { max-width: 100%; }
+  .scope-controls .seg { max-width: 540px; }
+  #customRange { max-width: 540px; }
+  .tabbar { left: 50%; right: auto; transform: translateX(-50%); width: 100%; max-width: 760px; border-radius: 14px 14px 0 0; }
+  #reportScope[open] { display: grid; grid-template-columns: 1.1fr 1fr; column-gap: 24px; align-items: center; }
+  #reportScope summary { grid-column: 1 / -1; }
+  #reportScope #customRange { margin-top: 0 !important; }
+  #reportScope #projectDatePresets { margin-top: 0; }
+  #reconcileView { max-width: 920px; margin-left: auto; margin-right: auto; }
+}
+@media (max-width: 390px) {
+  body { padding-left: 10px; padding-right: 10px; }
+  .card { padding: 14px; }
+  .head { gap: 8px; }
+  .company-name { max-width: 180px; }
+  .seg { gap: 4px; }
+  .seg button { padding: 10px 5px; font-size: 13px; }
+  .project-kpi .value { font-size: 24px; }
+  .entry { gap: 7px; }
+  .entry .del { min-width: 26px; padding: 7px; }
+}
+@media print {
+  html { color-scheme: light; }
+  body { background: white; color: #111; max-width: none; padding: 0; margin: 12mm; }
+  body > * { display: none !important; }
+  body > #projectPrintReport { display: block !important; font: 11pt/1.4 system-ui, sans-serif; }
+  #projectPrintReport h1 { font-size: 22pt; }
+  #projectPrintReport table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  #projectPrintReport th, #projectPrintReport td { text-align: left; padding: 8px 5px; border-bottom: 1px solid #aaa; vertical-align: top; overflow-wrap: anywhere; }
+  #projectPrintReport tr { break-inside: avoid; }
+  #projectPrintReport thead { display: table-header-group; }
+}
