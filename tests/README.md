@@ -42,7 +42,12 @@ refactor of the JS — which is exactly why they exist. Coverage:
 - **Week grid** — billed time amber, unbilled blue
 - **Billed lock** — badge + no delete on billed rows; tapping one opens a
   locked, read-only form; Close unlocks it
-- Every test also asserts **no page/console errors**.
+- Page and console errors, alongside the rendered behavior.
+
+Project deep-dive regressions in `project_deep_dive.test.mjs` additionally cover
+directory search and pins, separate same-name IDs, exact time/value totals,
+explicit zero versus unknown rates, mileage exclusion, read-only entry filters,
+bookmarked dates and browser history, failed-load retry, and late-response races.
 
 ```bash
 tests/frontend/run.sh

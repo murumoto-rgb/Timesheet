@@ -8,6 +8,34 @@ delete) and a this-week total per client.
 On a phone, open the app in the browser and use **Add to Home Screen** — it
 installs as a standalone app with its own icon.
 
+## Project deep dives
+
+Tap **Projects** in the bottom bar, search for a project or client, and tap its
+name. Use the **star** to pin frequently used projects; **Pinned only** gives
+you a short list of favorites.
+
+Each deep dive opens year to date and includes:
+
+- Total, billable, to-invoice, and billed time, plus recorded time value.
+- People, services, activity trends, and an expandable people-by-period grid.
+- Read-only entries and notes, with search and billing/missing-data filters.
+- Day, week, month, quarter, custom dates, and quick ranges up to **Last 5 years**.
+
+Use **Copy link** to bookmark the project and its selected dates. The link still
+requires the app's normal sign-in. You can also open the same deep dive from a
+Report project row or a Dashboard concentration row in **Project** mode.
+
+Figures include only time tagged to the selected QuickBooks project/client ID;
+child projects are separate. Projects with the same name stay separate, and the
+directory shows the parent client where available. Historical projects appear
+when their time is found in loaded reports.
+
+Dollar values use each time entry's recorded rate, with cents preserved. Missing
+rates are flagged as unknown; an explicitly recorded zero rate remains zero.
+These figures are not invoice totals, cash receipts, or profit. The mileage and
+expense filter applies to every deep-dive total and entry. Browsing a deep dive
+does not create, edit, delete, or mark any QuickBooks entry as billed.
+
 ## 1. Create the app in Intuit's portal (one-time, manual)
 
 1. Go to **developer.intuit.com** → sign in → **Create an app** → choose

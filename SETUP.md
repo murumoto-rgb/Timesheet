@@ -61,8 +61,7 @@ Then get the code. Two options:
 **Option 1 — Download ZIP (no git needed)**
 
 1. Open the repository on GitHub: `https://github.com/murumoto-rgb/Timesheet`
-2. Click the **branch dropdown** (says `main`) and pick
-   `claude/qbo-time-tracking-app-oyrx9x` (or `main` once it's merged).
+2. Make sure the **branch dropdown** says `main`.
 3. Click the green **Code** button → **Download ZIP**.
 4. Unzip it somewhere easy, e.g. your Desktop. You'll get a `Timesheet` folder.
 5. Open a terminal **in that folder**:
@@ -74,7 +73,7 @@ Then get the code. Two options:
 **Option 2 — git clone**
 
 ```bash
-git clone -b claude/qbo-time-tracking-app-oyrx9x https://github.com/murumoto-rgb/Timesheet.git
+git clone -b main https://github.com/murumoto-rgb/Timesheet.git
 cd Timesheet
 ```
 

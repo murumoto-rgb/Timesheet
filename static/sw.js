@@ -2,7 +2,7 @@
 // shows the daily reminder, and focuses the app on tap.
 // Bump SW_VERSION on each deploy so this worker re-activates and purges any
 // stale app-shell cache left by an earlier build.
-const SW_VERSION = "2026.07.13.1";
+const SW_VERSION = "2026.08.30.1";
 
 self.addEventListener("install", () => self.skipWaiting());
 

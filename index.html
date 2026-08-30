@@ -366,7 +366,7 @@
   }
   .tabbar button.on { color: var(--accent); }
   .tabbar svg { width: 22px; height: 22px; }
-  #app, #connect, #setup, #reportView, #weekView, #dashView { display: none; }
+  #app, #connect, #setup, #reportView, #weekView, #dashView, #projectsView { display: none; }
 
   /* ── Dashboard tab (invoiced trend + trailing average + table) ────── */
   .dash-hero { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-bottom: 6px; }
@@ -435,8 +435,8 @@
   .owe-row .bar > i { display: block; height: 100%; border-radius: 3px; min-width: 2px; background: var(--series-1); }
 
   /* ── People tab (leaderboard + expandable pivot grid) ─────────────── */
-  .tot-hdr { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
-  .tot-hdr .big { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+  .tot-hdr { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 12px; }
+  .tot-hdr .big { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
   .tot-hdr .big .u { font-size: 15px; color: var(--muted); font-weight: 500; }
   .tot-hdr .cap { color: var(--muted); font-size: 13px; }
   .rank { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
@@ -460,7 +460,61 @@
   .sortseg { display: inline-flex; flex-shrink: 0; background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
   .sortbtn { border: none; background: none; color: var(--muted); font-family: var(--sans); font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
   .sortbtn.on { background: var(--accent); color: #06121f; font-weight: 650; }
-  /* project totals list (Totals landing) */
+  /* Project directory and deep dives share the Report's range and value controls. */
+  .project-intro { margin: 6px 0 16px; color: var(--muted); font-size: 14px; }
+  .project-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .project-tools button { min-height: 42px; }
+  .project-tools .ie-btn { border: 1px solid var(--line); border-radius: 9px; background: var(--field);
+    color: var(--ink); font: 500 13px var(--sans); padding: 9px 12px; cursor: pointer; }
+  .project-tools .ie-btn[aria-pressed=true] { color: var(--accent); border-color: var(--accent); }
+  .project-directory-row { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
+  .project-open { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink);
+    text-align: left; font: inherit; padding: 16px 0; cursor: pointer; }
+  .project-open strong { display: block; font-size: 15px; overflow-wrap: anywhere; }
+  .project-open .sub { display: block; margin-top: 4px; }
+  .project-pin { width: 44px; min-height: 44px; flex-shrink: 0; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--field); color: var(--muted); font-size: 21px; cursor: pointer; }
+  .project-pin[aria-pressed=true] { color: var(--accent); border-color: var(--accent); }
+  #projectTitle { font: 650 21px/1.3 var(--sans); color: var(--ink); text-transform: none;
+    letter-spacing: -0.02em; overflow-wrap: anywhere; margin: 6px 0; }
+  .project-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+  .project-kpi { background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; }
+  .project-kpi .value { display: block; font: 600 23px/1.35 var(--mono); overflow-wrap: anywhere; }
+  .project-kpi .label { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .project-kpi.good .value { color: var(--good); }
+  .project-kpi.accent .value { color: var(--accent); }
+  .project-kpi.billed .value { color: #e0a458; }
+  .project-value-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .project-value-row strong { text-align: right; font-family: var(--mono); }
+  .project-note { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 12px 0 0; }
+  .project-alert { padding: 12px; border: 1px solid #735d39; background: #e0a4580d;
+    border-radius: 10px; color: #eac488; font-size: 13px; margin: 12px 0; }
+  .project-entry { padding: 14px 0; border-top: 1px solid var(--line); }
+  .project-entry-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+  .project-entry-head strong { font-family: var(--mono); white-space: nowrap; }
+  .project-entry p { margin: 8px 0 0; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .project-entry .sub { font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }
+  .project-trend { display: flex; align-items: flex-end; gap: 6px; height: 124px; margin-top: 16px; }
+  .project-trend-col { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
+  .project-trend-col i { display: block; min-height: 2px; background: var(--accent); border-radius: 4px 4px 0 0; }
+  .project-trend-col span { font: 10px var(--mono); color: var(--muted); text-align: center; height: 22px; padding-top: 6px; overflow: hidden; }
+  .project-entry-controls { display: grid; gap: 10px; margin: 14px 0; }
+  #projectEntryCount, #projectCount { color: var(--muted); font-size: 12px; }
+  #projectPeriod { text-align: center; font-size: 13px; padding: 0 8px; }
+  #projectLinkBox { margin-top: 10px; }
+  #seg button { min-width: 0; padding: 10px 4px; }
+  #customRange { gap: 8px; }
+  #customRange input { flex: 1; min-width: 0; width: 0; }
+  .project-concentration { display: block; text-decoration: none; color: inherit; border-radius: 8px; }
+  .project-concentration:active { background: var(--field); }
+  @media (max-width: 380px) {
+    #seg { gap: 4px; }
+    #seg button { font-size: 12px; }
+    .opts { flex-wrap: wrap; }
+    .project-kpi .value { font-size: 20px; }
+  }
+  /* Legacy shared totals styles. */
   .tot-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; cursor: pointer; }
   .tot-row:not(:last-child) { border-bottom: 1px solid var(--grid); }
   .tot-row .info { flex: 1; min-width: 0; }
@@ -691,6 +745,21 @@
     </div>
   </div>
 
+  <div id="projectsView">
+    <div class="card">
+      <h2>Project deep dives</h2>
+      <p class="project-intro">A clear view of the time, people and work behind each project. Pin the ones you return to.</p>
+      <label for="projectSearch">Find a project or client</label>
+      <input type="search" id="projectSearch" placeholder="Search project or client name…" autocomplete="off">
+      <div class="project-tools">
+        <button type="button" class="ie-btn" id="projectPinnedOnly" aria-pressed="false">Pinned only</button>
+        <span id="projectCount" role="status"></span>
+      </div>
+      <div id="projectList"></div>
+      <p class="project-note">Lists your current QuickBooks projects and clients, plus historical projects found in loaded reports. Each opens with year-to-date time; choose another period inside.</p>
+    </div>
+  </div>
+
   <div id="reportView">
     <div class="seg" id="seg">
       <button data-unit="day">Day</button>
@@ -816,7 +885,7 @@
     <a href="#" id="logoutLink" style="display:none">Sign out</a><span id="logoutSep" style="display:none"> ·</span>
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.07.13.3</div>
+  <div class="foot build" id="buildInfo">build 2026.08.30.1</div>
 </div>
 
 <div class="picker" id="picker" hidden>
@@ -863,6 +932,10 @@
   <button data-view="report" aria-label="Reports">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>
     Report
+  </button>
+  <button data-view="projects" aria-label="Project deep dives">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M7 16v-3m5 3V9m5 7v-5" stroke-linecap="round"/></svg>
+    Projects
   </button>
   <button data-view="dash" aria-label="Dashboard">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/><rect x="3" y="14" width="8" height="7" rx="1.5"/></svg>
@@ -1119,6 +1192,7 @@ async function loadFrequents() {
         (a[1].last < b[1].last ? 1 : -1))
       .map(([id]) => id);
     renderRecentChips();
+    if ($("projectsView").style.display === "block") renderProjectDirectory();
   } catch { /* frequents are a nicety — ignore failures */ }
 }
 
@@ -1923,8 +1997,131 @@ const rep = { unit: "week", anchor: new Date(), person: "",   // person "" = All
   cStart: "", cEnd: "",                                       // custom range (#11), ymd strings
   compare: "year",                                            // #12: "year" | "prev" | "off"
   allTime: false,                                             // #7: search across all history
-  projectId: null, projectName: "", drillExpanded: false };   // per-project drill-down (was the Totals tab)
+  projectId: null, projectName: "", drillExpanded: false,
+  drillSource: "report", drillQuery: "", drillFilter: "all", drillLimit: 30 };
 const bulkSel = new Set();   // ids selected for a bulk action
+
+// Keep project identity separate from its display name: names are not unique in QBO.
+const projectIdOf = (e) => String(e.projectId || e.customerId || "");
+const projectHistory = new Map();
+let projectPinnedOnly = false;
+function projectPins() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("project-pins") || "[]");
+    return new Set(Array.isArray(saved) ? saved.filter((id) => typeof id === "string") : []);
+  } catch (_) { return new Set(); }
+}
+function rememberProjectHistory(entries) {
+  entries.forEach((e) => {
+    const id = projectIdOf(e);
+    if (id && e.customer) projectHistory.set(id, e.customer);
+  });
+}
+function projectCatalog() {
+  const found = new Map();
+  pickerItems.projects.forEach((p) => found.set(String(p.id), { ...p, id: String(p.id), kind: "Project" }));
+  pickerItems.clients.forEach((p) => found.set(String(p.id), { ...p, id: String(p.id), kind: "Client / job" }));
+  [...recentNames, ...projectHistory].forEach(([id, name]) => {
+    if (id && !found.has(String(id))) found.set(String(id), { id: String(id), name, kind: "Historical reference" });
+  });
+  return [...found.values()];
+}
+function projectNameFor(id) {
+  return projectCatalog().find((p) => p.id === String(id))?.name || "Project " + id;
+}
+function toggleProjectPin(id) {
+  const pins = projectPins();
+  pins.has(id) ? pins.delete(id) : pins.add(id);
+  try { localStorage.setItem("project-pins", JSON.stringify([...pins])); }
+  catch (_) { showToast("This browser could not save your pinned projects.", "", null); }
+  if ($("projectsView").style.display === "block") renderProjectDirectory();
+  syncProjectPin();
+}
+function syncProjectPin() {
+  const btn = $("projectPin");
+  if (!btn) return;
+  const pinned = projectPins().has(rep.projectId);
+  btn.textContent = pinned ? "★ Pinned" : "☆ Pin project";
+  btn.setAttribute("aria-pressed", String(pinned));
+}
+function renderProjectDirectory() {
+  const pins = projectPins(), q = $("projectSearch").value.trim().toLowerCase();
+  const recent = new Set(recentIds.map(String));
+  const rows = projectCatalog().filter((p) => (!projectPinnedOnly || pins.has(p.id))
+    && [p.name, custName.get(p.parentId) || ""].join(" ").toLowerCase().includes(q));
+  rows.sort((a, b) => Number(pins.has(b.id)) - Number(pins.has(a.id))
+    || Number(recent.has(b.id)) - Number(recent.has(a.id)) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  $("projectCount").textContent = rows.length + (rows.length === 1 ? " project / client" : " projects / clients");
+  $("projectPinnedOnly").setAttribute("aria-pressed", String(projectPinnedOnly));
+  $("projectPinnedOnly").classList.toggle("on", projectPinnedOnly);
+  const list = $("projectList");
+  list.innerHTML = "";
+  rows.forEach((p) => {
+    const row = document.createElement("div"); row.className = "project-directory-row";
+    const open = document.createElement("button"); open.type = "button"; open.className = "project-open";
+    open.dataset.projectId = p.id;
+    const parent = custName.get(p.parentId);
+    open.innerHTML = `<strong>${escapeHtml(p.name)}</strong><span class="sub">${escapeHtml(p.kind)}${parent ? " · " + escapeHtml(parent) : ""}${recent.has(p.id) ? " · Recent" : ""} · Open deep dive ›</span>`;
+    open.onclick = () => openProjectDeepDive(p.id, p.name);
+    const pin = document.createElement("button"); pin.type = "button"; pin.className = "project-pin";
+    pin.dataset.projectId = p.id; pin.textContent = pins.has(p.id) ? "★" : "☆";
+    pin.setAttribute("aria-pressed", String(pins.has(p.id)));
+    pin.setAttribute("aria-label", (pins.has(p.id) ? "Unpin " : "Pin ") + p.name);
+    pin.onclick = () => {
+      toggleProjectPin(p.id);
+      [...list.querySelectorAll(".project-pin")].find((b) => b.dataset.projectId === p.id)?.focus();
+    };
+    row.append(open, pin); list.appendChild(row);
+  });
+  if (!rows.length) list.innerHTML = '<div class="empty">' + (q ? "No matching projects or clients. Try another name."
+    : projectPinnedOnly ? "No pinned projects yet. Turn off Pinned only and tap a star to save one here."
+    : "No projects or clients are available in QuickBooks yet.") + '</div>';
+}
+function resetProjectEntryFilters() {
+  rep.drillQuery = ""; rep.drillFilter = "all"; rep.drillLimit = 30;
+}
+function setProjectDates(start, end) {
+  rep.allTime = false; rep.unit = "custom"; rep.cStart = ymd(start); rep.cEnd = ymd(end);
+  syncSeg(); syncCustomInputs();
+  $("repAllTime").checked = false;
+}
+function openProjectDeepDive(id, name, options = {}) {
+  rep.projectId = String(id); rep.projectName = name || projectNameFor(id);
+  rep.drillSource = options.source || "projects"; rep.drillExpanded = false;
+  resetProjectEntryFilters();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  setProjectDates(options.start || new Date(today.getFullYear(), 0, 1), options.end || today);
+  showView("report", { keepDrill: true, route: options.route !== false });
+}
+function projectLocationHash() {
+  const win = drillWindow();
+  return "#" + new URLSearchParams({ project: rep.projectId, start: ymd(win.start), end: ymd(win.end) }).toString();
+}
+function setViewLocation(hash, push = false) {
+  if (location.hash === hash) return;
+  history[push ? "pushState" : "replaceState"](null, "", location.pathname + location.search + hash);
+}
+function restoreProjectLocation() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  const id = params.get("project");
+  if (!id) {
+    const view = location.hash.slice(1);
+    showView(["projects", "report", "week", "dash"].includes(view) ? view : "log", { route: false });
+    return;
+  }
+  const validDate = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return null;
+    const d = new Date(value + "T00:00");
+    return Number.isFinite(d.getTime()) && ymd(d) === value ? d : null;
+  };
+  const start = validDate(params.get("start")), end = validDate(params.get("end"));
+  if (id.length > 160 || /[\x00-\x1f]/.test(id) || ((params.has("start") || params.has("end")) && (!start || !end || start > end))) {
+    showView("projects", { route: false });
+    showToast("This project link has an invalid date range. Open the project below instead.", "", null);
+    return;
+  }
+  openProjectDeepDive(id, projectNameFor(id), { start, end, route: false });
+}
 
 // People-filter chips for the report (employees + vendors with time in the
 // period). Same pattern as the week grid; only shown when >1 person.
@@ -2033,8 +2230,8 @@ function compareWord() {
   return "previous " + u;
 }
 
-async function fetchRange(start, end) {
-  const res = await fetch(`/api/timeactivities?start=${ymd(start)}&end=${ymd(end)}`);
+async function fetchRange(start, end, signal) {
+  const res = await fetch(`/api/timeactivities?start=${ymd(start)}&end=${ymd(end)}`, { signal });
   if (!res.ok) throw await apiError(res, "Time entries could not be loaded.");
   return res.json();
 }
@@ -2123,15 +2320,141 @@ function totSparkline(vals, color) {
 // Open the drill-down for one project (from a Report breakdown row). No refetch:
 // the Report already loaded this period's entries, so just flip state + re-render.
 function openProjectDrill(projectId, projectName) {
-  rep.projectId = projectId;
+  rep.projectId = String(projectId);
   rep.projectName = projectName;
   rep.drillExpanded = false;
+  rep.drillSource = "report";
+  resetProjectEntryFilters();
+  setViewLocation(projectLocationHash(), true);
   window.scrollTo({ top: 0 });
   renderReportView();
 }
 function closeProjectDrill() {
+  const source = rep.drillSource;
   rep.projectId = null; rep.projectName = ""; rep.drillExpanded = false;
-  renderReportView();
+  showView(source === "projects" ? "projects" : source === "dash" ? "dash" : "report");
+}
+
+const projectHasRate = (e) => e.hourlyRate != null && e.hourlyRate !== ""
+  && Number.isFinite(Number(e.hourlyRate)) && Number(e.hourlyRate) >= 0;
+const projectMoney = (amount) => amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
+function projectMetrics(entries) {
+  const sumMinutes = (rows) => rows.reduce((s, e) => s + mins(e), 0);
+  const billable = entries.filter((e) => e.billable);
+  const unbilled = entries.filter((e) => e.billableStatus === "Billable");
+  const billed = entries.filter((e) => e.billableStatus === "HasBeenBilled");
+  const value = (rows) => {
+    const known = rows.filter(projectHasRate);
+    return { amount: known.reduce((s, e) => s + dollarsOf(e), 0), missing: rows.length - known.length, known: known.length };
+  };
+  return { total: sumMinutes(entries), billable: sumMinutes(billable), unbilled: sumMinutes(unbilled),
+    billed: sumMinutes(billed), value: value(billable), unbilledValue: value(unbilled), billedValue: value(billed),
+    missingRates: billable.filter((e) => !projectHasRate(e)), missingNotes: entries.filter((e) => !(e.description || "").trim()) };
+}
+function projectBackHtml() {
+  return '<button type="button" class="tot-back" id="repDrillBack">‹ Back to '
+    + (rep.drillSource === "projects" ? "projects" : rep.drillSource === "dash" ? "dashboard" : "report") + '</button>';
+}
+function projectSummaryHtml(entries, win) {
+  const m = projectMetrics(entries);
+  const kpi = (value, label, cls = "") => `<div class="project-kpi ${cls}"><span class="value">${fmtMins(value)}</span><span class="label">${label}</span></div>`;
+  const money = (v) => v.missing && !v.known ? "Unknown" : projectMoney(v.amount) + (v.missing ? " + unknown" : "");
+  const dates = entries.map((e) => e.date).filter(Boolean).sort();
+  const knownMins = m.billable - m.missingRates.reduce((s, e) => s + mins(e), 0);
+  const coverage = m.billable ? Math.round(100 * knownMins / m.billable) + "% of billable time has a recorded rate. " : "";
+  const expenseCount = repFetched.filter((e) => projectIdOf(e) === rep.projectId && isExpense(e)).length;
+  return '<div class="card" id="projectSummary">'
+    + '<h2>Project deep dive</h2><h3 id="projectTitle">' + escapeHtml(rep.projectName) + '</h3>'
+    + `<p class="project-note">${escapeHtml(ymd(win.start))} – ${escapeHtml(ymd(win.end))} · This project / client only; child projects are separate.</p>`
+    + '<div class="project-tools"><button class="ie-btn" type="button" id="projectPin" aria-pressed="false">☆ Pin project</button>'
+    + '<button class="ie-btn" type="button" id="projectCopyLink">Copy link</button></div>'
+    + '<input id="projectLinkBox" aria-label="Project link to copy" readonly style="display:none">'
+    + '<div class="nav"><button type="button" id="projectPrev" aria-label="Previous project period">‹</button>'
+    + `<span class="label" id="projectPeriod">${escapeHtml(win.title)}</span>`
+    + '<button type="button" id="projectNext" aria-label="Next project period">›</button></div>'
+    + '<div class="project-tools"><button type="button" class="ie-btn" id="projectRangeYear">Year to date</button>'
+    + '<button type="button" class="ie-btn" id="projectRangeTwelveMonths">Last 12 months</button>'
+    + '<button type="button" class="ie-btn" id="projectRangeFiveYears">Last 5 years</button></div>'
+    + '<div class="project-kpis">' + kpi(m.total, "Total time") + kpi(m.billable, "Billable time", "good")
+    + kpi(m.unbilled, "To-invoice time", "accent") + kpi(m.billed, "Billed time", "billed") + '</div>'
+    + `<div class="project-value-row"><span>Recorded billable time value</span><strong>${money(m.value)}</strong></div>`
+    + `<div class="project-value-row"><span>To-invoice time value</span><strong>${money(m.unbilledValue)}</strong></div>`
+    + `<div class="project-value-row"><span>Billed time value</span><strong>${money(m.billedValue)}</strong></div>`
+    + `<p class="project-note">${fmtMins(m.total - m.billable)} non-billable · ${entries.length} ${entries.length === 1 ? "entry" : "entries"}`
+    + (dates.length ? ` · ${new Set(dates).size} active days<br>First / latest activity in this range: ${escapeHtml(dates[0])} / ${escapeHtml(dates[dates.length - 1])}` : "") + '</p>'
+    + (m.missingRates.length ? `<div class="project-alert" role="status">Missing rates: ${m.missingRates.length} billable ${m.missingRates.length === 1 ? "entry" : "entries"}. `
+      + `${coverage}Dollar totals include only recorded rates; the unknown amount is not treated as zero.</div>` : "")
+    + (m.missingNotes.length ? `<p class="project-note">${m.missingNotes.length} ${m.missingNotes.length === 1 ? "entry has" : "entries have"} no notes. Use “Missing notes” below to review.</p>` : "")
+    + '<p class="project-note">Time values = recorded hours × each entry’s QuickBooks rate. These are not invoice totals, cash received or profit. “Billed” follows QuickBooks time status. Reading this view never changes your books.</p>'
+    + (expenseCount ? `<p class="project-note" id="projectExpenseNote">${expenseCount} mileage/expense ${expenseCount === 1 ? "entry" : "entries"} ${opts.hideExpenses ? "hidden from every figure and entry below" : "included; their quantities also count toward the time totals"}.</p>` : "")
+    + '</div>';
+}
+function bindProjectSummary() {
+  $("repDrillBack").onclick = closeProjectDrill;
+  $("projectPin").onclick = () => toggleProjectPin(rep.projectId);
+  syncProjectPin();
+  $("projectCopyLink").onclick = async () => {
+    const url = new URL(location.pathname, location.origin); url.hash = projectLocationHash();
+    try {
+      await navigator.clipboard.writeText(url.href);
+      showToast("Project link copied. It opens this date range after sign-in.", "", null);
+    } catch (_) {
+      const field = $("projectLinkBox"); field.value = url.href; field.style.display = "block"; field.focus(); field.select();
+      showToast("Select and copy the project link shown above.", "", null);
+    }
+  };
+  $("projectPrev").disabled = rep.allTime;
+  $("projectNext").disabled = rep.allTime || ymd(drillWindow().end) >= ymd(new Date());
+  $("projectPrev").onclick = () => shiftPeriod(-1);
+  $("projectNext").onclick = () => shiftPeriod(1);
+  const range = (kind) => {
+    const end = new Date(); end.setHours(0, 0, 0, 0);
+    const start = kind === "year" ? new Date(end.getFullYear(), 0, 1) : addDays(end, kind === "five" ? -365 * 5 : -364);
+    setProjectDates(start, end); rep.drillLimit = 30; renderReport();
+  };
+  $("projectRangeYear").onclick = () => range("year");
+  $("projectRangeTwelveMonths").onclick = () => range("twelve");
+  $("projectRangeFiveYears").onclick = () => range("five");
+}
+function projectEntryControlsHtml() {
+  return '<div class="card"><h2>Work &amp; notes</h2><p class="project-note">Read-only entries, newest first. Filters below do not change the project totals.</p>'
+    + '<div class="project-entry-controls"><input type="search" id="projectEntrySearch" aria-label="Search project entries" placeholder="Search notes, person or service…">'
+    + '<select id="projectEntryFilter" aria-label="Filter project entries"><option value="all">All entries</option><option value="unbilled">To invoice</option>'
+    + '<option value="billed">Billed</option><option value="nonbillable">Non-billable</option><option value="missingrate">Missing rate</option>'
+    + '<option value="missingnotes">Missing notes</option></select></div>'
+    + '<p id="projectEntryCount" role="status"></p><div id="projectEntries"></div>'
+    + '<button type="button" class="tot-toggle" id="projectMoreEntries" style="display:none">Show more entries</button></div>';
+}
+function renderProjectEntries(entries) {
+  const q = rep.drillQuery.trim().toLowerCase();
+  const filtered = entries.filter((e) => {
+    if (q && ![e.description, e.employee, e.service, e.date].some((s) => (s || "").toLowerCase().includes(q))) return false;
+    if (rep.drillFilter === "unbilled") return e.billableStatus === "Billable";
+    if (rep.drillFilter === "billed") return e.billableStatus === "HasBeenBilled";
+    if (rep.drillFilter === "nonbillable") return !e.billable;
+    if (rep.drillFilter === "missingrate") return e.billable && !projectHasRate(e);
+    if (rep.drillFilter === "missingnotes") return !(e.description || "").trim();
+    return true;
+  }).sort((a, b) => (b.date || "").localeCompare(a.date || "") || String(b.id).localeCompare(String(a.id)));
+  const shown = filtered.slice(0, rep.drillLimit);
+  $("projectEntryCount").textContent = `Showing ${shown.length} of ${filtered.length} matching entries · ${entries.length} in this project period`;
+  $("projectEntries").innerHTML = shown.map((e) => {
+    const billed = e.billableStatus === "HasBeenBilled";
+    const status = billed ? "🔒 Billed" : e.billable ? "To invoice" : "Non-billable";
+    const value = !e.billable ? "" : projectHasRate(e) ? " · " + projectMoney(dollarsOf(e)) + " time value" : " · Rate unknown";
+    return `<article class="project-entry" data-entry-id="${escapeHtml(e.id)}"><div class="project-entry-head"><span>${escapeHtml(e.date || "No date")}</span>`
+      + `<strong>${fmtMins(mins(e))}</strong></div><div class="sub">${escapeHtml(e.employee || "Unassigned person")} · ${escapeHtml(e.service || "No service")}</div>`
+      + `<div class="sub">${status}${escapeHtml(value)}</div><p>${escapeHtml(e.description || "No notes recorded.")}</p></article>`;
+  }).join("") || '<div class="empty">No entries match these filters in this period.</div>';
+  $("projectMoreEntries").style.display = shown.length < filtered.length ? "block" : "none";
+}
+function bindProjectEntries(entries) {
+  $("projectEntrySearch").value = rep.drillQuery;
+  $("projectEntryFilter").value = rep.drillFilter;
+  $("projectEntrySearch").oninput = () => { rep.drillQuery = $("projectEntrySearch").value; rep.drillLimit = 30; renderProjectEntries(entries); };
+  $("projectEntryFilter").onchange = () => { rep.drillFilter = $("projectEntryFilter").value; rep.drillLimit = 30; renderProjectEntries(entries); };
+  $("projectMoreEntries").onclick = () => { rep.drillLimit += 30; renderProjectEntries(entries); };
+  renderProjectEntries(entries);
 }
 
 // Drill-down: per-person breakdown for one project (leaderboard + pivot grid),
@@ -2139,7 +2462,10 @@ function closeProjectDrill() {
 // + search filters (it is itself a per-person view of the whole project).
 function renderDrill(entries) {
   const win = drillWindow();
-  const scoped = entries.filter((e) => (e.projectId || e.customerId) === rep.projectId);
+  const scoped = entries.filter((e) => projectIdOf(e) === rep.projectId);
+  const knownName = projectCatalog().find((p) => p.id === rep.projectId)?.name || scoped.find((e) => e.customer)?.customer;
+  if (knownName) rep.projectName = knownName;
+  $("title").textContent = "Project";
   const nb = win.buckets.length;
   const bucketOf = (dateStr) => {
     const d = new Date(dateStr + "T00:00");
@@ -2148,31 +2474,31 @@ function renderDrill(entries) {
   };
   const people = new Map();
   scoped.forEach((e) => {
-    if (!e.employee || !e.date) return;
+    if (!e.date) return;
     const i = bucketOf(e.date);
     if (i < 0) return;
-    const p = people.get(e.employee) || { name: e.employee, total: 0, billable: 0, buckets: new Array(nb).fill(0) };
+    const personId = e.vendorId ? "vendor:" + e.vendorId : e.employeeId ? "employee:" + e.employeeId : "name:" + (e.employee || "Unassigned person");
+    const p = people.get(personId) || { name: e.employee || "Unassigned person", total: 0, billable: 0, buckets: new Array(nb).fill(0) };
     const v = val(e);
     p.total += v; p.buckets[i] += v;
     if (e.billable) p.billable += v;
-    people.set(e.employee, p);
+    people.set(personId, p);
   });
   const rows = [...people.values()].filter((p) => p.total > 0).sort((a, b) => b.total - a.total);
   rows.forEach((p, i) => { p.color = TOT_COLORS[i % TOT_COLORS.length]; });
   const grand = rows.reduce((s, p) => s + p.total, 0);
 
-  const back = '<button class="tot-back" id="repDrillBack">‹ Back to report</button>';
+  const back = projectBackHtml() + projectSummaryHtml(scoped, win);
   if (!rows.length) {
-    $("repDrill").innerHTML = back + '<div class="card"><h2>' + escapeHtml(rep.projectName)
-      + '</h2><div class="empty">No ' + (opts.dollars ? "billable value" : "time")
-      + ' on this project in ' + escapeHtml(win.title) + '.</div></div>';
-    $("repDrillBack").onclick = closeProjectDrill;
+    $("repDrill").innerHTML = back + '<div class="card"><div class="empty">No ' + (opts.dollars ? "billable value with recorded rates" : "time")
+      + ' on this project in ' + escapeHtml(win.title) + '. Choose a wider range to look further back.</div></div>' + projectEntryControlsHtml();
+    bindProjectSummary(); bindProjectEntries(scoped);
     return;
   }
 
   // Leaderboard (summary) — ranked people with share + trend.
   const unit = opts.dollars ? "" : '<span class="u"> h</span>';
-  let html = back + '<div class="card"><h2 style="margin-bottom:12px">' + escapeHtml(rep.projectName) + '</h2>'
+  let html = back + '<div class="card"><h2 style="margin-bottom:12px">People &amp; contribution</h2>'
     + '<div class="tot-hdr">'
     + `<span class="big">${fmtVal(grand)}${unit}</span>`
     + `<span class="cap">${escapeHtml(win.title)} · ${rows.length} ${rows.length === 1 ? "person" : "people"}</span></div>`;
@@ -2192,7 +2518,7 @@ function renderDrill(entries) {
       + totSparkline(p.buckets, p.color)
       + '</div>';
   });
-  html += `<button class="tot-toggle" id="totToggle">${rep.drillExpanded ? "Hide the grid ▴" : "Show the full grid ▾"}</button></div>`;
+  html += `<button type="button" class="tot-toggle" id="totToggle" aria-expanded="${rep.drillExpanded}">${rep.drillExpanded ? "Hide the grid ▴" : "Show the full grid ▾"}</button></div>`;
 
   // Pivot grid (detail) — people × buckets, shown when expanded.
   if (rep.drillExpanded) {
@@ -2212,8 +2538,20 @@ function renderDrill(entries) {
       + `<td class="gt">${fmtVal(grand)}</td></tr></tfoot></table></div></div>`;
   }
 
+  const trend = win.buckets.map((_, i) => rows.reduce((s, p) => s + p.buckets[i], 0));
+  const peak = Math.max(1, ...trend), every = Math.max(1, Math.ceil(trend.length / 8));
+  html += '<div class="card"><h2>Activity over time</h2><p class="project-note">'
+    + (opts.dollars ? "Recorded billable time value" : "Logged time") + ' by ' + win.noun + '</p><div class="project-trend" role="list">'
+    + win.buckets.map((b, i) => {
+      const description = `${ymd(b.start)} – ${ymd(b.end)}: ${fmtVal(trend[i])}${opts.dollars ? " time value" : " hours"}`;
+      return `<div class="project-trend-col" role="listitem" aria-label="${escapeHtml(description)}" title="${escapeHtml(description)}">`
+        + `<i style="height:${Math.max(trend[i] > 0 ? 3 : 0, trend[i] / peak * 94)}px;opacity:${trend[i] ? 1 : 0.15}"></i>`
+        + `<span>${i % every === 0 || i === trend.length - 1 ? escapeHtml(b.label) : ""}</span></div>`;
+    }).join("") + '</div></div>';
+  html += '<div class="card"><h2>Services</h2><div class="proj" id="projectServices"></div></div>' + projectEntryControlsHtml();
   $("repDrill").innerHTML = html;
-  $("repDrillBack").onclick = closeProjectDrill;
+  bindProjectSummary(); bindProjectEntries(scoped);
+  renderBreakdown($("projectServices"), scoped, (e) => e.service || "No service");
   $("totToggle").onclick = () => { rep.drillExpanded = !rep.drillExpanded; renderReportView(); };
 }
 
@@ -2400,8 +2738,9 @@ function renderToInvoice(entries) {
 function renderBreakdown(box, entries, keyOf, pick) {
   const groups = new Map();
   entries.forEach((e) => {
-    const key = keyOf(e);
-    const cur = groups.get(key) || { total: 0, billable: 0, id: null };
+    const name = keyOf(e), id = pick ? pick.idOf(e) : null;
+    const key = id != null ? "id:" + id : "name:" + name;
+    const cur = groups.get(key) || { name, total: 0, billable: 0, id };
     cur.total += val(e);
     if (e.billable) cur.billable += val(e);
     if (pick && cur.id == null) cur.id = pick.idOf(e);
@@ -2414,12 +2753,16 @@ function renderBreakdown(box, entries, keyOf, pick) {
   }
   box.innerHTML = "";
   const max = rows[0][1].total;
-  rows.forEach(([name, v]) => {
+  rows.forEach(([, v]) => {
+    const name = v.name;
     const row = document.createElement("div");
     row.className = "proj-row";
     if (pick && v.id != null) {   // tap a project → its per-person drill-down
       row.classList.add("tappable");
+      row.setAttribute("role", "button"); row.tabIndex = 0;
+      row.setAttribute("aria-label", "Open project deep dive for " + name);
       row.onclick = () => pick.go(v.id, name);
+      row.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); row.click(); } };
     }
     const top = document.createElement("div");
     top.className = "proj-top";
@@ -2468,7 +2811,7 @@ function reviewFilter(entries) {
   return out;
 }
 
-let repSeq = 0, repFetched = [], repPrev = null;
+let repSeq = 0, repFetched = [], repPrev = null, repLoading = false, repLoadError = "", repController = null;
 // Fetch the period (and, for month/quarter, the prior year for the vs-last-year
 // line) once; then render. Search/filter changes call renderReportView directly
 // so typing never refetches.
@@ -2481,15 +2824,28 @@ async function renderReport() {
   $("prev").disabled = wide;
   $("next").disabled = wide || (end >= new Date(new Date().setHours(0, 0, 0, 0)) && ymd(end) >= ymd(new Date()));
   const seq = ++repSeq;
-  const cr = wide ? null : compareRange(start, end);   // #12
+  repController?.abort(); repController = new AbortController();
+  const signal = repController.signal;
+  const cr = wide || rep.projectId ? null : compareRange(start, end);
+  // Clear previous figures before changing scope. Publish results only after
+  // the request is still current, so late responses cannot replace another project.
+  repLoading = true; repLoadError = ""; repFetched = []; repPrev = null;
+  if (rep.projectId) setViewLocation(projectLocationHash());
+  renderReportView();
   try {
-    repFetched = await fetchRange(start, end);
-    repPrev = cr ? await fetchRange(cr.s, cr.e) : null;
+    const [current, previous] = await Promise.all([
+      fetchRange(start, end, signal), cr ? fetchRange(cr.s, cr.e, signal) : Promise.resolve(null),
+    ]);
+    if (seq !== repSeq) return;
+    if (!Array.isArray(current) || (previous !== null && !Array.isArray(previous))) throw new Error("QuickBooks returned unreadable time data. Please retry.");
+    repFetched = current; repPrev = previous;
+    rememberProjectHistory(current);
   } catch (e) {
-    if (seq === repSeq) $("repEntries").innerHTML = '<div class="empty">Could not load: ' + escapeHtml(e.message || "Unknown error") + "</div>";
-    return;
+    if (seq !== repSeq) return;
+    repLoadError = e.message || "Time entries could not be loaded.";
   }
   if (seq !== repSeq) return;  // a newer render superseded this one
+  repLoading = false;
   renderReportView();
 }
 
@@ -2499,6 +2855,19 @@ function renderReportView() {
   // Per-project drill-down replaces the normal report body (period seg + opts
   // stay above it so the range is still switchable). Ignores person/search filters.
   const drilling = !!rep.projectId;
+  $("repDrill").setAttribute("aria-busy", String(repLoading));
+  if (repLoading || repLoadError) {
+    $("repMain").style.display = "none";
+    $("repDrill").style.display = "block";
+    $("repDrill").innerHTML = (drilling ? projectBackHtml() : "") + '<div class="card">'
+      + (drilling ? `<h2>${escapeHtml(rep.projectName)}</h2>` : "")
+      + (repLoading ? '<div class="empty" role="status">Loading time for this period…</div>'
+        : `<p role="alert">Could not load this period: ${escapeHtml(repLoadError)}</p><button type="button" class="tot-toggle" id="projectRetry">Retry</button>`)
+      + '</div>';
+    if (drilling) $("repDrillBack").onclick = closeProjectDrill;
+    if ($("projectRetry")) $("projectRetry").onclick = renderReport;
+    return;
+  }
   $("repMain").style.display = drilling ? "none" : "";
   $("repDrill").style.display = drilling ? "block" : "none";
   if (drilling) { renderDrill(entries); return; }
@@ -2808,8 +3177,9 @@ function computeDashMetrics(entries, inWin) {
       billMin += m;
       const d = fin(dollarsOf(e));
       billValue += d;
-      const key = e.customerId || ("n:" + (e.customer || "—"));
-      const rec = byCust.get(key) || { id: e.customerId || null, name: e.customer || "—", v: 0 };
+      const id = projectIdOf(e);  // match the Report/deep-dive identity, including explicit ProjectRef
+      const key = id || ("n:" + (e.customer || "—"));
+      const rec = byCust.get(key) || { id: id || null, name: custName.get(id) || e.customer || "—", v: 0 };
       rec.v += d;
       byCust.set(key, rec);
     }
@@ -2843,7 +3213,7 @@ function computeConcentration(byCust, byMain) {
       if (root != null) { id = root; name = custName.get(root) || rec.name; }
     }
     const key = id || ("n:" + name);
-    const g = grouped.get(key) || { name, v: 0 };
+    const g = grouped.get(key) || { id, name, v: 0 };
     g.v += rec.v;
     grouped.set(key, g);
   });
@@ -2867,9 +3237,16 @@ function renderConcentrationCard(byCust) {
   const stats = mstat(Math.round(top1) + "%", `Top ${unitLbl}`, top1 >= 50 ? "bad" : "")
     + mstat(Math.round(top3) + "%", `Top 3 ${unitLbl}s`)
     + mstat(String(list.length), `${byMain ? "Clients" : "Projects"} billed`);
-  const body = rows.map((c) => oweRow(c.name, Math.round((c.v / total) * 100) + "%",
-    `<div class="sub">${fmtUSD(c.v)}</div>`, (c.v / cmax) * 100,
-    c.other ? ";background:var(--muted)" : "")).join("");
+  const body = rows.map((c) => {
+    const row = oweRow(c.name, Math.round((c.v / total) * 100) + "%",
+      `<div class="sub">${fmtUSD(c.v)}${!byMain && c.id && !c.other ? " · Open deep dive ›" : ""}</div>`, (c.v / cmax) * 100,
+      c.other ? ";background:var(--muted)" : "");
+    if (byMain || !c.id || c.other) return row;  // a client rollup is not one project's time
+    // Dashboard reads only through today, even when its last bucket ends later.
+    const win = dashWindow(), start = ymd(win.buckets[0].start), end = ymd(new Date());
+    const hash = "#" + new URLSearchParams({ project: c.id, start, end }).toString();
+    return `<a class="project-concentration" href="${escapeHtml(hash)}" data-project-id="${escapeHtml(c.id)}" data-project-name="${escapeHtml(c.name)}">${row}</a>`;
+  }).join("");
   return moneyCard("Client concentration", "share of billable value", stats, body, toggle);
 }
 
@@ -3018,6 +3395,15 @@ async function renderDash() {
   const concSeg = $("concSeg");
   if (concSeg) concSeg.querySelectorAll(".sortbtn").forEach((btn) => {
     btn.onclick = () => { dash.concBy = btn.dataset.concby; renderDash(); };
+  });
+  $("dashBody").querySelectorAll(".project-concentration").forEach((link) => {
+    link.onclick = (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      openProjectDeepDive(link.dataset.projectId, link.dataset.projectName, {
+        source: "dash", start: win.buckets[0].start, end: addDays(new Date(), 0),
+      });
+    };
   });
 
   // Money / A-R section — as-of-today (independent of the unit/metric toggles).
@@ -3199,18 +3585,30 @@ function rerenderActive() {
 
 // ── Tabs ────────────────────────────────────────────────────────────
 function showView(view, o = {}) {
+  if (view !== "report") {
+    ++repSeq; repController?.abort(); repLoading = false; repLoadError = "";
+    rep.projectId = null; rep.projectName = ""; rep.drillExpanded = false;
+    resetProjectEntryFilters();
+  }
   $("logView").style.display = view === "log" ? "block" : "none";
   $("weekView").style.display = view === "week" ? "block" : "none";
   $("reportView").style.display = view === "report" ? "block" : "none";
   $("dashView").style.display = view === "dash" ? "block" : "none";
+  $("projectsView").style.display = view === "projects" ? "block" : "none";
   $("title").textContent =
-    view === "report" ? "Report" : view === "week" ? "Week"
+    view === "report" ? (o.keepDrill ? "Project" : "Report") : view === "week" ? "Week" : view === "projects" ? "Projects"
     : view === "dash" ? "Dashboard" : "Timesheet";
-  document.querySelectorAll("#tabbar button").forEach((b) =>
-    b.classList.toggle("on", b.dataset.view === view));
+  const activeTab = view === "report" && o.keepDrill && rep.drillSource === "projects" ? "projects" : view;
+  document.querySelectorAll("#tabbar button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.view === activeTab);
+    b.setAttribute("aria-current", b.dataset.view === activeTab ? "page" : "false");
+  });
   window.scrollTo({ top: 0 });
   // Landing on Report resets any open per-project drill-down back to the overview.
-  if (view === "report") { rep.projectId = null; rep.projectName = ""; rep.drillExpanded = false; renderReport(); }
+  if (view === "report" && !o.keepDrill) { rep.projectId = null; rep.projectName = ""; rep.drillExpanded = false; }
+  if (o.route !== false) setViewLocation(view === "report" && rep.projectId ? projectLocationHash() : view === "log" ? "" : "#" + view, true);
+  if (view === "report") renderReport();
+  if (view === "projects") renderProjectDirectory();
   if (view === "week") renderWeekGrid();
   if (view === "dash") renderDash();
 }
@@ -3218,6 +3616,7 @@ function showView(view, o = {}) {
 function refreshData() {
   loadRecent();
   loadFrequents();
+  if ($("projectsView").style.display === "block") renderProjectDirectory();
   if ($("reportView").style.display === "block") renderReport();
   if ($("weekView").style.display === "block") renderWeekGrid();
   if ($("dashView").style.display === "block") renderDash();
@@ -3231,6 +3630,7 @@ async function boot() {
   document.querySelectorAll("#seg button").forEach((b) => {
     b.onclick = () => {
       rep.unit = b.dataset.unit;
+      if (rep.projectId) { rep.allTime = false; $("repAllTime").checked = false; }
       if (rep.unit === "custom") {
         if (!rep.cStart || !rep.cEnd) { rep.cEnd = ymd(new Date()); rep.cStart = ymd(addDays(new Date(), -29)); }
         syncCustomInputs();
@@ -3298,6 +3698,8 @@ async function boot() {
   document.querySelectorAll("#tabbar button").forEach((b) => {
     b.onclick = () => showView(b.dataset.view);
   });
+  $("projectSearch").oninput = renderProjectDirectory;
+  $("projectPinnedOnly").onclick = () => { projectPinnedOnly = !projectPinnedOnly; renderProjectDirectory(); };
   $("remindLink").onclick = (ev) => { ev.preventDefault(); enableReminders(); };
   if ("serviceWorker" in navigator) {
     // When a new service worker takes control (a new build shipped), reload
@@ -3412,6 +3814,8 @@ async function boot() {
 
   loadRecent();
   loadFrequents();
+  window.addEventListener("popstate", restoreProjectLocation);
+  if (location.hash) restoreProjectLocation();
 }
 
 function selectedWho() {

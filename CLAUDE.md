@@ -243,10 +243,9 @@ Field rules that trip people up:
   via the "Daily reminders" footer link; message lives in `static/sw.js`.
   Only `cryptography` was added (payloadless avoids the http-ece dep).
 
-- **Per-project drill-down** (lives INSIDE the Report tab — the standalone
-  "Totals" tab was removed once its landing screen proved to duplicate
-  Report's "By project / client" breakdown). There are now **4 bottom tabs**:
-  Log / Week / Report / Dash. **Entry point**: tap a row in Report's "By
+- **Per-project drill-down** (one shared renderer inside the Report view,
+  also reached from the Projects directory). There are **5 bottom tabs**:
+  Log / Week / Report / Projects / Dash. **Report entry point**: tap a row in Report's "By
   project / client" card (`renderBreakdown` → `openProjectDrill(id,name)`,
   which sets `rep.projectId`/`projectName`/`drillExpanded` and calls
   `renderReportView` — **no refetch**, it reuses the period's already-loaded
@@ -268,6 +267,23 @@ Field rules that trip people up:
   (`e.projectId || e.customerId` + `e.customer`) so the picked id always
   matches the tagged time. Landing on the Report tab (or `showView("report")`)
   resets the drill back to the overview. Person colors `TOT_COLORS`.
+
+- **Project deep dives**: Projects is a searchable directory of current QBO
+  projects/clients plus historical IDs found in recent time and loaded reports.
+  Parent names disambiguate rows; pins are local browser preferences. Opening
+  a directory row defaults to year to date; Report rows preserve their period,
+  and Dashboard concentration rows in Project mode preserve the shown window.
+  Client rollups are not project links. All use `renderDrill`, which adds exact
+  hours/status KPIs, recorded-rate values to cents, rate/notes warnings, service
+  mix, activity trends, and a read-only searchable/paginated notes list. Deep
+  entry filters never change the headline totals. Explicit zero rates are
+  known; missing rates are unknown, never implied zero. Parent/child projects
+  and same-name IDs remain separate; person IDs distinguish employees/vendors.
+  Copy link stores `#project=ID&start=YYYY-MM-DD&end=YYYY-MM-DD`, restored only
+  after normal auth/bootstrap. Back returns to the entry source. Report loads
+  clear old figures, abort superseded requests, and publish only current
+  results; failed loads show Retry rather than stale data. No new API or QBO
+  write behavior. See README's Project deep dives section for user guidance.
 
 - **Dollars + expense filter** (Report + Dashboard): a shared **Hours ⇄ $**
   toggle and a **Hide mileage & expenses** checkbox (`opts.dollars` /
