@@ -1,40 +1,28 @@
-# Kickoff prompt for Claude Code
+# Starting a coding task
 
-Open this folder in Claude Code and paste the prompt below as your first message.
-`CLAUDE.md` will be loaded automatically as project context — it holds all the
-verified QuickBooks Online API facts, so trust it over any assumptions.
-
----
+Use this prompt with your concrete requested change. `CLAUDE.md` imports the
+shared `AGENTS.md`; other coding agents should read `AGENTS.md` directly.
 
 ## Prompt to paste
 
-> This is a single-user app that logs time entries directly into QuickBooks
-> Online. A working scaffold already exists: `main.py` (FastAPI backend),
-> `index.html` (the whole frontend), plus `requirements.txt`, `.env.example`,
-> and `README.md`. Read `CLAUDE.md` first — it has the verified QBO API details
-> (OAuth endpoints, the exact `TimeActivity` payload, the ProjectRef + CustomerRef
-> rule, the required `ItemRef`, token rotation, sandbox vs production). Treat those
-> as ground truth and don't change field names without checking Intuit's docs.
+> Implement the following change: [describe the desired behavior and what a
+> successful result looks like]. Read AGENTS.md and the task-relevant sections
+> of README.md and docs/AGENT_REFERENCE.md. Check the existing implementation
+> before treating a historical backlog item as unfinished. Verify current Intuit
+> requirements before changing QBO request fields or authentication behavior.
 >
-> First, help me get it running end to end:
-> 1. Walk me through creating the app in the Intuit Developer portal and filling
->    in `.env` (I'll do the portal clicks; you tell me exactly what to enter).
-> 2. Get the OAuth connect flow working against the **sandbox** company and
->    confirm the projects, employees, and service items load in the form.
-> 3. Post one test time entry and verify it appears in the QBO sandbox UI.
+> Preserve billed-entry immutability, exact duration, company/version checks,
+> and durable retry handling. Keep private data and credentials out of Git and
+> logs. Development permission does not authorize changes to real QuickBooks books.
 >
-> Then work through the backlog in `CLAUDE.md`, starting with a **recent-entries
-> list that I can delete from**. Keep the app single-user and dependency-light —
-> no database, no auth framework — and keep all QBO token handling behind the
-> existing `_load_tokens` / `_save_tokens` seam so I can move it to Supabase later.
->
-> Before writing code for each task, tell me your plan in a sentence or two.
+> Resolve routine implementation choices, run focused checks, fix failures caused
+> by the change, and complete the PR workflow. Report the changed behavior,
+> validation evidence, limits, and any precise manual action I must take.
 
----
+## Setup and live verification
 
-## Notes
-
-- Start with `QBO_ENVIRONMENT=sandbox`. Only switch to production keys once the
-  sandbox round-trip works.
-- If a dropdown is empty, the fix is almost always in the QBO company itself:
-  add an Employee, add a Service item, or enable Projects.
+Use README.md when setup or OAuth connection is actually part of the request.
+Use synthetic fixtures for local tests. A live sandbox write needs an explicitly
+identified sandbox and requested test; a successful sandbox test does not authorize
+switching to production keys or writing to real books. Never repeat onboarding or
+rebuild an existing feature merely because an old kickoff prompt listed it.
