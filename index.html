@@ -8,8 +8,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Timesheet" />
 <link rel="manifest" href="/static/manifest.webmanifest" />
-<link rel="apple-touch-icon" href="/static/apple-touch-icon.png" />
-<link rel="icon" type="image/png" href="/static/icon-192.png" />
+<link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png" />
+<link rel="icon" type="image/svg+xml" href="/static/brand/favicon.svg" />
+<link rel="icon" type="image/x-icon" href="/static/brand/favicon.ico" sizes="16x16 32x32 48x48" />
 <title>Timesheet</title>
 <style>
   :root {
@@ -37,6 +38,8 @@
     max-width: 520px;
   }
   .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 4px 2px 16px; }
+  .product-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .product-mark { width: 30px; height: 30px; flex: 0 0 auto; }
   .head-meta { text-align: right; min-width: 0; }
   .company-name { display: block; color: var(--ink); font-size: 12px; max-width: 240px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -629,7 +632,7 @@
 </head>
 <body>
 <div class="head">
-  <h1 id="title">Timesheet</h1>
+  <div class="product-title"><img class="product-mark" src="/static/brand/logo-mark-light.svg" alt="" /><h1 id="title">Timesheet</h1></div>
   <div class="head-meta"><span class="company-name" id="companyName"></span><span class="env" id="env"></span><button type="button" id="workspaceMenuButton" class="ie-btn" hidden aria-expanded="false" aria-controls="workspaceMenu">Tools &amp; settings</button></div>
 </div>
 
@@ -917,7 +920,7 @@
     <a href="#" id="logoutLink" style="display:none">Sign out</a><span id="logoutSep" style="display:none"> ·</span>
     <a href="mailto:mb@baykalconsulting.com?subject=Timesheet%20support">Contact support</a>
   </div>
-  <div class="foot build" id="buildInfo">build 2026.08.30.3</div>
+  <div class="foot build" id="buildInfo">build 2026.09.22.1</div>
 </div>
 
 <div class="picker" id="picker" hidden role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
