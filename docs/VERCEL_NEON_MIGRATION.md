@@ -81,8 +81,10 @@ password and TOTP protection at cutover; no paid Vercel password add-on required
 5. Separate sandbox storage and sandbox QuickBooks connection for create/edit/
    delete and retry tests, requiring sandbox authorization. Never test writes on
    real QuickBooks. No production connection is cloned into an active test host.
-6. Large historical reports: verify runtime and 4.5 MB response limits; paginate
-   before adoption if necessary. Match key read-only totals against source.
+6. Large historical reports: verify execution time, complete response delivery
+   on the deployed Python runtime, and exact synthetic/source totals. The generic
+   buffered-body limit must not be assumed to describe streamed Python delivery;
+   record empirical results and recheck them after runtime/configuration changes.
 7. Restore encrypted data into an isolated database and verify the encryption
    key, journal identities, company binding and audit/push records together.
 
@@ -124,7 +126,7 @@ restore that current state privately before restarting Render. Origin/browser
 backups need preservation too. This is a state-aware rollback, not a DNS-only
 switch. If state transfer is uncertain, remain stopped and investigate.
 
-Keep the old service available for recovery until actual user/device acceptance,
+Keep the old service available for recovery until the authorized cutover acceptance,
 collector compatibility and backup restore are confirmed. Only then authorize
 Render retirement, verify final recovery artifacts and remove its paid compute
 and disk. Retaining a paid suspended disk can still cost money. Retain the GitHub
@@ -150,8 +152,9 @@ repository as the ongoing app source. No destructive retirement occurs in this P
   fail closed. Export creates a private recovery-compatible archive.
 
 This establishes preparation and synthetic behavior. Sandbox acceptance results
-are recorded below. Large production reports, owner/device acceptance, collector
-coordination and final live backup/cutover remain gates.
+are recorded below. Report capacity passed within the measured synthetic envelope below. Collector
+coordination and final live backup/cutover remain gates. The owner waived device/reminder acceptance testing
+on October 6, 2026; it is not a required migration gate.
 
 The real loopback Postgres restore drill passed: all four encrypted blobs imported
 into empty storage, exported, and restored through the existing recovery helper;
@@ -218,8 +221,100 @@ These changes address independently reproduced defects; they do not prove the
 cause of that initial deployed failure. Provider bodies and credentials are not
 logged. Runtime failures now include a support reference and safe failure stage.
 
-Before cutover: verify the revised deployed build, production-size report limits,
-owner sign-in and device/push behavior, and collector ownership; then coordinate a
+Build 2026.10.06.2 passed deployed sandbox CRUD, report and reconciliation checks,
+and both CI runs. Report capacity passed within the envelope below. Before cutover:
+coordinate collector ownership and revalidate current source/configuration; then coordinate a
 short write freeze, final encrypted backup and import, company/data readback,
 domain switch and rollback window. Render stays live until explicit cutover.
 PR #4 remains a draft and must not be merged as part of preparation.
+
+
+## State of play (October 6, 2026, Chicago time)
+
+The owner directed production-size report testing and then a recorded holding
+state. Migration itself remains deferred. Device/reminder testing was explicitly
+waived; that waiver is not proof of device or reminder delivery. It does not change
+any permissions or notification configuration. The new origin still requires
+browser drafts/local state to be carried over and push enrollment if desired.
+
+- Live authority: Render at `https://qbo-timesheet.onrender.com`, existing `main`
+  branch and production QuickBooks connection. It stays active and unchanged.
+- Candidate: draft [PR #4](https://github.com/murumoto-rgb/Timesheet/pull/4), branch
+  `codex/vercel-neon-migration`, unmerged. Tested app build `2026.10.06.2`, source
+  commit `17db4c69b3eb1b13b8ef643b72a77596c3d115c6`.
+- Neon: separate Timesheet project `gentle-resonance-75021927`; 0.25 CU cap,
+  300-second idle suspension verified. Restricted runtime role and independent
+  encryption key are configured. Live credentials/history have not been moved.
+- Read-only preview: deployment `dpl_BroeGpcHmRUjWbFePhrMCcKncukZ` at
+  https://timesheet-vercel-preview-gkdqd1mmn-murumoto-rgbs-projects.vercel.app .
+- Sandbox: separate Neon child `br-fragrant-voice-b4exbjgg`; Vercel deployment
+  `dpl_8BWoUqgbFLjDqS6ckXzbBHKRJD7W` at
+  https://timesheet-sandbox-acceptance.vercel.app . Development-only credentials,
+  independent storage/key, disabled cron and no Git auto-deployment.
+- Primary/sandbox secrets and backup artifacts remain private outside Git under
+  the owner's Application Support/Timesheet directory. Do not print or copy them
+  into the runbook, PR, frontend, or a capacity fixture.
+- The earlier unattributed reconciliation 500 remains documented. Later repeated
+  requests passed; correlated safe diagnostics address reproduced defects, but
+  the original cause is unproven.
+
+The report-capacity measurements below use entirely synthetic records through the
+unchanged report code. They measure a workload envelope, not production data
+parity, the current company's exact record count, or real QuickBooks latency.
+No production grant or financial records are loaded by the capacity harness.
+
+
+### Report capacity: passed within the tested envelope
+
+Source `main.py` SHA-256:
+`4443d86db944151dc12107173f8a925dc482a904f4f94795026a6426b08063c4`.
+No application runtime change was necessary for this check; build remains
+`2026.10.06.2`. [Aggregate measurements](REPORT_CAPACITY_RESULTS.json) contain
+only generated-data counts, totals, timings, bytes, and source/deployment IDs.
+
+| Deployed workload | Complete result | Response bytes | HTTP seconds |
+| --- | --- | ---: | ---: |
+| Time, 25,000 rows / 128-byte notes | 25,000 unique IDs, 1,925,000 exact minutes | 12,599,998 | 7.05 |
+| Time, 5,000 rows / 1,024-byte notes | 5,000 unique IDs, 385,000 exact minutes | 7,000,000 | 1.01 |
+| Payments + sales receipts, 25,000 each | 50,000 rows and exact combined amount | 4,549,441 | 2.58 |
+| Bills + purchases, 25,000 each | 47,728 rows; 2,272 credits excluded; exact cost | 5,411,877 | 3.04 |
+| Receivables, 25,000 invoices | 12,500 open invoices; exact trailing-year billed total | 2,828,937 | 1.63 |
+| Project financials, 25,000 invoices/payments each | 2,500 exact-project invoices and linked payments; exact payment total | 608,313 | 1.47 |
+| Reconciliation, 25,000 time rows | fresh count and exact minutes, read-only | 908 | 1.14 |
+| Payments, 5,000 each / 750 ms injected per provider page | 10,000 complete rows; 12 provider reads | 909,884 | 9.51 |
+
+All returned HTTP 200. HTTP seconds measure curl's complete request/transfer,
+excluding CLI setup; injected delay is synthetic, not observed QuickBooks latency.
+The local endpoints also preserved counts/totals at 999, 1,000, 1,001, 5,000,
+10,000 and 25,000 source records, including the terminal empty pagination read.
+The browser rendered every one of 10,000 five-year-report rows with 770,000 exact
+minutes, aggregated the two-year WIP subset, and compared two concurrent
+5,000-row periods. Failed current/comparison requests hid stale totals and showed
+an error. Browser and deployed API checks are separate evidence, not a claim
+that 25,000 rows were rendered on an actual device.
+
+The generic [Vercel Functions limits](https://vercel.com/docs/functions/limitations)
+page describes a 4.5 MB request/response body limit. This Python deployment
+successfully delivered and parsed larger complete responses. Vercel separately
+[documents default Python streaming](https://vercel.com/changelog/python-vercel-functions-now-have-streaming-enabled-by-default).
+That runtime behavior is consistent with the measurements; it is not an unlimited
+payload guarantee. Keep the tested Python runtime/configuration and repeat the
+large-response probe if they change. No request-body limit was tested or bypassed.
+
+Reproduce using `scripts/report_capacity.py`: build into a new temporary directory
+outside Git and explicitly deploy with `--target preview` to the protected preview
+project; never deploy the fixture wrapper to the sandbox alias or live project.
+The wrapper strips actual database/QBO credentials, uses only generated records,
+blocks all outbound requests and accounting/push/OAuth routes, keeps app sign-in,
+and has no cron. The source is copied byte-for-byte and hashed in a manifest.
+The optional local command needs test-only `httpx2==2.13.1`; it is not an added app
+runtime dependency. The temporary capacity deployment is removed after evidence
+capture; the actual preview and sandbox deployments remain intact.
+
+This clears the synthetic report-size/runtime acceptance check for the recorded
+workload. Before actual migration, revalidate the candidate and configurations,
+coordinate the production collector, freeze writers, take a fresh consistent
+backup, transfer to empty Neon production storage, verify private source/data
+parity, and switch the live URL with a state-aware rollback window. Migration and
+Render retirement still require the owner's later instruction. No work is queued
+to perform a cutover automatically.
