@@ -170,3 +170,28 @@ Implementation commit `d41924f` passed both GitHub CI runs, including backend an
 75 browser tests plus both vulnerability audits. Local Postgres checks additionally
 verified cross-connection locks, durable journal claims, audit appends, atomic
 import rollback on a later insert failure, and the offline restore round trip.
+
+## Sandbox acceptance setup (October 6, Chicago time)
+
+The owner authorized sandbox acceptance testing. Created a separate Neon child
+branch `timesheet-sandbox-acceptance` (`br-fragrant-voice-b4exbjgg`) with endpoint
+`ep-quiet-brook-b49lcuwn`, capped at 0.25 CU and 300-second idle suspension.
+The parent contained only synthetic probe/login records; the copied records
+were verified by ID and removed from the disposable child before configuration.
+No production data or tokens were copied. Child runtime password and encryption
+key are independent. The parent branch and Render were not changed.
+
+Protected Vercel project `timesheet-sandbox-acceptance`
+(`prj_GtJyU9nAiR4B8J2s5SEl8uiYe41J`) runs the tested migration code at
+https://timesheet-sandbox-acceptance.vercel.app . Its Vercel Production target
+is used only to enable write acceptance against QuickBooks **sandbox**; this
+is not the live Timesheet production project or a cutover. It has no Git
+integration and no cron jobs. Health confirms Postgres and activated mode.
+Development-only Intuit keys are configured; no live OAuth grant is present.
+
+The additional Development callback is prepared but not saved:
+`https://timesheet-sandbox-acceptance.vercel.app/callback`. Browser safety requires
+action-time confirmation before expanding OAuth callback access. Existing
+Render/localhost/playground development callbacks and all Production Intuit
+settings remain unchanged. A sandbox company authorization and actual write,
+report, reminder and device acceptance tests remain pending.
