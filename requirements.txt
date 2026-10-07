@@ -3,3 +3,5 @@ uvicorn[standard]==0.51.0
 requests==2.34.2
 python-dotenv==1.2.2
 cryptography==50.0.1
+certifi==2026.7.22
+psycopg[binary]==3.3.6

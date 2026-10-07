@@ -79,13 +79,17 @@ def validate(data):
 
 
 class Journal:
-    def __init__(self, path, *, url="", headers=None, http=requests):
+    def __init__(self, path, *, url="", headers=None, http=requests, store=None):
+        self.store = store
         self.path = path
         self.url = url.rstrip("/") + "/rest/v1/qbo_tokens" if url else ""
         self.headers = headers or {}
         self.http = http
 
     def _read(self):
+        if self.store is not None:
+            data = self.store.load(4)
+            return validate(data) if data is not None else None
         if self.url:
             response = self.http.get(self.url, params={"id": "eq.4", "select": "data"},
                                      headers=self.headers, timeout=15)
@@ -152,6 +156,16 @@ class Journal:
     def change(self, mutate):
         """Callbacks may be rerun after CAS contention; no external side effects."""
         try:
+            if self.store is not None:
+                def transaction(old):
+                    if old is not None:
+                        validate(old)
+                    new = copy.deepcopy(old or {"revision": 0, "operations": []})
+                    result = mutate(new)
+                    new["revision"] = (old or {}).get("revision", 0) + 1
+                    validate(new)
+                    return new, copy.deepcopy(result)
+                return self.store.mutate(4, transaction)
             if self.url:
                 for _ in range(16):
                     old = self._read()

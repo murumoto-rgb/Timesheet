@@ -128,3 +128,7 @@ access — check the current requirement in the portal.
 - Run one application instance and one worker. The operation journal supports
   atomic concurrency, but token refresh, reminders and legacy audit/push storage
   still require the single-instance deployment described in the recovery guide.
+
+## Prepared Vercel migration
+
+See [the staged Vercel + Neon migration plan](docs/VERCEL_NEON_MIGRATION.md). Render remains live until the explicit cutover gates pass.

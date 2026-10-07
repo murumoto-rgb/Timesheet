@@ -2,7 +2,7 @@
 
 ## Reproducible verification
 
-The checked-in runtime is Python 3.13.7 (`.python-version`) and Node 22 or later.
+The checked-in runtime family is Python 3.13 (`.python-version`) and Node 22 or later.
 `requirements.lock` pins the Python runtime and test dependencies. Runtime-only
 installs use `requirements.txt` with the lock as constraints. `package-lock.json`
 pins Playwright and its matching browser installer.
@@ -29,7 +29,7 @@ check stops the workflow; tests never need production credentials.
 
 ## Deployment limits
 
-Run **one app instance and one worker**. The operation journal uses file locks
+For legacy disk/Supabase storage, run **one app instance and one worker**. The operation journal uses file locks
 or Supabase revision comparisons, but OAuth refresh, reminder scheduling and the
 legacy audit/push blobs still require a single running process. `WEB_CONCURRENCY`
 must be `1`; the app refuses another value. The launcher and Render blueprint
@@ -55,9 +55,14 @@ connection or starting a new empty store. The connection, journal, reminders and
 audit history must be reviewed and moved together with both copies stopped;
 the launcher displays a plain-language request you can give Codex for that move.
 It requires Python 3.13.7 or a newer 3.13 patch and preserves an incompatible
-virtual environment before rebuilding it. CI and Render use the exact tested
-patch. Python dependencies are version-pinned; the lock does not include wheel
+virtual environment before rebuilding it. Render retains its explicit patch pin; Vercel and CI select an available
+3.13 patch. Python dependencies are version-pinned; the lock does not include wheel
 hashes. Install from the trusted package index and review dependency updates.
+
+The prepared Postgres backend coordinates shared state across Vercel invocations
+with database locks and committed journal transitions. See
+[the migration plan](VERCEL_NEON_MIGRATION.md) for its separate validation and
+cutover requirements. The live Render deployment remains unchanged.
 
 ## Local data backup
 
