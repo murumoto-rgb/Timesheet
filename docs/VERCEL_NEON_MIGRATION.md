@@ -136,7 +136,7 @@ repository as the ongoing app source. No destructive retirement occurs in this P
   Runtime has only schema usage and table select/insert/update privileges.
 - Vercel project: `timesheet-vercel-preview`, protected by Vercel authentication,
   no Git integration and no production credentials. Preview variables only.
-- Preview: https://timesheet-vercel-preview-9yolad6nx-murumoto-rgbs-projects.vercel.app
+- Preview: https://timesheet-vercel-preview-jrkprjccy-murumoto-rgbs-projects.vercel.app
   Build `2026.10.06.1`. Health reports Postgres and read-only preview; login
   succeeds against encrypted Neon storage; `/connect` is blocked with HTTP 403.
 - Secrets and encryption key are private outside Git. No live connection,
@@ -157,3 +157,16 @@ The real loopback Postgres restore drill passed: all four encrypted blobs import
 into empty storage, exported, and restored through the existing recovery helper;
 a repeated import was refused. Historical company records and transient OAuth/
 login data have focused coverage. All live-data transfer remains deferred.
+
+Automatic sleep was observed through the Neon management API at
+2026-10-07 03:00:47 UTC after deployed requests ended, without manual suspension.
+The deployed `/api/status` request woke the endpoint at 03:01:22 UTC and passed
+(3.16 seconds including CLI authentication/network overhead). A subsequent
+encrypted synthetic read verified persistence (0.42 seconds). Health checks and
+preview-side-effect guards were also verified. Reminder cron will wake production
+briefly on its schedule; storage billing continues during sleep.
+
+Implementation commit `d41924f` passed both GitHub CI runs, including backend and
+75 browser tests plus both vulnerability audits. Local Postgres checks additionally
+verified cross-connection locks, durable journal claims, audit appends, atomic
+import rollback on a later insert failure, and the offline restore round trip.
