@@ -149,9 +149,9 @@ repository as the ongoing app source. No destructive retirement occurs in this P
   a separate acknowledgment after verifying the source inventory; missing tokens
   fail closed. Export creates a private recovery-compatible archive.
 
-This establishes preparation and synthetic behavior only. Sandbox accounting,
-large reports, owner/device acceptance, collector coordination and final live
-backup/cutover have not occurred.
+This establishes preparation and synthetic behavior. Sandbox acceptance results
+are recorded below. Large production reports, owner/device acceptance, collector
+coordination and final live backup/cutover remain gates.
 
 The real loopback Postgres restore drill passed: all four encrypted blobs imported
 into empty storage, exported, and restored through the existing recovery helper;
@@ -189,9 +189,37 @@ is not the live Timesheet production project or a cutover. It has no Git
 integration and no cron jobs. Health confirms Postgres and activated mode.
 Development-only Intuit keys are configured; no live OAuth grant is present.
 
-The additional Development callback is prepared but not saved:
-`https://timesheet-sandbox-acceptance.vercel.app/callback`. Browser safety requires
-action-time confirmation before expanding OAuth callback access. Existing
-Render/localhost/playground development callbacks and all Production Intuit
-settings remain unchanged. A sandbox company authorization and actual write,
-report, reminder and device acceptance tests remain pending.
+The owner approved saving the additional Development callback,
+`https://timesheet-sandbox-acceptance.vercel.app/callback`; it was saved and read
+back. Existing callbacks and all Production Intuit settings remain unchanged.
+The deployed app connected to the separately verified QuickBooks sandbox company.
+
+Actual deployed acceptance passed: exact 17-minute nonbillable create, identical
+UUID replay, changed-payload rejection, edit, stale-version rejection, delete,
+delete replay, readback proving removal, and three corresponding audit events.
+The test entry was removed. Historical sandbox time, payment, bill, receivable,
+and project financial reports returned successfully. Browser navigation through
+Log, Week, Reports, Projects and Dashboard passed. These small sample datasets
+do not establish production-size payload/runtime behavior.
+
+A reminder request without its secret was rejected; the authenticated request
+passed with no subscribed devices. No reminders were delivered and sandbox cron
+remains disabled. Four encrypted sandbox blobs were exported and restored offline.
+Three concurrent deployed reads passed after deliberately expiring the sandbox
+access token; refreshed credentials persisted with the same company identity.
+The restored archive was not run or used to refresh an OAuth grant.
+
+One initial reconciliation request returned an unattributed plain HTTP 500;
+subsequent requests repeatedly passed. Its cause has not been established.
+Build `2026.10.06.2` adds safe correlated provider/reconciliation failures, rejects
+malformed successful provider responses, preserves credentials on transient
+refresh failures, and handles nullable descriptions and unknown/nonfinite rates.
+These changes address independently reproduced defects; they do not prove the
+cause of that initial deployed failure. Provider bodies and credentials are not
+logged. Runtime failures now include a support reference and safe failure stage.
+
+Before cutover: verify the revised deployed build, production-size report limits,
+owner sign-in and device/push behavior, and collector ownership; then coordinate a
+short write freeze, final encrypted backup and import, company/data readback,
+domain switch and rollback window. Render stays live until explicit cutover.
+PR #4 remains a draft and must not be merged as part of preparation.

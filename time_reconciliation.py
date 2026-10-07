@@ -1,5 +1,6 @@
 """Read-only comparison of fresh scoped time rows and durable local receipts."""
 from collections import defaultdict
+import math
 
 from write_journal import PENDING, digest, receipt_order
 
@@ -15,8 +16,12 @@ def value(row, field):
         return int(row.get(field) or 0)
     if field == "HourlyRate":
         rate = row.get(field)
-        return float(rate) if rate not in (None, "") else None
-    return row.get(field, "")
+        try:
+            value = float(rate) if rate not in (None, "") and not isinstance(rate, bool) else None
+            return value if value is not None and math.isfinite(value) else None
+        except (ValueError, TypeError, OverflowError):
+            return None
+    return row.get(field) or ""
 
 
 def differences(expected, actual):

@@ -140,3 +140,10 @@ def test_project_invoice_amounts_preserve_unknowns_and_explicit_zero(monkeypatch
     assert [r["amount"] for r in result["invoices"]] == [None, None, None, None, None, 0, 12.5]
     assert [r["balance"] for r in result["invoices"]] == [None, None, None, None, None, 0, 3.25]
     assert result["payments"] == []
+
+
+@pytest.mark.parametrize("rate", [None, "", "not-a-rate", float("inf"), True])
+def test_optional_null_description_and_unknown_rate_do_not_crash(rate):
+    result = run([row("a", Description=None, HourlyRate=rate), row("b", Description="", HourlyRate=None)])
+    assert result["freshQbo"]["minutes"] == 150
+    assert next(f for f in result["flags"] if f["code"] == "POSSIBLE_DUPLICATE")["entryIds"] == ["a", "b"]

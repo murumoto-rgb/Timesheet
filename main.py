@@ -161,9 +161,8 @@ _pending_states: dict[str, float] = {}  # OAuth CSRF state -> creation time
 
 
 def _qbo_error(resp):
-    """Log full QBO diagnostics, but return a small, safe, readable error."""
+    """Log provider identifiers; return useful validation details to the user."""
     tid = resp.headers.get("intuit_tid", "")
-    log.error("QBO error %s tid=%s: %s", resp.status_code, tid, resp.text[:1000])
     code, message = "", "QuickBooks could not complete this request."
     try:
         errors = (resp.json().get("Fault") or {}).get("Error") or []
@@ -173,6 +172,8 @@ def _qbo_error(resp):
             message = first.get("Detail") or first.get("Message") or message
     except (ValueError, TypeError, AttributeError):
         pass
+    safe_code = code if code.isdigit() and len(code) <= 12 else "unknown"
+    log.error("QBO error status=%s tid=%s code=%s", resp.status_code, tid, safe_code)
     return HTTPException(
         resp.status_code,
         {"message": message, "code": code, "supportId": tid or None},
@@ -590,10 +591,21 @@ def _basic_auth_header():
     return "Basic " + base64.b64encode(raw).decode()
 
 
+def _upstream_unavailable(stage):
+    reference = uuid.uuid4().hex[:12]
+    # Exception strings and provider bodies can contain credentials or URLs.
+    log.warning("QuickBooks request unavailable stage=%s reference=%s", stage, reference)
+    return HTTPException(502, {"code": "QBO_UNAVAILABLE",
+        "message": "QuickBooks is temporarily unavailable or returned an unreadable response. Retry shortly.",
+        "supportId": reference})
+
+
 def _token_request(payload):
     if PREVIEW_READ_ONLY and ENVIRONMENT != "sandbox":
         raise HTTPException(403, "Preview cannot exchange or refresh production QuickBooks credentials.")
-    resp = requests.post(
+    stage = "token_refresh" if payload.get("grant_type") == "refresh_token" else "token_exchange"
+    try:
+        resp = requests.post(
         token_url(),
         headers={
             "Authorization": _basic_auth_header(),
@@ -602,15 +614,32 @@ def _token_request(payload):
         },
         data=payload,
         timeout=30,
-    )
+        )
+    except requests.RequestException:
+        raise _upstream_unavailable(stage) from None
     if resp.status_code >= 400:
         tid = resp.headers.get("intuit_tid", "")
-        log.error("Token endpoint error %s tid=%s: %s", resp.status_code, tid, resp.text[:500])
+        log.error("Token endpoint error status=%s tid=%s", resp.status_code, tid)
         raise HTTPException(
             resp.status_code,
-            {"message": "QuickBooks sign-in could not be completed. Try reconnecting.", "supportId": tid or None},
+            {"message": ("QuickBooks is temporarily unavailable. Retry shortly."
+                if resp.status_code >= 500 or resp.status_code in (408, 429)
+                else "QuickBooks sign-in could not be completed. Try reconnecting."), "supportId": tid or None},
         )
-    return resp.json()
+    try:
+        data = resp.json()
+        if not isinstance(data, dict) or not isinstance(data.get("access_token"), str) or not data["access_token"]:
+            raise ValueError
+        expires = data.get("expires_in")
+        if isinstance(expires, bool) or not isinstance(expires, (int, float)) or not math.isfinite(expires) or expires <= 0:
+            raise ValueError
+        if payload.get("grant_type") == "authorization_code" and not data.get("refresh_token"):
+            raise ValueError
+        if "refresh_token" in data and (not isinstance(data["refresh_token"], str) or not data["refresh_token"]):
+            raise ValueError
+        return data
+    except (ValueError, TypeError):
+        raise _upstream_unavailable(stage + "_decode") from None
 
 
 _token_lock = threading.RLock()  # token refresh, OAuth replacement, and time-write company fence
@@ -633,7 +662,9 @@ def get_access_token():
                     fresh = _token_request(
                         {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]}
                     )
-                except HTTPException:
+                except HTTPException as exc:
+                    if exc.status_code >= 500 or exc.status_code in {408, 429}:
+                        raise
                     # Refresh token revoked or expired — the only fix is to reconnect.
                     raise HTTPException(401, "QuickBooks connection expired. Reconnect from the home screen.")
                 tokens["access_token"] = fresh["access_token"]
@@ -646,15 +677,24 @@ def get_access_token():
 
 def qbo_query(statement):
     access_token, realm_id = get_access_token()
-    resp = requests.get(
+    try:
+        resp = requests.get(
         f"{API_BASE}/v3/company/{realm_id}/query",
         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
         params={"query": statement, "minorversion": MINOR_VERSION},
         timeout=30,
-    )
+        )
+    except requests.RequestException:
+        raise _upstream_unavailable("query_transport") from None
     if resp.status_code >= 400:
         raise _qbo_error(resp)
-    return resp.json().get("QueryResponse", {})
+    try:
+        data = resp.json()
+        if not isinstance(data, dict) or not isinstance(data.get("QueryResponse"), dict):
+            raise ValueError
+        return data["QueryResponse"]
+    except (ValueError, TypeError):
+        raise _upstream_unavailable("query_decode") from None
 
 
 # ---------------------------------------------------------------------------
@@ -818,6 +858,8 @@ def qbo_query_all(entity, where="", key=None):
             f"SELECT * FROM {entity} {where} STARTPOSITION {start} MAXRESULTS {page}".strip()
         )
         batch = rows.get(key, [])
+        if not isinstance(batch, list) or any(not isinstance(row, dict) for row in batch):
+            raise _upstream_unavailable("query_rows_decode")
         out.extend(batch)
         if start > 100000:
             raise HTTPException(413, f"QuickBooks returned more than 100,000 {entity} records. Narrow the date range.")
@@ -1614,11 +1656,24 @@ def project_financials(project_id: str, start: str | None = None, end: str | Non
 def reconciliation(start: str | None = None, end: str | None = None):
     """Fresh scoped QBO data versus durable receipts; never repairs or writes."""
     start, end = _project_range(start, end)
-    scope = _write_scope()
-    rows = qbo_query_all("TimeActivity", f"WHERE TxnDate >= '{start}' AND TxnDate <= '{end}'")
-    journal = _load_operations()
-    audit = _load_audit()
-    return _reconciliation_report(rows, journal["operations"], audit.get("events", []), start, end, scope)
+    stage = "scope"
+    try:
+        scope = _write_scope()
+        stage = "query"
+        rows = qbo_query_all("TimeActivity", f"WHERE TxnDate >= '{start}' AND TxnDate <= '{end}'")
+        stage = "storage"
+        journal = _load_operations()
+        audit = _load_audit()
+        stage = "comparison"
+        return _reconciliation_report(rows, journal["operations"], audit.get("events", []), start, end, scope)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        reference = uuid.uuid4().hex[:12]
+        log.warning("Reconciliation unavailable stage=%s reference=%s exception=%s", stage, reference, type(exc).__name__)
+        raise HTTPException(500, {"code": "RECONCILIATION_UNAVAILABLE",
+            "message": "Reconciliation could not be completed. Retry shortly or share the support ID.",
+            "supportId": reference}) from None
 
 
 @app.delete("/api/timeactivity/{entry_id}")
