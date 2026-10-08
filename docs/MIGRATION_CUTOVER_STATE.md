@@ -8,7 +8,7 @@ suspended, in maintenance mode, with automatic deployment disabled.**
 ## Production and evidence
 
 - Vercel project `qbo-timesheet`, `prj_sl3jQmxOqzs0foqaK5f88lPaHpe8`, activated
-  production deployment `dpl_43ixWw8zPKNDg1kYVyG2JUwhDPtg`, build `2026.10.06.2`.
+  production deployment `dpl_43ixWw8zPKNDg1kYVyG2JUwhDPtg`, initial build `2026.10.06.2`.
   The verified deployment was promoted to the production domain. Standard Vercel
   protection restricts generated deployment URLs and previews; the production
   domain retains the app's existing password and TOTP protection. No-session,
@@ -54,6 +54,16 @@ Only then was the snapshot imported into empty production Neon storage.
   offline with exact file parity. Recovery includes the current OAuth grant.
 - Credentials, source responses, hashes, browser exports and recovery files are
   outside Git under the private Timesheet vercel-preparation directory.
+
+## Owner layout requirement
+
+The owner requires the phone layout on desktop as well. The inherited
+`workspace.css` desktop media block expanded selected views to 1,120px and two
+columns; it was present in both the retained Render page and initial Vercel page.
+That block is removed in build `2026.10.08.1`, restoring the base 520px maximum
+width and single-column layout for every screen. Phone CSS, colors and controls
+are unchanged. Responsive checks cover 320px, 390px and 1280px, including all main
+views, project detail and reconciliation.
 
 ## Browser-local state and future operation
 

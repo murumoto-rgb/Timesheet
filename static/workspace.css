@@ -45,24 +45,9 @@
 #confirmText { white-space: pre-wrap; max-height: 50vh; overflow-y: auto; }
 #pickerClose { flex-shrink: 0; }
 #projectPrintReport { display: none; }
-@media (min-width: 880px) {
-  body[data-view="report"], body[data-view="projects"], body[data-view="dash"], body[data-view="reconcile"], body[data-view="week"] { max-width: 1120px; padding-left: 28px; padding-right: 28px; }
-  #repDrill, #repMain, #dashBody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
-  #repDrill:not([style*="none"]) { display: grid !important; }
-  #repDrill > .card, #repMain > .card, #dashBody > .card { min-width: 0; }
-  #projectSummary, #projectNotes, #repMain > :not(.card), #repMain > .card:first-of-type, #repMain > .card:last-of-type, #dashMoney, #dashMargin, #dashPractice, #dashConc { grid-column: 1 / -1; }
-  #projectSummary .project-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  #projectList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
-  .project-jumps { max-width: 520px; }
-  #reportScope { max-width: 100%; }
-  .scope-controls .seg { max-width: 540px; }
-  #customRange { max-width: 540px; }
-  .tabbar { left: 50%; right: auto; transform: translateX(-50%); width: 100%; max-width: 760px; border-radius: 14px 14px 0 0; }
-  #reportScope[open] { display: grid; grid-template-columns: 1.1fr 1fr; column-gap: 24px; align-items: center; }
-  #reportScope summary { grid-column: 1 / -1; }
-  #reportScope #customRange { margin-top: 0 !important; }
-  #reportScope #projectDatePresets { margin-top: 0; }
-  #reconcileView { max-width: 920px; margin-left: auto; margin-right: auto; }
+/* Keep the fixed navigation within the same phone-width canvas on desktop. */
+@media (min-width: 521px) {
+  .tabbar { left: 50%; right: auto; transform: translateX(-50%); width: 520px; }
 }
 @media (max-width: 390px) {
   body { padding-left: 10px; padding-right: 10px; }
