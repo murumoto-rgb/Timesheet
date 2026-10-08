@@ -1,6 +1,10 @@
 # Render to Vercel + Neon: staged migration
 
-Status: preparation only. Render remains the live authority. Do not merge this
+Current authorized execution status: see [MIGRATION_CUTOVER_STATE.md](MIGRATION_CUTOVER_STATE.md).
+The historical preparation checkpoints below are retained as evidence; the
+owner's 2026-10-07 instruction to migrate supersedes their authorization boundary.
+
+Historical preparation status: Render remains the live authority. Do not merge this
 branch, change Render's branch/environment, copy live OAuth credentials to a
 running preview, or retire the Render service during preparation.
 
