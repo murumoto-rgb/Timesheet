@@ -1,68 +1,85 @@
-# Authorized cutover state
+# Vercel and Neon production cutover
 
-Updated 2026-10-08 UTC (2026-10-07 Chicago). The owner explicitly authorized
-the migration. This supersedes the earlier preparation-only instructions in
-VERCEL_NEON_MIGRATION.md. **Cutover is not complete. Render still serves live traffic.**
+Updated 2026-10-08 UTC (2026-10-08 Chicago). The owner authorized migration and
+approved the additional Intuit Production callback. **Production now runs at
+https://qbo-timesheet.vercel.app on Vercel with dedicated Neon storage. Render is
+suspended, in maintenance mode, with automatic deployment disabled.**
 
-## Completed before the write freeze
+## Production and evidence
 
-- Render service `srv-d947m8e7r5hc739gd9sg` in confirmed My Workspace:
-  automatic deployment disabled and read back through the Render API. The
-  blueprint now also declares `autoDeployTrigger: off` to prevent a merge from
-  restarting the recovery host.
-- Prepared Vercel project renamed `qbo-timesheet`, same project ID
-  `prj_sl3jQmxOqzs0foqaK5f88lPaHpe8`. Registered and verified
-  `qbo-timesheet.vercel.app`; production activation remains OFF and read-only
-  guard ON. Git integration remains disconnected. SSO protection remains on.
-- Production password, TOTP and existing production OAuth client settings
-  captured privately; no credentials or source financial records enter Git.
-- Guarded production deployment `dpl_DSLXmoBc6XotDyJvXgUk1bBHzYDV` health passed:
-  Postgres storage, previewReadOnly true. An earlier guarded deployment rejected
-  a pooled connection; corrected to direct TLS connection before proceeding.
-- Dedicated production branch `timesheet-production`,
-  `br-wild-shadow-b4hov6gd`, compute `ep-divine-star-b41au3bd`, in the existing
-  dedicated Timesheet Neon project. Verified only inherited synthetic IDs 6/90,
-  removed those before import, generated independent runtime password and
-  encryption key. No live tokens imported. Compute min/max 0.25 CU, suspend 300
-  seconds; read back idle/suspended at 04:46:32 UTC. Preview and sandbox storage
-  remain separate.
-- Saved private Render read-only baseline for 2021-01-01 through 2026-10-07:
-  5,612 time entries (2,205,090 bytes), 846 payment/receipt rows, 3,581 expense
-  rows, company/projects/services and receivables. Compare complete private
-  records after transfer, not only counts or totals.
-- Desktop plans/drafts backup retained privately: no budgets, no draft. Desktop
-  reconciliation showed matching fresh totals (42,539h40m) and six existing
-  similar-entry groups; no repair, deletion or retry performed. Browser-only
-  pending-operation and batch IDs are not included by the plans/drafts export.
-  Retain old-origin browser data on all devices; other devices were not inspected.
-- Snapshot script staged on Render but NOT executed. It requires today's
-  reminder claim, no outgoing TLS request, verified stopped uvicorn process,
-  identical file bytes/mtimes on repeated reads, and a hashed private archive.
+- Vercel project `qbo-timesheet`, `prj_sl3jQmxOqzs0foqaK5f88lPaHpe8`, activated
+  production deployment `dpl_43ixWw8zPKNDg1kYVyG2JUwhDPtg`, build `2026.10.06.2`.
+  The verified deployment was promoted to the production domain. Standard Vercel
+  protection restricts generated deployment URLs and previews; the production
+  domain retains the app's existing password and TOTP protection. No-session,
+  invalid-password and missing-TOTP requests returned 401; browser login passed.
+- Intuit Production callback saved and read back:
+  `https://qbo-timesheet.vercel.app/callback`. Existing callbacks were preserved.
+  Existing production OAuth credentials and company binding were transferred;
+  no fresh company consent or QuickBooks accounting write was performed.
+- Neon project `gentle-resonance-75021927`, production branch
+  `br-wild-shadow-b4hov6gd` (`timesheet-production`), compute
+  `ep-divine-star-b41au3bd`: independent runtime password/encryption key, direct
+  TLS connection, compute min/max 0.25 CU, auto-suspend 300 seconds. The production
+  compute was observed idle/suspended before import. Preview and sandbox storage
+  remain separate. Health checks deliberately do not query Neon.
+- Private complete-record comparison over 2021-01-01 through 2026-10-07 passed
+  for 5,612 time entries, 846 payment/receipt rows, 3,581 expense rows, company,
+  projects and services. The time response was 2,205,090 bytes and completed in
+  15.45 seconds including CLI overhead. Receivables differed only in date-derived
+  fields after midnight; a current-Neon read at the original as-of date matched
+  the entire original Render response exactly.
+- Fresh public-origin browser login and full historical report passed, showing
+  42,539h40m; no browser errors were captured. Screenshot retained privately.
+  Device/reminder testing was waived by the owner and is not claimed as passed.
 
-## Immediate pending gates
+## Consistent transfer and recovery
 
-1. Owner action-time approval to save the prepared additional Intuit Production
-   redirect `https://qbo-timesheet.vercel.app/callback`. Existing callbacks stay.
-2. Brief maintenance/write freeze; drain in-flight work, freeze old uvicorn and
-   capture its consistent disk snapshot while the mount remains accessible.
-   Confirm old service suspended before acknowledging source stopped/import.
-3. Import into empty production Neon storage; explicitly acknowledge the old
-   app's absent operation journal. Verify decrypted parity and offline restore.
-4. Preserve the imported push blob in recovery, then remove its one old-origin
-   subscription from the new database before enabling production reminders.
-   The old subscription would open Render; new-origin devices must re-enroll.
-5. Activate Vercel, verify password/TOTP and private live QBO parity without
-   source writes, then promote the verified deployment to the chosen URL.
-6. Record final evidence, merge the reviewed PR with Render auto-deploy OFF,
-   connect future Vercel Git deployment safely, and preserve state-aware rollback.
+Render service `srv-d947m8e7r5hc739gd9sg`, disk `dsk-d947m8m7r5hc739gda10`,
+was put into maintenance at 04:53:54 UTC and in-flight work drained. The initial
+stopped-process snapshot was stable, but Render health checks restarted that
+process during retrieval. Before import, the replacement writer was verified
+against every snapshot file hash, stopped, checked again, and the service was
+suspended. Render API readback confirmed suspension at 05:00:33.782725 UTC.
+Only then was the snapshot imported into empty production Neon storage.
 
-No live data transfer, write freeze, service suspension, production activation,
-QuickBooks write or destructive retirement has occurred at this checkpoint.
-The accounting rehearsal's latest handoff says no collector was left running;
-no collector process was found locally. Do not start an old shared-grant helper
-after cutover; its access configuration must be adapted before future use.
+- Decrypted imported tokens, push state and audit matched the source JSON.
+  The legacy app had no operation journal; the empty journal was explicitly
+  acknowledged. All four exported blobs validated and offline restore passed.
+- The original push blob, including its one Render-origin subscription, was
+  retained in private recovery. That subscription was removed only from the new
+  database before activation, so reminders cannot reopen the old Render origin.
+  Devices must re-enroll reminders on the new origin.
+- A further current-Neon four-blob export after activation validated and restored
+  offline with exact file parity. Recovery includes the current OAuth grant.
+- Credentials, source responses, hashes, browser exports and recovery files are
+  outside Git under the private Timesheet vercel-preparation directory.
 
-All credentials, source responses, browser backups and operator scripts are
-outside Git under the private Timesheet vercel-preparation directory. Retain the
-original Render disk until final recovery/cutover acceptance. Never resume its
-stale grant after Vercel refreshes; export current Neon state first.
+## Browser-local state and future operation
+
+The inspected desktop's plans/drafts export contained no budget or draft. Its
+reconciliation had six existing similar-entry groups and matching fresh totals;
+no repair, deletion or retry was performed. Plans/drafts export does not include
+browser-only pending operations or batch IDs. Retain the old-origin browser data
+on all devices; other devices were not inspected. Open the new URL and sign in
+with the existing password/authenticator. An installed old-origin shortcut must
+be replaced with the new URL; new-origin reminders require enrollment.
+
+The accounting rehearsal's latest handoff reported no collector left running,
+and no local collector process was found. Do not start an old shared-grant helper;
+future helpers must use the current Neon-backed configuration and locking.
+
+## Rollback and Render retirement
+
+Do not simply resume Render: its disk now holds a stale OAuth grant. To roll back,
+stop Vercel writers/reminders, export current Neon state, validate all four blobs,
+restore those current files to Render, reconcile uncertain operations, then
+resume exactly one authoritative writer. Retain private backups and the original
+Render disk until recovery acceptance. Permanent service/disk deletion has not
+been performed. Suspension stops the running service charge; retained disk
+storage may still incur its separate storage charge.
+
+Render auto-deploy is OFF both live and in `render.yaml`, preventing a merge from
+restarting the recovery host. Merge the reviewed migration PR before connecting
+Vercel Git to repository main; verify the resulting production deployment and
+retain this state-aware rollback boundary.
