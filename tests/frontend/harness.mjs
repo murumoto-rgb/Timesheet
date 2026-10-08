@@ -29,10 +29,10 @@ const DEFAULT_STATUS = { connected: true, environment: "production", configured:
 // Open the app with mocked APIs. `data` fields: status, projects ({projects,clients}),
 // employees, vendors, items, entries, payments, bills, receivables. Returns
 // { ctx, page, errors } — caller closes ctx. `view` optionally clicks a bottom tab.
-export async function openApp(browser, data = {}, view) {
+export async function openApp(browser, data = {}, view, options = {}) {
   // Service-worker script requests bypass page routes. Disable registration in
   // this fully mocked harness so no background request reaches the real network.
-  const ctx = await browser.newContext({ ...devices["iPhone 13"], serviceWorkers: "block" });
+  const ctx = await browser.newContext({ ...(options.desktop ? { viewport: { width: 1280, height: 900 } } : devices["iPhone 13"]), serviceWorkers: "block" });
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -66,7 +66,7 @@ export async function openApp(browser, data = {}, view) {
   await page.route("**/api/bills*", (r) => r.fulfill({ json: inRange(data.bills || [], r.request().url()) }));
 
   await page.goto("https://app.test/");
-  await page.waitForSelector("#app", { state: "visible" });
+  await page.waitForSelector(options.readySelector || "#app", { state: "visible" });
   await page.waitForTimeout(200);
   if (view) { await page.click(`#tabbar button[data-view=${view}]`); await page.waitForTimeout(300); }
   return { ctx, page, errors };

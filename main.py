@@ -759,7 +759,7 @@ def status(request: Request):
 @app.get("/mfa-setup")
 def mfa_setup():
     """One-time enrollment helper: generates a secret to add to your
-    authenticator app and to Render as TOTP_SECRET. Password-gated."""
+    authenticator app and to Vercel as TOTP_SECRET. Password-gated."""
     secret = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
     label = "QBO%20Timesheet"
     otpauth = f"otpauth://totp/{label}?secret={secret}&issuer=QBO%20Timesheet"
@@ -782,13 +782,13 @@ text-align:center}} a{{color:#4c9be8}} ol{{padding-left:20px}} li{{margin:10px 0
 <li>In <b>1Password</b> (or Google Authenticator): add a one-time password /
 add TOTP, and paste this secret — or use this setup link:<br>
 <code>{otpauth}</code></li>
-<li>In <b>Render</b> &rarr; your service &rarr; <b>Environment</b>, add a variable
-<code>TOTP_SECRET</code> set to the secret above, and save. Render redeploys.</li>
+<li>In <b>Vercel</b> &rarr; your project &rarr; <b>Settings &rarr; Environment Variables</b>, add a variable
+<code>TOTP_SECRET</code> set to the secret above for Production, save, and redeploy the project.</li>
 <li>After it redeploys, sign in: you'll enter your password <b>and</b> the current
 6-digit code from your authenticator.</li>
 </ol>
 <p class="note">Keep this secret private. If you ever lose your authenticator,
-delete the <code>TOTP_SECRET</code> variable in Render to disable two-factor,
+delete the <code>TOTP_SECRET</code> variable in Vercel to disable two-factor,
 then repeat this setup. Refreshing this page generates a new secret — use the
 one you actually saved in both places.</p>
 <p><a href="/">&larr; Back to the app</a></p>

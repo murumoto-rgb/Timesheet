@@ -60,10 +60,17 @@ Only then was the snapshot imported into empty production Neon storage.
 The owner requires the phone layout on desktop as well. The inherited
 `workspace.css` desktop media block expanded selected views to 1,120px and two
 columns; it was present in both the retained Render page and initial Vercel page.
-That block is removed in build `2026.10.08.1`, restoring the base 520px maximum
+That block is removed in build `2026.10.08.2`, restoring the base 520px maximum
 width and single-column layout for every screen. Phone CSS, colors and controls
 are unchanged. Responsive checks cover 320px, 390px and 1280px, including all main
-views, project detail and reconciliation.
+views, project detail and reconciliation. A genuine desktop browser context is
+also tested, rather than only widening a mobile context. All 79 existing frontend tests
+and the backend suite passed; two additional hosting-screen tests also passed.
+See [the full screen matrix](SCREEN_PARITY_CHECK.md) for scope and evidence. Live browser journeys checked log/project picker,
+week, report, project notes/plan/billing, overview, tools/service categories,
+reconciliation, activity, rate diagnostics, two-factor and legal pages. The
+two-factor helper now names Vercel rather than Render in its hosting instructions;
+its formatting and existing authenticator configuration are unchanged.
 
 ## Browser-local state and future operation
 
