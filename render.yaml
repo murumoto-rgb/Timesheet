@@ -8,7 +8,8 @@ services:
     buildCommand: pip install -r requirements.txt -c requirements.lock
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --forwarded-allow-ips '*'
     numInstances: 1
-    autoDeployTrigger: checksPass
+    # Retained recovery host after the Vercel cutover; never restart via a merge.
+    autoDeployTrigger: off
     healthCheckPath: /api/status
     disk:
       name: qbo-data

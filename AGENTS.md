@@ -24,8 +24,9 @@ or an explicitly authorized sandbox. Keep unrelated local work and private data 
 - Preserve exact whole minutes. A notes-only edit must not round existing duration.
 - Keep project/person identities distinct. Preserve unknown rates as unknown and
   separate time value, billed time and received cash; never show hours as dollars.
-- Deployment remains one instance/worker until the narrower token/audit/push state
-  contract is deliberately changed and verified.
+- Legacy disk/Supabase deployments remain one instance/worker. The verified
+  production Postgres backend coordinates token/audit/push and journal state
+  across Vercel invocations using database locks.
 
 ## Conventions
 
@@ -33,8 +34,9 @@ or an explicitly authorized sandbox. Keep unrelated local work and private data 
   APP_PASSWORD cookie gate, plus optional TOTP two-factor via `TOTP_SECRET` —
   pure-stdlib RFC 6238, enroll at `/mfa-setup`).
 - Token persistence is isolated to `_load_tokens` / `_save_tokens` in `main.py`:
-  local JSON file by default, Supabase table (`qbo_tokens`) when
-  `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` are set (diskless Render free tier).
+  production uses encrypted Postgres when `DATABASE_URL` and
+  `TIMESHEET_ENCRYPTION_KEY` are set; legacy local JSON is the default and Supabase
+  (`qbo_tokens`) uses `SUPABASE_URL` + `SUPABASE_SERVICE_KEY`.
 - Surface useful QBO validation messages and support IDs without exposing tokens.
 - Never commit `.env` or `qbo_tokens.json`.
 - **Build number**: `#buildInfo` in `index.html`'s footer shows `build

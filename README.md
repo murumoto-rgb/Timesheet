@@ -125,6 +125,10 @@ access — check the current requirement in the portal.
 - When `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are configured, server state uses
   the private `qbo_tokens` table instead of local files. Never expose its service
   key in browser code. See the recovery guide before changing storage.
-- Run one application instance and one worker. The operation journal supports
-  atomic concurrency, but token refresh, reminders and legacy audit/push storage
-  still require the single-instance deployment described in the recovery guide.
+- Legacy disk/Supabase hosting requires one application instance and one worker.
+  Production Vercel uses the verified Postgres backend and database locks to
+  coordinate shared state across invocations. See the recovery guide.
+
+## Production hosting
+
+Production is [qbo-timesheet.vercel.app](https://qbo-timesheet.vercel.app), using Vercel and a dedicated Neon production branch. Sign in with the existing app password and authenticator. Render is suspended for recovery. See [the verified cutover state](docs/MIGRATION_CUTOVER_STATE.md) for evidence, new-origin device setup and safe rollback, and [the migration plan](docs/VERCEL_NEON_MIGRATION.md) for implementation details.

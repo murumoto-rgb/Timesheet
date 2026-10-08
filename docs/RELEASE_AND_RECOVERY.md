@@ -2,7 +2,7 @@
 
 ## Reproducible verification
 
-The checked-in runtime is Python 3.13.7 (`.python-version`) and Node 22 or later.
+The checked-in runtime family is Python 3.13 (`.python-version`) and Node 22 or later.
 `requirements.lock` pins the Python runtime and test dependencies. Runtime-only
 installs use `requirements.txt` with the lock as constraints. `package-lock.json`
 pins Playwright and its matching browser installer.
@@ -29,7 +29,7 @@ check stops the workflow; tests never need production credentials.
 
 ## Deployment limits
 
-Run **one app instance and one worker**. The operation journal uses file locks
+For legacy disk/Supabase storage, run **one app instance and one worker**. The operation journal uses file locks
 or Supabase revision comparisons, but OAuth refresh, reminder scheduling and the
 legacy audit/push blobs still require a single running process. `WEB_CONCURRENCY`
 must be `1`; the app refuses another value. The launcher and Render blueprint
@@ -37,7 +37,7 @@ explicitly start one worker. Do not run a second local server connected to the
 same production company/storage while the hosted server is running.
 
 The Render blueprint pins Python, constrains dependencies, specifies one
-instance with a persistent disk, and requests `autoDeployTrigger: checksPass`.
+instance with a persistent disk, and now declares `autoDeployTrigger: off` for the suspended recovery host.
 [Render documents this deployment setting](https://render.com/docs/blueprint-spec#autodeploytrigger)
 and [Python version selection](https://render.com/docs/python-version).
 These repository settings are **not proof** that an existing remote service has
@@ -55,9 +55,21 @@ connection or starting a new empty store. The connection, journal, reminders and
 audit history must be reviewed and moved together with both copies stopped;
 the launcher displays a plain-language request you can give Codex for that move.
 It requires Python 3.13.7 or a newer 3.13 patch and preserves an incompatible
-virtual environment before rebuilding it. CI and Render use the exact tested
-patch. Python dependencies are version-pinned; the lock does not include wheel
+virtual environment before rebuilding it. Render retains its explicit patch pin; Vercel and CI select an available
+3.13 patch. Python dependencies are version-pinned; the lock does not include wheel
 hashes. Install from the trusted package index and review dependency updates.
+
+Production now uses the Postgres backend on Vercel, coordinating shared state
+across invocations with database locks and committed journal transitions. See
+[the verified cutover state](MIGRATION_CUTOVER_STATE.md) for current production
+evidence and rollback gates. Render is suspended with automatic deployment OFF;
+never resume its stale OAuth grant without first transferring current Neon state.
+For Postgres recovery, use `python -m scripts.neon_transfer export` with a private
+secrets file and a new private destination; validate its four-blob manifest and
+restore offline before any live restore. Stop authoritative writers before a
+rollback export/import, preserve company binding and pending operations, and
+keep configuration/encryption keys protected separately. These exports contain
+credentials and must stay outside Git.
 
 ## Local data backup
 

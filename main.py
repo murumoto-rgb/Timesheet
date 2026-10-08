@@ -23,7 +23,7 @@ import threading
 import tempfile
 import uuid
 import urllib.parse
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -44,6 +44,39 @@ from time_reconciliation import report as _reconciliation_report
 load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SERVERLESS = os.environ.get("VERCEL") == "1"
+# Every Vercel preview is read-only even if a deployment variable is omitted.
+# Production also stays guarded until the explicit owner-approved activation.
+PREVIEW_READ_ONLY = os.environ.get("TIMESHEET_PREVIEW_READ_ONLY", "0") == "1" or (
+    SERVERLESS and (os.environ.get("VERCEL_ENV") != "production"
+                   or os.environ.get("TIMESHEET_PRODUCTION_ACTIVATED") != "1")
+)
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+_store = None
+_store_init_lock = threading.Lock()
+
+
+def _postgres():
+    global _store
+    if not DATABASE_URL:
+        return None
+    with _store_init_lock:
+        if _store is None:
+            from postgres_store import PostgresStore
+            _store = PostgresStore(DATABASE_URL, os.environ.get("TIMESHEET_ENCRYPTION_KEY", ""))
+    return _store
+
+
+@contextmanager
+def _storage_lock(name, local_lock):
+    store = _postgres()
+    if store is not None:
+        with store.lock(name):
+            yield
+    else:
+        with local_lock:
+            yield
+
 
 CLIENT_ID = os.environ.get("QBO_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("QBO_CLIENT_SECRET", "")
@@ -107,26 +140,29 @@ async def _lifespan(app):
     except ValueError:
         workers = 0
     if workers != 1:
-        raise RuntimeError("WEB_CONCURRENCY must be 1. Token refresh, OAuth, audit and reminder state require one application worker.")
+        raise RuntimeError("WEB_CONCURRENCY must be 1. Vercel isolates function instances; legacy hosting requires one worker.")
     if HOSTED and not APP_PASSWORD:
         raise RuntimeError(
             "APP_PASSWORD is required when the Timesheet app is hosted or connected to production."
         )
-    # Start the daily-reminder background thread on startup (lifespan replaces
-    # the deprecated @app.on_event("startup")). _reminder_loop is defined below.
-    threading.Thread(target=_reminder_loop, daemon=True).start()
+    if SERVERLESS and not DATABASE_URL:
+        raise RuntimeError("Vercel requires DATABASE_URL; local disk storage is not durable.")
+    if DATABASE_URL:
+        _postgres()  # validate configuration, without opening a connection
+    if not SERVERLESS:
+        threading.Thread(target=_reminder_loop, daemon=True).start()
     yield
 
 
 app = FastAPI(title="QBO Timesheet", lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+_oauth_lock = threading.RLock()
 _pending_states: dict[str, float] = {}  # OAuth CSRF state -> creation time
 
 
 def _qbo_error(resp):
-    """Log full QBO diagnostics, but return a small, safe, readable error."""
+    """Log provider identifiers; return useful validation details to the user."""
     tid = resp.headers.get("intuit_tid", "")
-    log.error("QBO error %s tid=%s: %s", resp.status_code, tid, resp.text[:1000])
     code, message = "", "QuickBooks could not complete this request."
     try:
         errors = (resp.json().get("Fault") or {}).get("Error") or []
@@ -136,6 +172,8 @@ def _qbo_error(resp):
             message = first.get("Detail") or first.get("Message") or message
     except (ValueError, TypeError, AttributeError):
         pass
+    safe_code = code if code.isdigit() and len(code) <= 12 else "unknown"
+    log.error("QBO error status=%s tid=%s code=%s", resp.status_code, tid, safe_code)
     return HTTPException(
         resp.status_code,
         {"message": message, "code": code, "supportId": tid or None},
@@ -148,7 +186,8 @@ def _qbo_error(resp):
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 _redirect_host = (urllib.parse.urlparse(REDIRECT_URI).hostname or "").lower()
 HOSTED = (
-    ENVIRONMENT == "production"
+    SERVERLESS
+    or ENVIRONMENT == "production"
     or urllib.parse.urlparse(REDIRECT_URI).scheme == "https"
     or _redirect_host not in {"", "localhost", "127.0.0.1", "::1"}
 )
@@ -167,7 +206,7 @@ if TOTP_SECRET and not APP_PASSWORD:
     # is off entirely, so TOTP would be silently inert and the app fully open.
     log.warning("TOTP_SECRET is set but APP_PASSWORD is empty — the app is UNGATED "
                 "and two-factor is inactive. Set APP_PASSWORD to enable auth.")
-_PUBLIC_PATHS = {"/", "/login", "/api/status", "/eula", "/privacy", "/sw.js"}
+_PUBLIC_PATHS = {"/", "/login", "/api/status", "/eula", "/privacy", "/sw.js", "/api/health", "/api/cron/reminders"}
 
 
 def _totp(secret_b32, when=None, step=30, digits=6):
@@ -237,6 +276,11 @@ def _set_auth_cookie(resp, request, now=None):
 @app.middleware("http")
 async def require_password(request: Request, call_next):
     path = request.url.path
+    if SERVERLESS and not DATABASE_URL and path != "/api/health":
+        return JSONResponse({"detail": "Durable database configuration is required."}, status_code=503)
+    if PREVIEW_READ_ONLY and (path in {"/connect", "/callback", "/api/cron/reminders"}
+            or (request.method in {"POST", "PUT", "PATCH", "DELETE"} and path not in {"/login", "/logout"})):
+        return JSONResponse({"detail": "Preview mode blocks accounting writes, connection changes and push sends."}, status_code=403)
     if HOSTED and not APP_PASSWORD and path != "/api/status":
         return JSONResponse(
             {"detail": "This hosted app is locked because APP_PASSWORD is not configured."},
@@ -294,46 +338,76 @@ class Login(BaseModel):
 
 
 _login_attempts: dict[str, list[float]] = {}
-_login_lock = threading.Lock()
+_login_lock = threading.RLock()
 LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_FAILURES = 8
 
 
 def _login_key(request):
-    return request.client.host if request.client else "unknown"
+    address = request.client.host if request.client else "unknown"
+    if SERVERLESS:
+        # Vercel's edge overwrites x-vercel-forwarded-for; do not trust generic XFF.
+        address = request.headers.get("x-vercel-forwarded-for", address).split(",")[0].strip()
+    return hashlib.sha256(address.encode()).hexdigest()
+
+
+def _login_state():
+    if DATABASE_URL:
+        return _postgres().load(6) or {}
+    return _login_attempts
+
+
+def _save_login_state(data):
+    if DATABASE_URL:
+        _postgres().save(6, data)
+
+
+def _clear_login(request):
+    data = _login_state()
+    data.pop(_login_key(request), None)
+    _save_login_state(data)
 
 
 def _login_failures(request):
     key, cutoff = _login_key(request), time.time() - LOGIN_WINDOW
-    with _login_lock:
-        recent = [t for t in _login_attempts.get(key, []) if t >= cutoff]
-        _login_attempts[key] = recent
+    with _storage_lock("login", _login_lock):
+        data = _login_state()
+        recent = [t for t in data.get(key, []) if t >= cutoff]
         return len(recent)
 
 
 def _record_login_failure(request):
     key = _login_key(request)
-    with _login_lock:
-        _login_attempts.setdefault(key, []).append(time.time())
+    with _storage_lock("login", _login_lock):
+        data = _login_state()
+        cutoff = time.time() - LOGIN_WINDOW
+        data = {k: [t for t in v if t >= cutoff] for k, v in data.items() if any(t >= cutoff for t in v)}
+        if len(data) >= 10000 and key not in data:
+            raise HTTPException(429, "Sign-in is temporarily rate limited.")
+        data.setdefault(key, []).append(time.time())
+        if DATABASE_URL:
+            _save_login_state(data)
+        else:
+            _login_attempts.clear()
+            _login_attempts.update(data)
 
 
 @app.post("/login")
 def login(body: Login, request: Request):
-    if _login_failures(request) >= LOGIN_MAX_FAILURES:
-        raise HTTPException(429, "Too many sign-in attempts. Wait 15 minutes and try again.")
-    if APP_PASSWORD and not hmac.compare_digest(body.password, APP_PASSWORD):
-        _record_login_failure(request)
-        raise HTTPException(401, "The password or authentication code was not accepted.")
-    if TOTP_SECRET and not _totp_valid(body.code):
-        _record_login_failure(request)
-        raise HTTPException(401, "The password or authentication code was not accepted.")
-    with _login_lock:
-        _login_attempts.pop(_login_key(request), None)
-    resp = JSONResponse({"ok": True})
-    if APP_PASSWORD:
-        _set_auth_cookie(resp, request)
-    return resp
-
+    with _storage_lock("login", _login_lock):
+        if _login_failures(request) >= LOGIN_MAX_FAILURES:
+            raise HTTPException(429, "Too many sign-in attempts. Wait 15 minutes and try again.")
+        if APP_PASSWORD and not hmac.compare_digest(body.password, APP_PASSWORD):
+            _record_login_failure(request)
+            raise HTTPException(401, "The password or authentication code was not accepted.")
+        if TOTP_SECRET and not _totp_valid(body.code):
+            _record_login_failure(request)
+            raise HTTPException(401, "The password or authentication code was not accepted.")
+        _clear_login(request)
+        resp = JSONResponse({"ok": True})
+        if APP_PASSWORD:
+            _set_auth_cookie(resp, request)
+        return resp
 
 @app.post("/logout")
 def logout():
@@ -365,6 +439,8 @@ PUSH_FILE = os.path.join(os.path.dirname(TOKENS_FILE) or BASE_DIR, "qbo_push.jso
 
 
 def _load_blob(path, sb_id):
+    if DATABASE_URL:
+        return _postgres().load(sb_id)
     if SUPABASE_URL and SUPABASE_KEY:
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/qbo_tokens",
@@ -393,6 +469,8 @@ def _load_blob(path, sb_id):
 
 
 def _save_blob(path, sb_id, data):
+    if DATABASE_URL:
+        return _postgres().save(sb_id, data)
     if SUPABASE_URL and SUPABASE_KEY:
         resp = requests.post(
             f"{SUPABASE_URL}/rest/v1/qbo_tokens",
@@ -431,7 +509,7 @@ def _load_tokens():
 def _save_tokens(data):
     # Also used by OAuth callback: a company cannot change while a time write
     # is validating its browser identity, preflighting, or reaching QBO.
-    with _token_lock:
+    with _storage_lock("tokens", _token_lock):
         _save_blob(TOKENS_FILE, 1, data)
 
 
@@ -496,7 +574,7 @@ def _audit(action, entry_id, ta, request=None, before=None, scope=None):
             rec["before"] = _ta_summary(before)
         if request is not None and request.client:
             rec["ip"] = request.client.host
-        with _audit_lock:
+        with _storage_lock("audit", _audit_lock):
             data = _load_audit()
             events = data.get("events", [])
             events.append(rec)
@@ -513,8 +591,21 @@ def _basic_auth_header():
     return "Basic " + base64.b64encode(raw).decode()
 
 
+def _upstream_unavailable(stage):
+    reference = uuid.uuid4().hex[:12]
+    # Exception strings and provider bodies can contain credentials or URLs.
+    log.warning("QuickBooks request unavailable stage=%s reference=%s", stage, reference)
+    return HTTPException(502, {"code": "QBO_UNAVAILABLE",
+        "message": "QuickBooks is temporarily unavailable or returned an unreadable response. Retry shortly.",
+        "supportId": reference})
+
+
 def _token_request(payload):
-    resp = requests.post(
+    if PREVIEW_READ_ONLY and ENVIRONMENT != "sandbox":
+        raise HTTPException(403, "Preview cannot exchange or refresh production QuickBooks credentials.")
+    stage = "token_refresh" if payload.get("grant_type") == "refresh_token" else "token_exchange"
+    try:
+        resp = requests.post(
         token_url(),
         headers={
             "Authorization": _basic_auth_header(),
@@ -523,15 +614,32 @@ def _token_request(payload):
         },
         data=payload,
         timeout=30,
-    )
+        )
+    except requests.RequestException:
+        raise _upstream_unavailable(stage) from None
     if resp.status_code >= 400:
         tid = resp.headers.get("intuit_tid", "")
-        log.error("Token endpoint error %s tid=%s: %s", resp.status_code, tid, resp.text[:500])
+        log.error("Token endpoint error status=%s tid=%s", resp.status_code, tid)
         raise HTTPException(
             resp.status_code,
-            {"message": "QuickBooks sign-in could not be completed. Try reconnecting.", "supportId": tid or None},
+            {"message": ("QuickBooks is temporarily unavailable. Retry shortly."
+                if resp.status_code >= 500 or resp.status_code in (408, 429)
+                else "QuickBooks sign-in could not be completed. Try reconnecting."), "supportId": tid or None},
         )
-    return resp.json()
+    try:
+        data = resp.json()
+        if not isinstance(data, dict) or not isinstance(data.get("access_token"), str) or not data["access_token"]:
+            raise ValueError
+        expires = data.get("expires_in")
+        if isinstance(expires, bool) or not isinstance(expires, (int, float)) or not math.isfinite(expires) or expires <= 0:
+            raise ValueError
+        if payload.get("grant_type") == "authorization_code" and not data.get("refresh_token"):
+            raise ValueError
+        if "refresh_token" in data and (not isinstance(data["refresh_token"], str) or not data["refresh_token"]):
+            raise ValueError
+        return data
+    except (ValueError, TypeError):
+        raise _upstream_unavailable(stage + "_decode") from None
 
 
 _token_lock = threading.RLock()  # token refresh, OAuth replacement, and time-write company fence
@@ -539,11 +647,13 @@ _token_lock = threading.RLock()  # token refresh, OAuth replacement, and time-wr
 
 def get_access_token():
     """Return (access_token, realm_id), refreshing the access token if stale."""
+    if PREVIEW_READ_ONLY and ENVIRONMENT != "sandbox":
+        raise HTTPException(403, "Preview cannot access production QuickBooks credentials.")
     tokens = _load_tokens()
     if not tokens:
         raise HTTPException(401, "Not connected. Open / and click Connect QuickBooks.")
     if time.time() > tokens.get("access_expires_at", 0) - 60:
-        with _token_lock:
+        with _storage_lock("tokens", _token_lock):
             # Re-read under the lock: another thread may have just refreshed
             # (and rotated the refresh token) while we waited.
             tokens = _load_tokens() or tokens
@@ -552,7 +662,9 @@ def get_access_token():
                     fresh = _token_request(
                         {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]}
                     )
-                except HTTPException:
+                except HTTPException as exc:
+                    if exc.status_code >= 500 or exc.status_code in {408, 429}:
+                        raise
                     # Refresh token revoked or expired — the only fix is to reconnect.
                     raise HTTPException(401, "QuickBooks connection expired. Reconnect from the home screen.")
                 tokens["access_token"] = fresh["access_token"]
@@ -565,15 +677,24 @@ def get_access_token():
 
 def qbo_query(statement):
     access_token, realm_id = get_access_token()
-    resp = requests.get(
+    try:
+        resp = requests.get(
         f"{API_BASE}/v3/company/{realm_id}/query",
         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
         params={"query": statement, "minorversion": MINOR_VERSION},
         timeout=30,
-    )
+        )
+    except requests.RequestException:
+        raise _upstream_unavailable("query_transport") from None
     if resp.status_code >= 400:
         raise _qbo_error(resp)
-    return resp.json().get("QueryResponse", {})
+    try:
+        data = resp.json()
+        if not isinstance(data, dict) or not isinstance(data.get("QueryResponse"), dict):
+            raise ValueError
+        return data["QueryResponse"]
+    except (ValueError, TypeError):
+        raise _upstream_unavailable("query_decode") from None
 
 
 # ---------------------------------------------------------------------------
@@ -611,6 +732,13 @@ def privacy():
     return FileResponse(os.path.join(BASE_DIR, "static", "privacy.html"))
 
 
+@app.get("/api/health")
+def health():
+    # Intentionally does not query Neon: uptime probes must not prevent sleep.
+    return {"ok": True, "storage": "postgres" if DATABASE_URL else "legacy",
+            "previewReadOnly": PREVIEW_READ_ONLY}
+
+
 @app.get("/api/status")
 def status(request: Request):
     tokens = _load_tokens() or {}
@@ -620,6 +748,7 @@ def status(request: Request):
         "connected": bool(tokens),
         "environment": ENVIRONMENT,
         "configured": bool(CLIENT_ID and CLIENT_SECRET),
+        "previewReadOnly": PREVIEW_READ_ONLY,
         "auth_required": bool(APP_PASSWORD) or HOSTED,
         "mfa_required": bool(TOTP_SECRET),
         "authed": _is_authed(request),
@@ -630,7 +759,7 @@ def status(request: Request):
 @app.get("/mfa-setup")
 def mfa_setup():
     """One-time enrollment helper: generates a secret to add to your
-    authenticator app and to Render as TOTP_SECRET. Password-gated."""
+    authenticator app and to Vercel as TOTP_SECRET. Password-gated."""
     secret = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
     label = "QBO%20Timesheet"
     otpauth = f"otpauth://totp/{label}?secret={secret}&issuer=QBO%20Timesheet"
@@ -653,13 +782,13 @@ text-align:center}} a{{color:#4c9be8}} ol{{padding-left:20px}} li{{margin:10px 0
 <li>In <b>1Password</b> (or Google Authenticator): add a one-time password /
 add TOTP, and paste this secret — or use this setup link:<br>
 <code>{otpauth}</code></li>
-<li>In <b>Render</b> &rarr; your service &rarr; <b>Environment</b>, add a variable
-<code>TOTP_SECRET</code> set to the secret above, and save. Render redeploys.</li>
+<li>In <b>Vercel</b> &rarr; your project &rarr; <b>Settings &rarr; Environment Variables</b>, add a variable
+<code>TOTP_SECRET</code> set to the secret above for Production, save, and redeploy the project.</li>
 <li>After it redeploys, sign in: you'll enter your password <b>and</b> the current
 6-digit code from your authenticator.</li>
 </ol>
 <p class="note">Keep this secret private. If you ever lose your authenticator,
-delete the <code>TOTP_SECRET</code> variable in Render to disable two-factor,
+delete the <code>TOTP_SECRET</code> variable in Vercel to disable two-factor,
 then repeat this setup. Refreshing this page generates a new secret — use the
 one you actually saved in both places.</p>
 <p><a href="/">&larr; Back to the app</a></p>
@@ -672,13 +801,17 @@ def connect():
     if not (CLIENT_ID and CLIENT_SECRET):
         raise HTTPException(500, "Set QBO_CLIENT_ID and QBO_CLIENT_SECRET in .env first.")
     now = time.time()
-    for old_state, created in list(_pending_states.items()):
-        if now - created > 600:
-            _pending_states.pop(old_state, None)
-    while len(_pending_states) >= 20:
-        _pending_states.pop(next(iter(_pending_states)))
     state = secrets.token_urlsafe(24)
-    _pending_states[state] = now
+    with _storage_lock("oauth", _oauth_lock):
+        pending = (_postgres().load(5) or {}) if DATABASE_URL else _pending_states
+        for old_state, created in list(pending.items()):
+            if now - created > 600:
+                pending.pop(old_state, None)
+        while len(pending) >= 20:
+            pending.pop(next(iter(pending)))
+        pending[state] = now
+        if DATABASE_URL:
+            _postgres().save(5, pending)
     params = {
         "client_id": CLIENT_ID,
         "response_type": "code",
@@ -691,7 +824,11 @@ def connect():
 
 @app.get("/callback")
 def callback(code: str = "", state: str = "", realmId: str = ""):
-    created = _pending_states.pop(state, None)
+    with _storage_lock("oauth", _oauth_lock):
+        pending = (_postgres().load(5) or {}) if DATABASE_URL else _pending_states
+        created = pending.pop(state, None)
+        if DATABASE_URL:
+            _postgres().save(5, pending)
     if created is None or time.time() - created > 600:
         raise HTTPException(400, "Invalid or expired state.")
     data = _token_request(
@@ -721,6 +858,8 @@ def qbo_query_all(entity, where="", key=None):
             f"SELECT * FROM {entity} {where} STARTPOSITION {start} MAXRESULTS {page}".strip()
         )
         batch = rows.get(key, [])
+        if not isinstance(batch, list) or any(not isinstance(row, dict) for row in batch):
+            raise _upstream_unavailable("query_rows_decode")
         out.extend(batch)
         if start > 100000:
             raise HTTPException(413, f"QuickBooks returned more than 100,000 {entity} records. Narrow the date range.")
@@ -1029,7 +1168,7 @@ OP_FILE = os.path.join(os.path.dirname(TOKENS_FILE) or BASE_DIR, "qbo_operations
 
 
 def _journal():
-    return Journal(OP_FILE, url=SUPABASE_URL if SUPABASE_KEY else "", headers=_sb_headers())
+    return Journal(OP_FILE, store=_postgres(), url=SUPABASE_URL if SUPABASE_KEY else "", headers=_sb_headers())
 
 
 def _operation_id(value):
@@ -1062,7 +1201,7 @@ def _company_changed():
 def _browser_write(company_key, operation_id, action, payload, prepare):
     # The single-process deployment constraint makes this the same lock used
     # by token refresh and OAuth replacement, including reentrant refreshes.
-    with _token_lock:
+    with _storage_lock("tokens", _token_lock):
         if not isinstance(company_key, str) or not company_key:
             raise HTTPException(428, {"code": "COMPANY_REQUIRED", "message":
                 "Reload the app before saving so its QuickBooks company can be verified."})
@@ -1517,11 +1656,24 @@ def project_financials(project_id: str, start: str | None = None, end: str | Non
 def reconciliation(start: str | None = None, end: str | None = None):
     """Fresh scoped QBO data versus durable receipts; never repairs or writes."""
     start, end = _project_range(start, end)
-    scope = _write_scope()
-    rows = qbo_query_all("TimeActivity", f"WHERE TxnDate >= '{start}' AND TxnDate <= '{end}'")
-    journal = _load_operations()
-    audit = _load_audit()
-    return _reconciliation_report(rows, journal["operations"], audit.get("events", []), start, end, scope)
+    stage = "scope"
+    try:
+        scope = _write_scope()
+        stage = "query"
+        rows = qbo_query_all("TimeActivity", f"WHERE TxnDate >= '{start}' AND TxnDate <= '{end}'")
+        stage = "storage"
+        journal = _load_operations()
+        audit = _load_audit()
+        stage = "comparison"
+        return _reconciliation_report(rows, journal["operations"], audit.get("events", []), start, end, scope)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        reference = uuid.uuid4().hex[:12]
+        log.warning("Reconciliation unavailable stage=%s reference=%s exception=%s", stage, reference, type(exc).__name__)
+        raise HTTPException(500, {"code": "RECONCILIATION_UNAVAILABLE",
+            "message": "Reconciliation could not be completed. Retry shortly or share the support ID.",
+            "supportId": reference}) from None
 
 
 @app.delete("/api/timeactivity/{entry_id}")
@@ -1787,7 +1939,7 @@ def _b64u(b):
 
 def _vapid():
     """Return the persisted VAPID keypair, generating + saving it on first use."""
-    with _push_lock:
+    with _storage_lock("push", _push_lock):
         push = _load_push()
         if not push.get("vapid"):
             priv = ec.generate_private_key(ec.SECP256R1())
@@ -1859,14 +2011,14 @@ def _notify_all():
     """Send the reminder to every subscribed device; prune dead subs. Reads and
     prunes under _push_lock (network sends happen outside it) and re-reads before
     pruning so a subscription added concurrently isn't clobbered."""
-    with _push_lock:
+    with _storage_lock("push", _push_lock):
         subs = list(_load_push().get("subs", []))
     if not subs:
         return 0
     alive = [s for s in subs if _send_push(s)]  # network — outside the lock
     dead = [s for s in subs if s not in alive]
     if dead:
-        with _push_lock:
+        with _storage_lock("push", _push_lock):
             push = _load_push()
             push["subs"] = [s for s in push.get("subs", []) if s not in dead]
             _save_push(push)
@@ -1888,7 +2040,7 @@ def _reminder_tick():
     today = now.date().isoformat()
     # Claim the once-per-day/week slots under the lock so this write can't clobber
     # a subscription added concurrently. Release before the QBO check / sends.
-    with _push_lock:
+    with _storage_lock("push", _push_lock):
         push = _load_push()
         if not push.get("subs"):
             return
@@ -1909,6 +2061,17 @@ def _reminder_tick():
     if "daily" in due and not _logged_time_today(today):
         n = _notify_all()
         log.info("daily reminder sent to %d device(s)", n)
+
+
+@app.get("/api/cron/reminders")
+def reminder_cron(request: Request):
+    secret = os.environ.get("CRON_SECRET", "")
+    if not secret or not hmac.compare_digest(request.headers.get("authorization", ""), "Bearer " + secret):
+        raise HTTPException(401, "Scheduled request authorization required.")
+    if PREVIEW_READ_ONLY:
+        raise HTTPException(403, "Preview reminders are disabled.")
+    _reminder_tick()
+    return {"ok": True}
 
 
 def _reminder_loop():
@@ -1949,7 +2112,7 @@ def push_config():
 
 @app.post("/api/push/subscribe")
 def push_subscribe(sub: PushSub):
-    with _push_lock:
+    with _storage_lock("push", _push_lock):
         push = _load_push()
         push.setdefault("subs", [])
         if not any(s.get("endpoint") == sub.endpoint for s in push["subs"]):

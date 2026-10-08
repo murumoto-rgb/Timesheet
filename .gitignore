@@ -17,3 +17,7 @@ test-results/
 playwright-report/
 scratchpad/
 .DS_Store
+
+.vercel/
+.env.*
+!.env.example

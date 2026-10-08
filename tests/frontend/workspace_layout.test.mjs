@@ -58,6 +58,8 @@ async function assertFits(page, width, label) {
   const bar = await page.locator("#tabbar").boundingBox();
   assert.ok(bar && bar.x >= -1 && bar.x + bar.width <= width + 1, `${label}: tabbar fits viewport`);
   assert.equal(await page.locator("#tabbar button:visible").count(), 5, `${label}: all five navigation tabs remain visible`);
+  const body = await page.locator("body").boundingBox();
+  assert.ok(body.width <= 520 && bar.width <= 520, `${label}: keep the phone-width layout on every viewport`);
   if (width === 1280) assert.ok(Math.abs(bar.x + bar.width / 2 - width / 2) <= 1, `${label}: desktop tabbar must remain centered`);
 }
 
@@ -103,6 +105,27 @@ for (const width of [320, 390, 1280]) {
     } finally { await ctx.close(); }
   });
 }
+
+test("desktop keeps the phone layout across the main views", async () => {
+  const { ctx, page, errors } = await openApp(browser, fixture, undefined, { desktop: true });
+  try {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    for (const view of ["log", "week", "report", "projects", "dash"]) {
+      await page.click(`#tabbar button[data-view="${view}"]`);
+      await page.waitForFunction(expected => document.body.dataset.view === expected, view);
+      await assertFits(page, 1280, view);
+      const container = { report: "#repMain", projects: "#projectList", dash: "#dashBody" }[view];
+      if (container) assert.equal(await page.locator(container).evaluate(node => getComputedStyle(node).gridTemplateColumns), "none", `${view}: preserve single-column layout`);
+    }
+    await drill(page);
+    await assertFits(page, 1280, "Project details on desktop");
+    await page.click("#workspaceMenuButton");
+    await assertFits(page, 1280, "Desktop tools menu");
+    await page.click("#openReconciliation");
+    await assertFits(page, 1280, "Desktop reconciliation");
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); }
+});
 
 test("fee-only project budget persists without inventing planned hours", async () => {
   const { ctx, page } = await openApp(browser, fixture);

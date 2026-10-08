@@ -150,14 +150,17 @@ def test_cas_concurrent_claims_and_completions_do_not_lose_other_operations(monk
     wire(monkeypatch)
     store = fake_remote(monkeypatch, tmp_path)
     monkeypatch.setattr(main, "_post_timeactivity", lambda p, params=None: {"Id": params["requestid"], **p})
-    entries = [entry(employee_id=f"person-{i}") for i in range(8)]
+    # Each save commits three journal mutations. Four saves produce at most
+    # nine competing mutations per CAS attempt, below the intentional 16-try
+    # bound. Eight saves could legitimately starve a client beyond that bound.
+    entries = [entry(employee_id=f"person-{i}") for i in range(4)]
     with ThreadPoolExecutor(max_workers=4) as pool:
         # Independent hosts do not share the single-process token lock. Test
         # their journal clients directly to force real CAS contention.
         results = list(pool.map(lambda e: main._journaled_qbo_write(e.operation_id, "create",
                             main._timeactivity_payload(e), prepare=lambda: main._guard_new_time(e)), entries))
     records = main._load_operations()["operations"]
-    assert len(records) == 8 and {r["status"] for r in records} == {"completed"}
+    assert len(records) == 4 and {r["status"] for r in records} == {"completed"}
     assert {r["operationId"] for r in records} == {r["operationId"] for r in results}
     assert store.conflicts > 0
 

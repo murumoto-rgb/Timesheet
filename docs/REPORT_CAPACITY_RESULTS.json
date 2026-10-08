@@ -1,0 +1,755 @@
+{
+  "aboveGenericBodyLimitDelivered": true,
+  "appBuild": "2026.10.06.2",
+  "appSourceCommit": "17db4c69b3eb1b13b8ef643b72a77596c3d115c6",
+  "browser": {
+    "comparisonRowsPerPeriod": 5000,
+    "exactTotalMinutes": 770000,
+    "renderedReportRows": 10000,
+    "scope": "Headless Chromium synthetic HTTP fixtures; deployed API payloads tested separately.",
+    "sourceRows": 10000,
+    "testsPassed": 3
+  },
+  "capacityDeploymentId": "dpl_36YHCagzMayRv5tmSKfy8xRwJx2k",
+  "capacityDeploymentRemoved": true,
+  "capacityDeploymentRemovedAtUtc": "2026-10-07T03:45:29Z",
+  "capacityDeploymentTemporary": true,
+  "deploymentUrl": "https://timesheet-vercel-preview-5upk4wm0l-murumoto-rgbs-projects.vercel.app",
+  "extended": {
+    "delay_ms_per_provider_call": 0,
+    "description_bytes": 128,
+    "endpoints": {
+      "bills": {
+        "amount_total": 1567937.0,
+        "bytes": 5411877,
+        "credit_purchases_excluded": 2272,
+        "provider_calls": 52,
+        "provider_ms": 1031.92,
+        "rows": 47728,
+        "wall_ms": 4408.29
+      },
+      "payments": {
+        "amount_total": 2223889.0,
+        "bytes": 4549441,
+        "provider_calls": 52,
+        "provider_ms": 1182.92,
+        "rows": 50000,
+        "wall_ms": 3891.4
+      },
+      "project_financials": {
+        "bytes": 608313,
+        "linked_payments": 2500,
+        "matched_invoices": 2500,
+        "payment_amount_total": 124991,
+        "provider_calls": 52,
+        "provider_ms": 1002.95,
+        "rows": null,
+        "wall_ms": 3418.84
+      },
+      "ratecheck": {
+        "bytes": 10416,
+        "examined": 25000,
+        "provider_calls": 26,
+        "provider_ms": 442.36,
+        "rows": null,
+        "wall_ms": 1909.14
+      },
+      "receivables": {
+        "billed365": 3737500.0,
+        "bytes": 2828937,
+        "open_invoices": 12500,
+        "provider_calls": 39,
+        "provider_ms": 618.75,
+        "rows": null,
+        "wall_ms": 2890.21
+      },
+      "reconciliation": {
+        "bytes": 908,
+        "provider_calls": 26,
+        "provider_ms": 513.56,
+        "rows": null,
+        "top_level_fields": 9,
+        "wall_ms": 2544.3
+      },
+      "timeactivities": {
+        "bytes": 12599998,
+        "first_id_checked": true,
+        "last_id_checked": true,
+        "minutes": 1925000,
+        "provider_calls": 26,
+        "provider_ms": 668.52,
+        "rows": 25000,
+        "wall_ms": 8677.21
+      }
+    },
+    "requested_rows": 25000
+  },
+  "fixtureBundleManifestSha256": "f0d945f932f195784e61a165c002277d0f933fd0c4d64affee78fdb0fbb14903",
+  "format": 1,
+  "limits": [
+    "No production credential or financial record used; live count and provider latency not measured.",
+    "Stable deterministic pages; no real provider short-page or concurrent mutation behavior established.",
+    "Finite envelope of 25000 time records and 25000 records per financial source entity, not unlimited capacity.",
+    "Optional device/reminder testing waived by owner, not performed."
+  ],
+  "local": {
+    "bundle": {
+      "files": 38,
+      "manifest_sha256": "73175289f00d51ea5e2a4c3ef57578af40736cd6edee0e5244d9aa97e72ee813",
+      "source_sha256": "4443d86db944151dc12107173f8a925dc482a904f4f94795026a6426b08063c4"
+    },
+    "runs": [
+      {
+        "delay_ms_per_provider_call": 0,
+        "description_bytes": 128,
+        "endpoints": {
+          "bills": {
+            "amount_total": 62481.0,
+            "bytes": 216349,
+            "credit_purchases_excluded": 90,
+            "provider_calls": 2,
+            "provider_ms": 2.34,
+            "rows": 1908,
+            "wall_ms": 18.34
+          },
+          "payments": {
+            "amount_total": 87819.0,
+            "bytes": 181795,
+            "provider_calls": 2,
+            "provider_ms": 4.12,
+            "rows": 1998,
+            "wall_ms": 18.0
+          },
+          "project_financials": {
+            "bytes": 25113,
+            "linked_payments": 100,
+            "matched_invoices": 100,
+            "payment_amount_total": 5006,
+            "provider_calls": 2,
+            "provider_ms": 5.18,
+            "rows": null,
+            "wall_ms": 10.77
+          },
+          "ratecheck": {
+            "bytes": 10122,
+            "examined": 999,
+            "provider_calls": 1,
+            "provider_ms": 2.16,
+            "rows": null,
+            "wall_ms": 6.2
+          },
+          "receivables": {
+            "billed365": 149400.0,
+            "bytes": 113520,
+            "open_invoices": 499,
+            "provider_calls": 2,
+            "provider_ms": 2.8,
+            "rows": null,
+            "wall_ms": 10.96
+          },
+          "reconciliation": {
+            "bytes": 904,
+            "provider_calls": 1,
+            "provider_ms": 1.92,
+            "rows": null,
+            "top_level_fields": 9,
+            "wall_ms": 10.38
+          },
+          "timeactivities": {
+            "bytes": 503497,
+            "first_id_checked": true,
+            "last_id_checked": true,
+            "minutes": 76923,
+            "provider_calls": 1,
+            "provider_ms": 2.29,
+            "rows": 999,
+            "wall_ms": 23.2
+          }
+        },
+        "requested_rows": 999
+      },
+      {
+        "delay_ms_per_provider_call": 0,
+        "description_bytes": 128,
+        "endpoints": {
+          "bills": {
+            "amount_total": 62525.0,
+            "bytes": 216575,
+            "credit_purchases_excluded": 90,
+            "provider_calls": 4,
+            "provider_ms": 3.03,
+            "rows": 1910,
+            "wall_ms": 21.03
+          },
+          "payments": {
+            "amount_total": 87910.0,
+            "bytes": 181977,
+            "provider_calls": 4,
+            "provider_ms": 3.49,
+            "rows": 2000,
+            "wall_ms": 18.91
+          },
+          "project_financials": {
+            "bytes": 25113,
+            "linked_payments": 100,
+            "matched_invoices": 100,
+            "payment_amount_total": 5006,
+            "provider_calls": 4,
+            "provider_ms": 4.52,
+            "rows": null,
+            "wall_ms": 10.41
+          },
+          "ratecheck": {
+            "bytes": 10125,
+            "examined": 1000,
+            "provider_calls": 2,
+            "provider_ms": 2.89,
+            "rows": null,
+            "wall_ms": 8.36
+          },
+          "receivables": {
+            "billed365": 149500.0,
+            "bytes": 113746,
+            "open_invoices": 500,
+            "provider_calls": 3,
+            "provider_ms": 2.91,
+            "rows": null,
+            "wall_ms": 12.61
+          },
+          "reconciliation": {
+            "bytes": 905,
+            "provider_calls": 2,
+            "provider_ms": 3.75,
+            "rows": null,
+            "top_level_fields": 9,
+            "wall_ms": 12.88
+          },
+          "timeactivities": {
+            "bytes": 503998,
+            "first_id_checked": true,
+            "last_id_checked": true,
+            "minutes": 77000,
+            "provider_calls": 2,
+            "provider_ms": 2.5,
+            "rows": 1000,
+            "wall_ms": 24.95
+          }
+        },
+        "requested_rows": 1000
+      },
+      {
+        "delay_ms_per_provider_call": 0,
+        "description_bytes": 128,
+        "endpoints": {
+          "bills": {
+            "amount_total": 62562.0,
+            "bytes": 216687,
+            "credit_purchases_excluded": 91,
+            "provider_calls": 4,
+            "provider_ms": 3.5,
+            "rows": 1911,
+            "wall_ms": 21.25
+          },
+          "payments": {
+            "amount_total": 88003.0,
+            "bytes": 182159,
+            "provider_calls": 4,
+            "provider_ms": 4.22,
+            "rows": 2002,
+            "wall_ms": 19.0
+          },
+          "project_financials": {
+            "bytes": 25356,
+            "linked_payments": 101,
+            "matched_invoices": 101,
+            "payment_amount_total": 5060,
+            "provider_calls": 4,
+            "provider_ms": 5.24,
+            "rows": null,
+            "wall_ms": 10.42
+          },
+          "ratecheck": {
+            "bytes": 10125,
+            "examined": 1001,
+            "provider_calls": 2,
+            "provider_ms": 2.58,
+            "rows": null,
+            "wall_ms": 6.92
+          },
+          "receivables": {
+            "billed365": 149601.0,
+            "bytes": 113746,
+            "open_invoices": 500,
+            "provider_calls": 3,
+            "provider_ms": 3.18,
+            "rows": null,
+            "wall_ms": 13.64
+          },
+          "reconciliation": {
+            "bytes": 905,
+            "provider_calls": 2,
+            "provider_ms": 32.34,
+            "rows": null,
+            "top_level_fields": 9,
+            "wall_ms": 40.9
+          },
+          "timeactivities": {
+            "bytes": 504504,
+            "first_id_checked": true,
+            "last_id_checked": true,
+            "minutes": 77077,
+            "provider_calls": 2,
+            "provider_ms": 3.24,
+            "rows": 1001,
+            "wall_ms": 27.75
+          }
+        },
+        "requested_rows": 1001
+      },
+      {
+        "delay_ms_per_provider_call": 0,
+        "description_bytes": 128,
+        "endpoints": {
+          "bills": {
+            "amount_total": 313557.0,
+            "bytes": 1082420,
+            "credit_purchases_excluded": 454,
+            "provider_calls": 12,
+            "provider_ms": 22.74,
+            "rows": 9546,
+            "wall_ms": 87.71
+          },
+          "payments": {
+            "amount_total": 443590.0,
+            "bytes": 909884,
+            "provider_calls": 12,
+            "provider_ms": 26.2,
+            "rows": 10000,
+            "wall_ms": 84.17
+          },
+          "project_financials": {
+            "bytes": 122313,
+            "linked_payments": 500,
+            "matched_invoices": 500,
+            "payment_amount_total": 25010,
+            "provider_calls": 12,
+            "provider_ms": 38.37,
+            "rows": null,
+            "wall_ms": 56.2
+          },
+          "ratecheck": {
+            "bytes": 10125,
+            "examined": 5000,
+            "provider_calls": 6,
+            "provider_ms": 48.21,
+            "rows": null,
+            "wall_ms": 59.6
+          },
+          "receivables": {
+            "billed365": 747500.0,
+            "bytes": 566299,
+            "open_invoices": 2500,
+            "provider_calls": 9,
+            "provider_ms": 18.95,
+            "rows": null,
+            "wall_ms": 54.93
+          },
+          "reconciliation": {
+            "bytes": 906,
+            "provider_calls": 6,
+            "provider_ms": 19.15,
+            "rows": null,
+            "top_level_fields": 9,
+            "wall_ms": 52.24
+          },
+          "timeactivities": {
+            "bytes": 2520000,
+            "first_id_checked": true,
+            "last_id_checked": true,
+            "minutes": 385000,
+            "provider_calls": 6,
+            "provider_ms": 25.72,
+            "rows": 5000,
+            "wall_ms": 122.36
+          }
+        },
+        "requested_rows": 5000
+      },
+      {
+        "delay_ms_per_provider_call": 0,
+        "description_bytes": 128,
+        "endpoints": {
+          "bills": {
+            "amount_total": 627096.0,
+            "bytes": 2164727,
+            "credit_purchases_excluded": 909,
+            "provider_calls": 22,
+            "provider_ms": 94.49,
+            "rows": 19091,
+            "wall_ms": 225.23
+          },
+          "payments": {
+            "amount_total": 889343.0,
+            "bytes": 1819778,
+            "provider_calls": 22,
+            "provider_ms": 112.14,
+            "rows": 20000,
+            "wall_ms": 233.76
+          },
+          "project_financials": {
+            "bytes": 243813,
+            "linked_payments": 1000,
+            "matched_invoices": 1000,
+            "payment_amount_total": 50012,
+            "provider_calls": 22,
+            "provider_ms": 224.43,
+            "rows": null,
+            "wall_ms": 272.92
+          },
+          "ratecheck": {
+            "bytes": 10416,
+            "examined": 10000,
+            "provider_calls": 11,
+            "provider_ms": 83.46,
+            "rows": null,
+            "wall_ms": 105.46
+          },
+          "receivables": {
+            "billed365": 1495000.0,
+            "bytes": 1131953,
+            "open_invoices": 5000,
+            "provider_calls": 17,
+            "provider_ms": 329.59,
+            "rows": null,
+            "wall_ms": 827.1
+          },
+          "reconciliation": {
+            "bytes": 907,
+            "provider_calls": 11,
+            "provider_ms": 56.83,
+            "rows": null,
+            "top_level_fields": 9,
+            "wall_ms": 118.67
+          },
+          "timeactivities": {
+            "bytes": 5039998,
+            "first_id_checked": true,
+            "last_id_checked": true,
+            "minutes": 770000,
+            "provider_calls": 11,
+            "provider_ms": 85.7,
+            "rows": 10000,
+            "wall_ms": 319.97
+          }
+        },
+        "requested_rows": 10000
+      },
+      {
+        "delay_ms_per_provider_call": 0,
+        "description_bytes": 128,
+        "endpoints": {
+          "bills": {
+            "amount_total": 1567937.0,
+            "bytes": 5411877,
+            "credit_purchases_excluded": 2272,
+            "provider_calls": 52,
+            "provider_ms": 531.91,
+            "rows": 47728,
+            "wall_ms": 874.45
+          },
+          "payments": {
+            "amount_total": 2223889.0,
+            "bytes": 4549441,
+            "provider_calls": 52,
+            "provider_ms": 705.67,
+            "rows": 50000,
+            "wall_ms": 1024.62
+          },
+          "project_financials": {
+            "bytes": 608313,
+            "linked_payments": 2500,
+            "matched_invoices": 2500,
+            "payment_amount_total": 124991,
+            "provider_calls": 52,
+            "provider_ms": 889.47,
+            "rows": null,
+            "wall_ms": 969.25
+          },
+          "ratecheck": {
+            "bytes": 10416,
+            "examined": 25000,
+            "provider_calls": 26,
+            "provider_ms": 393.08,
+            "rows": null,
+            "wall_ms": 444.83
+          },
+          "receivables": {
+            "billed365": 3737500.0,
+            "bytes": 2828937,
+            "open_invoices": 12500,
+            "provider_calls": 39,
+            "provider_ms": 552.22,
+            "rows": null,
+            "wall_ms": 756.72
+          },
+          "reconciliation": {
+            "bytes": 908,
+            "provider_calls": 26,
+            "provider_ms": 328.95,
+            "rows": null,
+            "top_level_fields": 9,
+            "wall_ms": 499.09
+          },
+          "timeactivities": {
+            "bytes": 12599998,
+            "first_id_checked": true,
+            "last_id_checked": true,
+            "minutes": 1925000,
+            "provider_calls": 26,
+            "provider_ms": 429.27,
+            "rows": 25000,
+            "wall_ms": 888.7
+          }
+        },
+        "requested_rows": 25000
+      }
+    ]
+  },
+  "longNotesExactIdsAndMinutes": true,
+  "measuredAtUtc": "2026-10-07T03:44:00Z",
+  "measurementSemantics": {
+    "browser": "Separate HTTP-mocked browser tests, not the deployed capacity responses",
+    "local.endpoints.provider_ms": "synthetic in-process provider timing",
+    "normal/extended.endpoints.wall_ms": "helper wall time around RemoteClient.get; includes Vercel CLI setup and deployed HTTP time",
+    "requests.seconds": "curl time_total from the deployed HTTP request/transfer; excludes Vercel CLI setup"
+  },
+  "normal": {
+    "delay_ms_per_provider_call": 0,
+    "description_bytes": 128,
+    "endpoints": {
+      "bills": {
+        "amount_total": 313557.0,
+        "bytes": 1082420,
+        "credit_purchases_excluded": 454,
+        "provider_calls": 12,
+        "provider_ms": 64.3,
+        "rows": 9546,
+        "wall_ms": 2008.24
+      },
+      "payments": {
+        "amount_total": 443590.0,
+        "bytes": 909884,
+        "provider_calls": 12,
+        "provider_ms": 69.38,
+        "rows": 10000,
+        "wall_ms": 1952.75
+      },
+      "project_financials": {
+        "bytes": 122313,
+        "linked_payments": 500,
+        "matched_invoices": 500,
+        "payment_amount_total": 25010,
+        "provider_calls": 12,
+        "provider_ms": 86.49,
+        "rows": null,
+        "wall_ms": 1933.79
+      },
+      "ratecheck": {
+        "bytes": 10125,
+        "examined": 5000,
+        "provider_calls": 6,
+        "provider_ms": 32.04,
+        "rows": null,
+        "wall_ms": 1604.27
+      },
+      "receivables": {
+        "billed365": 747500.0,
+        "bytes": 566299,
+        "open_invoices": 2500,
+        "provider_calls": 9,
+        "provider_ms": 44.66,
+        "rows": null,
+        "wall_ms": 1881.56
+      },
+      "reconciliation": {
+        "bytes": 906,
+        "provider_calls": 6,
+        "provider_ms": 39.2,
+        "rows": null,
+        "top_level_fields": 9,
+        "wall_ms": 1648.33
+      },
+      "timeactivities": {
+        "bytes": 2520000,
+        "first_id_checked": true,
+        "last_id_checked": true,
+        "minutes": 385000,
+        "provider_calls": 6,
+        "provider_ms": 65.85,
+        "rows": 5000,
+        "wall_ms": 2359.23
+      }
+    },
+    "requested_rows": 5000
+  },
+  "note": "All measured responses passed, including oversized buffered-body probes on the current Python runtime. This is a finite synthetic envelope, not production data parity or real QuickBooks latency.",
+  "reconciliationExactCountsReadback": true,
+  "reconciliationReadbackRequest": {
+    "bytes": 908,
+    "method": "GET",
+    "providerCalls": 26,
+    "route": "/api/reconciliation",
+    "seconds": 1.063112,
+    "status": 200
+  },
+  "requests": [
+    {
+      "bytes": 11,
+      "method": "POST",
+      "providerCalls": 0,
+      "route": "/login",
+      "seconds": 0.362847,
+      "status": 200
+    },
+    {
+      "bytes": 2520000,
+      "method": "GET",
+      "providerCalls": 6,
+      "route": "/api/timeactivities",
+      "seconds": 1.031208,
+      "status": 200
+    },
+    {
+      "bytes": 909884,
+      "method": "GET",
+      "providerCalls": 12,
+      "route": "/api/payments",
+      "seconds": 0.588932,
+      "status": 200
+    },
+    {
+      "bytes": 1082420,
+      "method": "GET",
+      "providerCalls": 12,
+      "route": "/api/bills",
+      "seconds": 0.550266,
+      "status": 200
+    },
+    {
+      "bytes": 566299,
+      "method": "GET",
+      "providerCalls": 9,
+      "route": "/api/receivables",
+      "seconds": 0.527043,
+      "status": 200
+    },
+    {
+      "bytes": 122313,
+      "method": "GET",
+      "providerCalls": 12,
+      "route": "/api/project-financials",
+      "seconds": 0.32273,
+      "status": 200
+    },
+    {
+      "bytes": 906,
+      "method": "GET",
+      "providerCalls": 6,
+      "route": "/api/reconciliation",
+      "seconds": 0.296702,
+      "status": 200
+    },
+    {
+      "bytes": 10125,
+      "method": "GET",
+      "providerCalls": 6,
+      "route": "/api/ratecheck",
+      "seconds": 0.300252,
+      "status": 200
+    },
+    {
+      "bytes": 909884,
+      "method": "GET",
+      "providerCalls": 12,
+      "route": "/api/payments",
+      "seconds": 9.513365,
+      "status": 200
+    },
+    {
+      "bytes": 5039998,
+      "method": "GET",
+      "providerCalls": 11,
+      "route": "/api/timeactivities",
+      "seconds": 1.256971,
+      "status": 200
+    },
+    {
+      "bytes": 12599998,
+      "method": "GET",
+      "providerCalls": 26,
+      "route": "/api/timeactivities",
+      "seconds": 7.04927,
+      "status": 200
+    },
+    {
+      "bytes": 4549441,
+      "method": "GET",
+      "providerCalls": 52,
+      "route": "/api/payments",
+      "seconds": 2.584767,
+      "status": 200
+    },
+    {
+      "bytes": 5411877,
+      "method": "GET",
+      "providerCalls": 52,
+      "route": "/api/bills",
+      "seconds": 3.043551,
+      "status": 200
+    },
+    {
+      "bytes": 2828937,
+      "method": "GET",
+      "providerCalls": 39,
+      "route": "/api/receivables",
+      "seconds": 1.631099,
+      "status": 200
+    },
+    {
+      "bytes": 608313,
+      "method": "GET",
+      "providerCalls": 52,
+      "route": "/api/project-financials",
+      "seconds": 1.473912,
+      "status": 200
+    },
+    {
+      "bytes": 908,
+      "method": "GET",
+      "providerCalls": 26,
+      "route": "/api/reconciliation",
+      "seconds": 1.137453,
+      "status": 200
+    },
+    {
+      "bytes": 10416,
+      "method": "GET",
+      "providerCalls": 26,
+      "route": "/api/ratecheck",
+      "seconds": 0.710949,
+      "status": 200
+    },
+    {
+      "bytes": 7000000,
+      "method": "GET",
+      "providerCalls": 6,
+      "route": "/api/timeactivities",
+      "seconds": 1.012497,
+      "status": 200
+    }
+  ],
+  "runtime": "Vercel Python 3.13 Fluid Compute in cle1; 300-second maxDuration",
+  "sourceMainSha256": "4443d86db944151dc12107173f8a925dc482a904f4f94795026a6426b08063c4",
+  "syntheticOnly": true,
+  "tenThousandExactIdsAndMinutes": true
+}
