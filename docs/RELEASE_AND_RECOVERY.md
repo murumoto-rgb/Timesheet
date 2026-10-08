@@ -37,7 +37,7 @@ explicitly start one worker. Do not run a second local server connected to the
 same production company/storage while the hosted server is running.
 
 The Render blueprint pins Python, constrains dependencies, specifies one
-instance with a persistent disk, and requests `autoDeployTrigger: checksPass`.
+instance with a persistent disk, and now declares `autoDeployTrigger: off` for the suspended recovery host.
 [Render documents this deployment setting](https://render.com/docs/blueprint-spec#autodeploytrigger)
 and [Python version selection](https://render.com/docs/python-version).
 These repository settings are **not proof** that an existing remote service has
@@ -59,10 +59,17 @@ virtual environment before rebuilding it. Render retains its explicit patch pin;
 3.13 patch. Python dependencies are version-pinned; the lock does not include wheel
 hashes. Install from the trusted package index and review dependency updates.
 
-The prepared Postgres backend coordinates shared state across Vercel invocations
-with database locks and committed journal transitions. See
-[the migration plan](VERCEL_NEON_MIGRATION.md) for its separate validation and
-cutover requirements. The live Render deployment remains unchanged.
+Production now uses the Postgres backend on Vercel, coordinating shared state
+across invocations with database locks and committed journal transitions. See
+[the verified cutover state](MIGRATION_CUTOVER_STATE.md) for current production
+evidence and rollback gates. Render is suspended with automatic deployment OFF;
+never resume its stale OAuth grant without first transferring current Neon state.
+For Postgres recovery, use `python -m scripts.neon_transfer export` with a private
+secrets file and a new private destination; validate its four-blob manifest and
+restore offline before any live restore. Stop authoritative writers before a
+rollback export/import, preserve company binding and pending operations, and
+keep configuration/encryption keys protected separately. These exports contain
+credentials and must stay outside Git.
 
 ## Local data backup
 
